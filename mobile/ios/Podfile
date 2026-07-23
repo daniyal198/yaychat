@@ -1,0 +1,69 @@
+platform :ios, '16.0'
+
+# React Native setup scripts
+require_relative '../node_modules/react-native/scripts/react_native_pods'
+require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+
+# Use modular headers to avoid conflicts
+use_modular_headers!
+
+# Avoid using frameworks globally
+# This is important because some libraries need to be statically linked (e.g. Firebase)
+use_frameworks! :linkage => :static
+
+# Target the main app
+target 'bitcoin2' do
+  config = use_native_modules!
+
+
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :fabric_enabled => false,  # Disable Fabric if you're not using it
+    :hermes_enabled => true    # Enable Hermes for performance improvements
+  )
+
+  ENV['RCT_NEW_ARCH_ENABLED'] = "0"
+
+  # Explicitly add React dependencies to avoid duplication
+  pod 'React-Core', :path => '../node_modules/react-native/'
+  pod 'React-Core/RCTWebSocket', :path => '../node_modules/react-native/'
+
+
+  # Example: Lock Firebase to a stable version
+  # pod 'Firebase/Core', '9.6.0'  # Lock the version of Firebase if needed
+
+  # React Native's dependencies like RCTImage and RCTText, add explicitly if needed
+  pod 'React-RCTImage', :path => '../node_modules/react-native/Libraries/Image'
+  pod 'React-RCTText', :path => '../node_modules/react-native/Libraries/Text'
+end
+
+# Post install configurations for compatibility
+post_install do |installer|
+  react_native_post_install(
+    installer,
+    '../node_modules/react-native',
+    :mac_catalyst_enabled => false
+  )
+
+  # Enable BUILD_LIBRARY_FOR_DISTRIBUTION for FirebaseAuth (Release only)
+  installer.pods_project.targets.each do |target|
+    if target.name == 'FirebaseAuth'
+      target.build_configurations.each do |config|
+        if config.name == 'Release'
+          config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
+        end
+      end
+    end
+  end
+
+  # Fix potential issues with RNReanimated or other problematic modules
+  installer.pods_project.targets.each do |target|
+    if target.name.include?("RNReanimated") || target.name.include?("react-native-svg")
+      target.build_configurations.each do |config|
+        config.build_settings['SWIFT_VERSION'] = '5.0' # Ensure swift compatibility
+      end
+    end
+  end
+end

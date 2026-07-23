@@ -1,0 +1,45 @@
+gradle.projectsEvaluated {
+    subprojects { subproject ->
+        if (subproject.group == null || subproject.group.toString().trim() == '') {
+            subproject.group = "com.no.group"
+        }
+    }
+}
+
+buildscript {
+    ext {
+        buildToolsVersion = "35.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 35
+        targetSdkVersion = 35
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.0.21"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.2.0") 
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath('com.google.gms:google-services:4.3.15')
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        maven { url 'https://www.jitpack.io' } 
+    }
+}
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.plugins.hasPlugin('com.android.library')) {
+            project.configurations.all {
+                resolutionStrategy.force 'com.android.billingclient:billing:6.1.0'
+            }
+        }
+    }
+}
