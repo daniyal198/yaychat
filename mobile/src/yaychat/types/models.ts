@@ -1,4 +1,4 @@
-/** Yay-chat domain models used by the mock service layer and screens. */
+/** YaysApp domain models used by the mock service layer and screens. */
 
 export type ID = string;
 
@@ -47,6 +47,8 @@ export interface Message {
   pinned?: boolean;
   deleted?: boolean;
   recalled?: boolean;
+  /** True when the sender edited the message after sending. */
+  edited?: boolean;
   attachment?: {name: string; sizeLabel: string; durationLabel?: string};
   uploadProgress?: number;
 }
@@ -64,6 +66,8 @@ export interface Conversation {
   typingUserIds: ID[];
   groupRoles?: Record<ID, 'owner' | 'admin' | 'member'>;
   description?: string;
+  /** Group topic category picked at creation (groups only). */
+  category?: string;
 }
 
 export interface Community {
@@ -174,6 +178,117 @@ export interface EcosystemProduct {
   earnAction: string;
   availability: 'available' | 'coming_soon' | 'preview';
   icon: string;
+  /** Solid tile color for the Explore grid. */
+  tileColor: string;
+  /** External product website opened by the detail-page CTA. */
+  url: string;
+  /** Detail-page primary button label, e.g. "Start mining on BTCY". */
+  ctaLabel: string;
+}
+
+/** A social platform the user can link to their YaysApp account. */
+export interface SocialAccount {
+  id: ID;
+  name: string;
+  /** Ionicons logo glyph, e.g. "logo-instagram". */
+  icon: string;
+  /** The platform's brand color, used for the connect chip. */
+  brandColor: string;
+  /** One-line summary of why to link this platform. */
+  blurb: string;
+  /** What linking unlocks — bulleted on the connect screen. */
+  unlocks: string[];
+  connected: boolean;
+  /** The user's handle on the platform, set once connected. */
+  handle?: string;
+}
+
+/**
+ * Snapshot of the user's Bitcoin Yay state, shown on the BTCY dashboard.
+ * All actions deep-link to the Bitcoin Yay app — YaysApp only displays state.
+ */
+export interface BtcyDashboard {
+  mining: {active: boolean; speed: string; endsIn: string};
+  portfolio: {nuggets: number; tokens: number};
+  alchemy: {current: number; target: number};
+  referrals: {active: number; target: number};
+  station: {unlocked: boolean; benefits: string[]};
+  watchEarn: {watched: number; total: number; nuggetsToday: number};
+  news: {id: ID; tag: string; title: string; detail: string; hot?: boolean}[];
+  promo: {headline: string; subtitle: string; endsIn: string};
+}
+
+/**
+ * Snapshot of the user's EMMM (Eeny Meeny Miny Moe) state for the EMMM hub.
+ * Values not yet wired to the EMMM account API are em-dash placeholders.
+ */
+export interface EmmmDashboard {
+  slate: {open: boolean; draw: string; jackpot: string; closesIn: string};
+  portfolio: {value: string; cash: string; usdt: string; nuggets: string};
+  accuracy: {overall: string; thisWeek: string; brier: string};
+  ticket: {title: string; matched: number; total: number; tier: string};
+  promo: {headline: string; subtitle: string};
+}
+
+/** Content snapshot for the ReHuman hub (brand/editorial, not account state). */
+export interface RehumanDashboard {
+  tagline: string;
+  intro: string;
+  formulas: {
+    id: ID;
+    code: string;
+    name: string;
+    focus: string;
+    blurb: string;
+    protocol: string;
+    accent: string;
+  }[];
+  pillars: {code: string; name: string; detail: string}[];
+  systems: {numeral: string; name: string; sub: string; focus: string}[];
+  stages: {stage: string; name: string; detail: string}[];
+  journal: {id: ID; number: string; title: string}[];
+  disclaimer: string;
+}
+
+/** Snapshot of the user's ShoperPal buyer + supplier state for the hub. */
+export interface ShoperpalDashboard {
+  buyer: {
+    level: string;
+    nextLevel: string;
+    earnRate: string;
+    monthSpend: number;
+    nextLevelAt: number;
+    nuggets: {released: number; pending: number; wallet: number; lifetime: number};
+    flash: {title: string; endsIn: string};
+  };
+  supplier: {
+    plan: string;
+    productsListed: number;
+    productsLimit: number;
+    commission: string;
+    aiCredits: {used: number; total: number; resetsIn: string};
+    earnings: {gross: string; fee: string; payout: string};
+    boosts: {active: number; daysRemaining: number};
+  };
+}
+
+/** A payment rail the user can link to the wallet. */
+export interface PaymentMethod {
+  id: ID;
+  name: string;
+  kind: 'wallet' | 'bank' | 'card' | 'crypto';
+  /** Ionicons glyph for the method chip. */
+  icon: string;
+  brandColor: string;
+  /** One-line summary of what this rail is for. */
+  blurb: string;
+  /** How linking works, step by step — shown on the connect screen. */
+  steps: string[];
+  /** What linking unlocks — bulleted on the connect screen. */
+  unlocks: string[];
+  linked: boolean;
+  /** Masked account label once linked, e.g. "•••• 4242". */
+  detail?: string;
 }
 
 export interface AppNotification {

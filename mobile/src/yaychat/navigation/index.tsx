@@ -1,11 +1,12 @@
-/** Yay-chat navigation tree. See docs/yaychat-navigation-map.md. */
+/** YaysApp navigation tree. See docs/yaychat-navigation-map.md. */
 import React from 'react';
+import {Image} from 'react-native';
 import {DefaultTheme, NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, typography} from '../design/tokens';
-import {useAuth} from '../state/AppProviders';
+import {formatUnreadBadge, useAuth, useUnread} from '../state/AppProviders';
 import {SplashView, ComingSoonScreen} from '../screens/shared/SharedScreens';
 import {
   AuthStackParamList,
@@ -13,11 +14,14 @@ import {
   ChatsStackParamList,
   CommunitiesStackParamList,
   EarnStackParamList,
+  ExploreStackParamList,
   MainTabParamList,
   OnboardingStackParamList,
   ProfileStackParamList,
   RootStackParamList,
 } from '../types/navigation';
+import {ExploreHomeScreen, ProductDetailScreen, SocialConnectScreen} from '../screens/explore/ExploreScreens';
+import {Wordmark} from '../design/components';
 import {
   ForgotPasswordScreen,
   LegalScreen,
@@ -62,6 +66,8 @@ import {
   RewardHistoryScreen,
 } from '../screens/earn/EarnScreens';
 import {
+  PaymentMethodConnectScreen,
+  PaymentMethodsScreen,
   ReceivePreviewScreen,
   SendPreviewScreen,
   TransactionDetailScreen,
@@ -69,6 +75,10 @@ import {
   WalletTransactionsScreen,
 } from '../screens/wallet/WalletScreens';
 import {EcosystemScreen, ProductPreviewScreen} from '../screens/ecosystem/EcosystemScreens';
+import {BtcyHubScreen} from '../screens/btcy/BtcyScreens';
+import {EmmmHubScreen} from '../screens/emmm/EmmmScreens';
+import {ShoperpalHubScreen} from '../screens/shoperpal/ShoperpalScreens';
+import {RehumanHubScreen} from '../screens/rehuman/RehumanScreens';
 import {
   AboutLegalScreen,
   AccessibilityScreen,
@@ -143,10 +153,24 @@ const OnboardingNavigator = () => (
   </OnboardingStack.Navigator>
 );
 
+const ExploreStack = createNativeStackNavigator<ExploreStackParamList>();
+const ExploreNavigator = () => (
+  <ExploreStack.Navigator screenOptions={stackOptions}>
+    <ExploreStack.Screen name="ExploreHome" component={ExploreHomeScreen} options={{headerShown: false}} />
+    <ExploreStack.Screen name="ProductDetail" component={ProductDetailScreen} options={{title: ''}} />
+    <ExploreStack.Screen name="SocialConnect" component={SocialConnectScreen} options={{title: ''}} />
+    {sharedUtilityScreens(ExploreStack)}
+  </ExploreStack.Navigator>
+);
+
 const ChatsStack = createNativeStackNavigator<ChatsStackParamList>();
 const ChatsNavigator = () => (
   <ChatsStack.Navigator screenOptions={stackOptions}>
-    <ChatsStack.Screen name="ChatList" component={ChatListScreen} options={{title: 'Yay-chat'}} />
+    <ChatsStack.Screen
+      name="ChatList"
+      component={ChatListScreen}
+      options={{headerTitle: () => <Wordmark height={34} />}}
+    />
     <ChatsStack.Screen name="ChatSearch" component={ChatSearchScreen} options={{title: 'Search'}} />
     <ChatsStack.Screen name="ArchivedChats" component={ArchivedChatsScreen} options={{title: 'Archived'}} />
     <ChatsStack.Screen name="NewChat" component={NewChatScreen} options={{title: 'New chat', presentation: 'modal'}} />
@@ -156,6 +180,7 @@ const ChatsNavigator = () => (
     <ChatsStack.Screen name="SharedMedia" component={SharedMediaScreen} options={{title: 'Shared media'}} />
     <ChatsStack.Screen name="ForwardMessage" component={ForwardMessageScreen} options={{title: 'Forward to', presentation: 'modal'}} />
     <ChatsStack.Screen name="ContactProfile" component={ContactProfileScreen} options={{title: 'Profile'}} />
+    {sharedUtilityScreens(ChatsStack)}
   </ChatsStack.Navigator>
 );
 
@@ -169,15 +194,17 @@ const CommunitiesNavigator = () => (
     <CommunitiesStack.Screen name="CommunityMembers" component={CommunityMembersScreen} options={{title: 'Members'}} />
     <CommunitiesStack.Screen name="CreateCommunity" component={CreateCommunityScreen} options={{title: 'Create community', presentation: 'modal'}} />
     <CommunitiesStack.Screen name="EditCommunity" component={EditCommunityScreen} options={{title: 'Edit community'}} />
+    {sharedUtilityScreens(CommunitiesStack)}
   </CommunitiesStack.Navigator>
 );
 
 const AiStack = createNativeStackNavigator<AiStackParamList>();
 const AiNavigator = () => (
   <AiStack.Navigator screenOptions={stackOptions}>
-    <AiStack.Screen name="AiHome" component={AiHomeScreen} options={{title: 'Yay AI'}} />
-    <AiStack.Screen name="AiChat" component={AiChatScreen} options={{title: 'Yay AI'}} />
+    <AiStack.Screen name="AiHome" component={AiHomeScreen} options={{title: 'aiainai'}} />
+    <AiStack.Screen name="AiChat" component={AiChatScreen} options={{title: 'aiainai'}} />
     <AiStack.Screen name="AiHistory" component={AiHistoryScreen} options={{title: 'History'}} />
+    {sharedUtilityScreens(AiStack)}
   </AiStack.Navigator>
 );
 
@@ -189,6 +216,7 @@ const EarnNavigator = () => (
     <EarnStack.Screen name="RewardDetail" component={RewardDetailScreen} options={{title: 'Reward'}} />
     <EarnStack.Screen name="Referral" component={ReferralScreen} options={{title: 'Invite friends'}} />
     <EarnStack.Screen name="CampaignDetail" component={CampaignDetailScreen} options={{title: 'Campaign'}} />
+    {sharedUtilityScreens(EarnStack)}
   </EarnStack.Navigator>
 );
 
@@ -213,15 +241,44 @@ const ProfileNavigator = () => (
     <ProfileStack.Screen name="DataStorage" component={DataStorageScreen} options={{title: 'Data and storage'}} />
     <ProfileStack.Screen name="Devices" component={DevicesScreen} options={{title: 'Devices'}} />
     <ProfileStack.Screen name="Help" component={HelpScreen} options={{title: 'Help center'}} />
-    <ProfileStack.Screen name="AboutLegal" component={AboutLegalScreen} options={{title: 'About Yay-chat'}} />
+    <ProfileStack.Screen name="AboutLegal" component={AboutLegalScreen} options={{title: 'About YaysApp'}} />
     <ProfileStack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{title: 'Delete account'}} />
     <ProfileStack.Screen name="Developer" component={DeveloperScreen} options={{title: 'Preview controls'}} />
+    {sharedUtilityScreens(ProfileStack)}
   </ProfileStack.Navigator>
+);
+
+/**
+ * Screens reachable from several tabs (wallet, payments, BTCY, ecosystem…).
+ * Registered inside EVERY tab's stack — rather than on the root stack — so the
+ * bottom tab bar stays visible on every page. Each tab resolves these route
+ * names to its own copy, which also keeps the back stack within the tab.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sharedUtilityScreens = (Stack: any) => (
+  <>
+    <Stack.Screen name="WalletOverview" component={WalletOverviewScreen} options={{title: 'Wallet preview'}} />
+    <Stack.Screen name="WalletTransactions" component={WalletTransactionsScreen} options={{title: 'Activity'}} />
+    <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} options={{title: 'Transaction'}} />
+    <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{title: 'Payment methods'}} />
+    <Stack.Screen name="PaymentMethodConnect" component={PaymentMethodConnectScreen} options={{title: ''}} />
+    <Stack.Screen name="SendPreview" component={SendPreviewScreen} options={{title: 'Send (preview)', presentation: 'modal'}} />
+    <Stack.Screen name="ReceivePreview" component={ReceivePreviewScreen} options={{title: 'Receive (preview)', presentation: 'modal'}} />
+    <Stack.Screen name="BtcyHub" component={BtcyHubScreen} options={{title: 'Bitcoin Yay'}} />
+    <Stack.Screen name="EmmmHub" component={EmmmHubScreen} options={{title: 'EMMM'}} />
+    <Stack.Screen name="ShoperpalHub" component={ShoperpalHubScreen} options={{title: 'ShoperPal'}} />
+    <Stack.Screen name="RehumanHub" component={RehumanHubScreen} options={{title: 'ReHuman'}} />
+    <Stack.Screen name="InviteFriends" component={ReferralScreen} options={{title: 'Invite friends'}} />
+    <Stack.Screen name="Ecosystem" component={EcosystemScreen} options={{title: 'Indexx ecosystem'}} />
+    <Stack.Screen name="ProductPreview" component={ProductPreviewScreen} options={{title: ''}} />
+    <Stack.Screen name="ComingSoon" component={ComingSoonScreen} options={{title: ''}} />
+  </>
 );
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 const TAB_ICONS: Record<keyof MainTabParamList, [string, string]> = {
+  ExploreTab: ['compass', 'compass-outline'],
   ChatsTab: ['chatbubbles', 'chatbubbles-outline'],
   CommunitiesTab: ['people', 'people-outline'],
   AiTab: ['sparkles', 'sparkles-outline'],
@@ -229,7 +286,17 @@ const TAB_ICONS: Record<keyof MainTabParamList, [string, string]> = {
   ProfileTab: ['person-circle', 'person-circle-outline'],
 };
 
-const MainTabs = () => (
+// Brand artwork tabs — alpha-mask images tinted with the tab color, so the
+// active/inactive states match the Ionicons tabs.
+const TAB_IMAGES: Partial<Record<keyof MainTabParamList, number>> = {
+  ChatsTab: require('../../../assets/tabs/chats-tab.png'),
+  AiTab: require('../../../assets/tabs/ai-tab.png'),
+};
+
+const MainTabs = () => {
+  const {total} = useUnread();
+  const chatsBadge = total > 0 ? formatUnreadBadge(total) : undefined;
+  return (
   <Tab.Navigator
     screenOptions={({route}) => ({
       headerShown: false,
@@ -243,21 +310,52 @@ const MainTabs = () => (
         height: 84,
         paddingTop: 6,
       },
-      tabBarIcon: ({focused, color}) => (
-        <Ionicons
-          name={TAB_ICONS[route.name as keyof MainTabParamList][focused ? 0 : 1]}
-          size={23}
-          color={color}
-        />
-      ),
+      tabBarIcon: ({focused, color}) => {
+        const image = TAB_IMAGES[route.name as keyof MainTabParamList];
+        if (image) {
+          return (
+            <Image
+              source={image}
+              style={{width: 25, height: 25, tintColor: color, opacity: focused ? 1 : 0.9}}
+              resizeMode="contain"
+            />
+          );
+        }
+        return (
+          <Ionicons
+            name={TAB_ICONS[route.name as keyof MainTabParamList][focused ? 0 : 1]}
+            size={23}
+            color={color}
+          />
+        );
+      },
     })}>
-    <Tab.Screen name="ChatsTab" component={ChatsNavigator} options={{tabBarLabel: 'Chats'}} />
+    <Tab.Screen name="ExploreTab" component={ExploreNavigator} options={{tabBarLabel: 'Explore'}} />
+    <Tab.Screen
+      name="ChatsTab"
+      component={ChatsNavigator}
+      options={{
+        tabBarLabel: 'Chats',
+        tabBarBadge: chatsBadge,
+        tabBarBadgeStyle: {
+          backgroundColor: colors.notify,
+          color: colors.textOnBrand,
+          fontFamily: typography.titleFamily,
+          fontSize: 10,
+          fontWeight: '700',
+          minWidth: 18,
+          height: 18,
+          lineHeight: 18,
+        },
+      }}
+    />
     <Tab.Screen name="CommunitiesTab" component={CommunitiesNavigator} options={{tabBarLabel: 'Communities'}} />
     <Tab.Screen name="AiTab" component={AiNavigator} options={{tabBarLabel: 'AI'}} />
     <Tab.Screen name="EarnTab" component={EarnNavigator} options={{tabBarLabel: 'Earn'}} />
     <Tab.Screen name="ProfileTab" component={ProfileNavigator} options={{tabBarLabel: 'Me'}} />
   </Tab.Navigator>
-);
+  );
+};
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
@@ -278,14 +376,6 @@ export const YayChatNavigation = () => {
         ) : (
           <>
             <RootStack.Screen name="Main" component={MainTabs} options={{headerShown: false}} />
-            <RootStack.Screen name="WalletOverview" component={WalletOverviewScreen} options={{title: 'Wallet preview'}} />
-            <RootStack.Screen name="WalletTransactions" component={WalletTransactionsScreen} options={{title: 'Activity'}} />
-            <RootStack.Screen name="TransactionDetail" component={TransactionDetailScreen} options={{title: 'Transaction'}} />
-            <RootStack.Screen name="SendPreview" component={SendPreviewScreen} options={{title: 'Send (preview)', presentation: 'modal'}} />
-            <RootStack.Screen name="ReceivePreview" component={ReceivePreviewScreen} options={{title: 'Receive (preview)', presentation: 'modal'}} />
-            <RootStack.Screen name="Ecosystem" component={EcosystemScreen} options={{title: 'Indexx ecosystem'}} />
-            <RootStack.Screen name="ProductPreview" component={ProductPreviewScreen} options={{title: ''}} />
-            <RootStack.Screen name="ComingSoon" component={ComingSoonScreen} options={{title: ''}} />
           </>
         )}
       </RootStack.Navigator>

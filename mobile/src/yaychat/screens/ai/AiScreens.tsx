@@ -1,5 +1,5 @@
 /**
- * Yay AI screens: AiHome (tool hub + usage), AiChat (assistant thread), and
+ * aiainai screens: AiHome (tool hub + usage), AiChat (assistant thread), and
  * AiHistory (past sessions). All data comes from the mock aiService.
  */
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -16,9 +16,11 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
+  AiBrandLogo,
   AsyncView,
   Badge,
   Banner,
+  Oval,
   Button,
   BottomSheet,
   Card,
@@ -86,14 +88,12 @@ export const AiHomeScreen = ({
   return (
     <Screen refreshing={usage.refreshing} onRefresh={usage.refresh}>
       <Card style={styles.hero}>
-        <View style={styles.heroIcon}>
-          <Ionicons name="sparkles" size={26} color={colors.textOnBrand} />
-        </View>
+        <AiBrandLogo size={58} />
         <YayText variant="title" style={{marginTop: spacing.sm}}>
-          Yay AI
+          aiainai
         </YayText>
         <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-          Your everyday assistant — answers are simulated in this preview.
+          Powered by aiainai.com — answers are simulated in this preview.
         </YayText>
       </Card>
 
@@ -213,9 +213,8 @@ const ThinkingBubble = () => {
   }, [pulse]);
   return (
     <View style={styles.assistantRow}>
-      <View style={styles.aiAvatar}>
-        <Ionicons name="sparkles" size={14} color={colors.textOnBrand} />
-      </View>
+      <AiBrandLogo size={26} />
+
       <View style={[styles.bubble, styles.bubbleTheirs]}>
         <Row gap={5}>
           {[0, 1, 2].map(i => (
@@ -263,7 +262,7 @@ export const AiChatScreen = ({
 
   useEffect(() => {
     navigation.setOptions({
-      title: tool?.title ?? 'Yay AI',
+      title: tool?.title ?? 'aiainai',
       headerRight: () =>
         convo ? (
           <IconButton
@@ -325,9 +324,9 @@ export const AiChatScreen = ({
     }
     return (
       <View style={styles.assistantRow}>
-        <View style={styles.aiAvatar}>
+        <Oval size={26} style={styles.aiAvatar}>
           <Ionicons name="sparkles" size={14} color={colors.textOnBrand} />
-        </View>
+        </Oval>
         <View style={{flex: 1}}>
           <View style={[styles.bubble, styles.bubbleTheirs]}>
             <YayText>{item.text}</YayText>
@@ -401,7 +400,7 @@ export const AiChatScreen = ({
               sending ? null : (
                 <EmptyState
                   icon="sparkles-outline"
-                  title={tool?.title ?? 'Yay AI'}
+                  title={tool?.title ?? 'aiainai'}
                   message={tool?.prompt ?? 'Ask me anything to get started.'}
                 />
               )
@@ -416,7 +415,7 @@ export const AiChatScreen = ({
                     </View>
                     <View style={[styles.bubble, styles.bubbleError]}>
                       <YayText variant="caption" color={colors.danger}>
-                        Yay AI could not answer that right now.
+                        aiainai could not answer that right now.
                       </YayText>
                       <Button
                         label="Retry"
@@ -436,11 +435,11 @@ export const AiChatScreen = ({
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            placeholder="Ask Yay AI anything…"
+            placeholder="Ask aiainai anything…"
             placeholderTextColor={colors.textFaint}
             multiline
             style={styles.composerInput}
-            accessibilityLabel="Message Yay AI"
+            accessibilityLabel="Message aiainai"
           />
           <IconButton
             icon="arrow-up-circle"
@@ -490,9 +489,9 @@ export const AiHistoryScreen = ({
         emptyMessage={
           tab === 'Saved'
             ? 'Bookmark a conversation from its header to keep it here.'
-            : 'Start a chat with any Yay AI tool and it will show up here.'
+            : 'Start a chat with any aiainai tool and it will show up here.'
         }
-        emptyAction={{label: 'Ask Yay AI', onPress: () => navigation.navigate('AiChat', {})}}>
+        emptyAction={{label: 'Ask aiainai', onPress: () => navigation.navigate('AiChat', {})}}>
         {() => (
           <FlatList
             data={visible}
@@ -585,15 +584,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     gap: spacing.xxs,
   },
-  heroIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 20,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.raised,
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -629,12 +619,6 @@ const styles = StyleSheet.create({
     paddingRight: spacing.xl,
   },
   aiAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 10,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 4,
   },
   bubble: {
@@ -659,9 +643,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 8,
+    height: 6,
+    borderRadius: radius.pill,
     backgroundColor: colors.textMuted,
   },
   composer: {

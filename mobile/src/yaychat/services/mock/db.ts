@@ -1,11 +1,15 @@
 /**
- * In-memory mock database seeded with realistic Yay-chat data.
+ * In-memory mock database seeded with realistic YaysApp data.
  * Mutated by the mock services so the app feels live within a session.
  */
 import {
   AiConversation,
   AiUsage,
   AppNotification,
+  BtcyDashboard,
+  EmmmDashboard,
+  RehumanDashboard,
+  ShoperpalDashboard,
   Community,
   Conversation,
   DeviceSession,
@@ -13,8 +17,10 @@ import {
   EarnSummary,
   EcosystemProduct,
   Message,
+  PaymentMethod,
   RewardEntry,
   SettingsState,
+  SocialAccount,
   User,
 } from '../../types/models';
 
@@ -109,7 +115,7 @@ export const messages: Record<string, Message[]> = {
     msg('c_group_indexx', 'u_sana', 'Welcome @jordan to the crew! 👋', 2000, {mentions: ['u_me']}),
     msg('c_group_indexx', 'u_liu', 'Reminder: community call Thursday.', 900, {pinned: true}),
     msg('c_group_indexx', 'u_priya', 'Can someone summarize last week’s AMA?', 400),
-    msg('c_group_indexx', ME_ID, 'I asked Yay AI to summarize it — sharing in a sec.', 395),
+    msg('c_group_indexx', ME_ID, 'I asked aiainai to summarize it — sharing in a sec.', 395),
     msg('c_group_indexx', 'u_sana', 'This is why AI-in-chat is the best feature 😄', 390, {
       reactions: [{emoji: '💯', userIds: ['u_liu', 'u_priya']}],
     }),
@@ -151,7 +157,7 @@ export const conversations: Conversation[] = [
     pinned: false,
     archived: false,
     typingUserIds: ['u_priya'],
-    description: 'Early Yay-chat crew exploring the Indexx ecosystem together.',
+    description: 'Early YaysApp crew exploring the Indexx ecosystem together.',
     groupRoles: {
       u_sana: 'owner',
       u_liu: 'admin',
@@ -313,7 +319,7 @@ export const communities: Community[] = [
   },
 ];
 
-export const communityCategories = ['All', 'Crypto & Learning', 'Design', 'Markets', 'Learning', 'Business'];
+export const communityCategories = ['All', 'Crypto & Learning', 'Design', 'Markets', 'Learning', 'Business', 'Other'];
 
 // ---------------------------------------------------------------------------
 // AI
@@ -387,14 +393,17 @@ export const earnSummary: EarnSummary = {
   ],
 };
 
+// The four core BTCY earn loops (Chat / Post / Shop / Use to Earn) lead the
+// list, followed by supporting activities.
 export const earnActivities: EarnActivity[] = [
-  {id: 'act_checkin', title: 'Daily check-in', description: 'Open Yay-chat and check in once a day.', reward: '+20', icon: 'calendar', status: 'available'},
   {id: 'act_chat', title: 'Chat to Earn', description: 'Send 10 messages to friends today.', reward: '+30', icon: 'chatbubbles', status: 'available', progress: {current: 6, target: 10}},
+  {id: 'act_post', title: 'Post to Earn', description: 'Post in your communities and moments.', reward: '+15', icon: 'megaphone', status: 'completed_today'},
+  {id: 'act_shop', title: 'Shop to Earn', description: 'Earn on ShoperPal purchases.', reward: 'Coming soon', icon: 'cart', status: 'coming_soon'},
+  {id: 'act_use', title: 'Use to Earn', description: 'Use YaysApp and Indexx products — daily activity adds up.', reward: '+10', icon: 'apps', status: 'available', progress: {current: 2, target: 3}},
+  {id: 'act_checkin', title: 'Daily check-in', description: 'Open YaysApp and check in once a day.', reward: '+20', icon: 'calendar', status: 'available'},
   {id: 'act_invite', title: 'Invite Friends to Earn', description: 'Earn for every friend who joins with your code.', reward: '+100', icon: 'person-add', status: 'available'},
   {id: 'act_ai', title: 'AI to Earn', description: 'Use any AI tool 3 times today.', reward: '+25', icon: 'sparkles', status: 'available', progress: {current: 1, target: 3}},
-  {id: 'act_group', title: 'Group to Earn', description: 'Post in a community you belong to.', reward: '+15', icon: 'people', status: 'completed_today'},
-  {id: 'act_shop', title: 'Shop to Earn', description: 'Earn on ShopperPal purchases.', reward: 'Coming soon', icon: 'cart', status: 'coming_soon'},
-  {id: 'act_mine', title: 'Mine to Earn', description: 'BTCY mining rewards inside Yay-chat.', reward: 'Coming soon', icon: 'hammer', status: 'coming_soon'},
+  {id: 'act_mine', title: 'Mine to Earn', description: 'BTCY mining rewards inside YaysApp.', reward: 'Coming soon', icon: 'hammer', status: 'coming_soon'},
   {id: 'act_ads', title: 'Watch Ads to Earn', description: 'Optional rewarded ads.', reward: 'Coming soon', icon: 'play-circle', status: 'coming_soon'},
 ];
 
@@ -429,12 +438,323 @@ export const walletTransactions = [
 // ---------------------------------------------------------------------------
 
 export const ecosystemProducts: EcosystemProduct[] = [
-  {id: 'p_btcy', name: 'BTCY', tagline: 'The reward economy', purpose: 'Mining, rewards, and the token that powers X-to-Earn.', benefit: 'Turn daily activity into BTCY over time.', earnAction: 'Mine to Earn', availability: 'preview', icon: 'logo-bitcoin'},
-  {id: 'p_shopper', name: 'ShopperPal', tagline: 'Shop smarter', purpose: 'AI shopping companion with cashback across partner stores.', benefit: 'Earn while you shop.', earnAction: 'Shop to Earn', availability: 'coming_soon', icon: 'cart'},
-  {id: 'p_rehuman', name: 'ReHuman', tagline: 'Prove you are you', purpose: 'Human verification for fair rewards and fair communities.', benefit: 'Unlock higher reward limits with verification.', earnAction: 'Verify to unlock', availability: 'coming_soon', icon: 'finger-print'},
-  {id: 'p_emmm', name: 'EMMM', tagline: 'Events & entertainment', purpose: 'Prediction-style events and entertainment inside the ecosystem.', benefit: 'Join events with friends and communities.', earnAction: 'Predict to Earn', availability: 'coming_soon', icon: 'sparkles'},
-  {id: 'p_exchange', name: 'Indexx Exchange', tagline: 'Trade with confidence', purpose: 'The exchange behind BTCY and supported assets.', benefit: 'Deeper markets when you are ready.', earnAction: 'Order to Earn', availability: 'coming_soon', icon: 'stats-chart'},
+  // Brand colors and copy below mirror each product's live website.
+  {id: 'p_btcy', name: 'BTCY', tagline: "Bitcoin's micro token", purpose: 'AI-powered mobile mining app for BTCY, the micro token of Bitcoin — mine free with Snatch Mining or boost with Power tiers.', benefit: 'Turn daily phone mining into BTCY over time.', earnAction: 'Mine to Earn', availability: 'preview', icon: 'logo-bitcoin', tileColor: '#ff8728', url: 'https://www.bitcoinyay.com/', ctaLabel: 'Start mining on BTCY'},
+  {id: 'p_aiainai', name: 'aiainai', tagline: 'One Captain. A full AI team.', purpose: 'Agentic AI platform — give a task once and an AI Captain plans it and dispatches a team of specialized agents to research, analyze, create, and deliver.', benefit: 'Give the command; your AI team gets it done.', earnAction: 'AI to Earn', availability: 'available', icon: 'sparkles', tileColor: '#ff2d2d', url: 'https://aiainai.com/', ctaLabel: 'Open aiainai'},
+  {id: 'p_shopper', name: 'ShoperPal', tagline: 'Shop direct from verified manufacturers', purpose: 'AI-powered marketplace for buying directly from KYB-verified manufacturers, with escrow-protected checkout and BTCY rewards on every purchase.', benefit: 'Earn BTCY rewards while you shop.', earnAction: 'Shop to Earn', availability: 'coming_soon', icon: 'cart', tileColor: '#4f46e5', url: 'http://test.shoperpal.com/', ctaLabel: 'Shop on ShoperPal'},
+  {id: 'p_rehuman', name: 'ReHuman', tagline: 'Regenerative longevity', purpose: 'A regenerative longevity institution — a small, considered system of botanical and clinical formulas for energy, cardiopulmonary support, and structural renewal.', benefit: 'Clinically dosed, third-party tested formulas.', earnAction: 'Renew to Earn', availability: 'coming_soon', icon: 'leaf', tileColor: '#5c7062', url: 'https://rehumansystem.com/', ctaLabel: 'Explore ReHuman'},
+  {id: 'p_emmm', name: 'EMMM', tagline: "The world's largest prediction market", purpose: 'Eeny Meeny Miny Moe — trade yes-or-no prediction markets on sports, politics, crypto, and world events, with a prediction lottery and leaderboards.', benefit: 'Back your predictions and earn on outcomes.', earnAction: 'Bet to Earn', availability: 'coming_soon', icon: 'ticket', tileColor: '#0d1321', url: 'https://emmm.io/', ctaLabel: 'Explore EMMM'},
+  {id: 'p_exchange', name: 'Indexx Exchange', tagline: 'Crypto made simple', purpose: 'Beginner-friendly crypto exchange and ecosystem — buy and trade crypto, learn with courses, and invest in tokenized Wall Street assets.', benefit: 'Start your crypto journey with confidence.', earnAction: 'Order to Earn', availability: 'coming_soon', icon: 'stats-chart', tileColor: '#11be6a', url: 'https://indexx.ai/', ctaLabel: 'Trade on Indexx'},
+  {id: 'p_treasury', name: 'Crypto Treasury', tagline: 'Long-term crypto holdings', purpose: 'The Indexx treasury layer — hold and grow crypto assets inside the ecosystem.', benefit: 'A safer home base for assets you are not actively trading.', earnAction: 'Hold to Earn', availability: 'coming_soon', icon: 'diamond', tileColor: '#c6942f', url: 'https://indexx.ai/', ctaLabel: 'Explore Crypto Treasury'},
+  {id: 'p_lotto', name: 'Fantasy Lotto', tagline: 'Play the draw', purpose: 'Indexx Lotto — lottery-style draws and fantasy games inside the ecosystem.', benefit: 'Join draws with tokens and win prizes.', earnAction: 'Play to Earn', availability: 'coming_soon', icon: 'ticket', tileColor: '#7b5cb8', url: 'https://lotto.indexx.ai/', ctaLabel: 'Play Fantasy Lotto'},
+  {id: 'p_wallstreet', name: 'Wallstreet', tagline: 'Tokenized stocks', purpose: 'Indexx Wallstreet — tokenized Wall Street assets you can hold and trade with crypto.', benefit: 'Stock exposure without leaving the ecosystem.', earnAction: 'Invest to Earn', availability: 'coming_soon', icon: 'briefcase', tileColor: '#23262f', url: 'https://indexx.ai/', ctaLabel: 'Explore Wallstreet'},
+  {id: 'p_xtokens', name: 'xTokens', tagline: 'Ecosystem tokens', purpose: 'The Indexx token family — utility tokens that power products across the ecosystem.', benefit: 'One token family across every Indexx product.', earnAction: 'Swap to Earn', availability: 'coming_soon', icon: 'swap-horizontal', tileColor: '#3b6fe0', url: 'https://indexx.ai/', ctaLabel: 'Explore xTokens'},
+  {id: 'p_academy', name: 'Academy', tagline: 'Learn crypto & AI', purpose: 'Indexx Academy — courses that take you from beginner to confident in crypto and AI.', benefit: 'Learn before you trade, at your own pace.', earnAction: 'Learn to Earn', availability: 'available', icon: 'school', tileColor: '#6d4ac2', url: 'https://academy.indexx.ai/', ctaLabel: 'Start learning'},
 ];
+
+// Social platforms the user can link from the Explore home. Brand colors are
+// each platform's official color. X renders with the legacy Twitter glyph
+// because the bundled Ionicons set predates the X logo.
+export const socialAccounts: SocialAccount[] = [
+  {
+    id: 's_whatsapp',
+    name: 'WhatsApp',
+    icon: 'logo-whatsapp',
+    brandColor: '#25d366',
+    blurb: 'Invite friends to YaysApp and share moments straight into WhatsApp chats.',
+    unlocks: [
+      'One-tap invites — friends get your referral link in a WhatsApp message.',
+      'Share chats, moments, and product finds straight into WhatsApp.',
+      'Earn YayPoints when an invited friend joins YaysApp.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_facebook',
+    name: 'Facebook',
+    icon: 'logo-facebook',
+    brandColor: '#1877f2',
+    blurb: 'Share to your feed and find friends who already use YaysApp.',
+    unlocks: [
+      'Share moments and wins to your Facebook feed and Stories.',
+      'Find Facebook friends who also use YaysApp.',
+      'Verified name badge on your YaysApp profile.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_instagram',
+    name: 'Instagram',
+    icon: 'logo-instagram',
+    brandColor: '#e1306c',
+    blurb: 'Share wins as Stories and show your handle on your profile.',
+    unlocks: [
+      'Share mining streaks and prediction wins as Instagram Stories.',
+      'Verified @handle badge on your profile (creator and business accounts).',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_tiktok',
+    name: 'TikTok',
+    icon: 'logo-tiktok',
+    brandColor: '#161823',
+    blurb: 'Post your YaysApp clips to TikTok and show your creator badge.',
+    unlocks: [
+      'Post clips from YaysApp to TikTok in one tap.',
+      'Creator badge with your follower count on your profile.',
+      'Create-to-Earn rewards for shared content once rewards go live.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_x',
+    name: 'X',
+    icon: 'logo-twitter',
+    brandColor: '#0f1419',
+    blurb: 'Share predictions and streaks to X and verify your handle.',
+    unlocks: [
+      'Share predictions, streaks, and wins as posts on X.',
+      'Verified @handle badge on your YaysApp profile.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_reddit',
+    name: 'Reddit',
+    icon: 'logo-reddit',
+    brandColor: '#ff4500',
+    blurb: 'Verify your username and share into your communities.',
+    unlocks: [
+      'Verified u/username badge on your YaysApp profile.',
+      'Share predictions and finds straight to your subreddits.',
+      'Quick access to the official YaysApp community on Reddit.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_discord',
+    name: 'Discord',
+    icon: 'logo-discord',
+    brandColor: '#5865f2',
+    blurb: 'Show your Discord tag and join the YaysApp server.',
+    unlocks: [
+      'Your Discord tag on your YaysApp profile.',
+      'One-tap invite to the official YaysApp Discord server.',
+      'Community events and drops announced in Discord.',
+    ],
+    connected: false,
+  },
+  {
+    id: 's_youtube',
+    name: 'YouTube',
+    icon: 'logo-youtube',
+    brandColor: '#ff0000',
+    blurb: 'Link your channel to your profile and play your videos inside YaysApp.',
+    unlocks: [
+      'Your channel linked on your YaysApp profile.',
+      'Your videos play inline in chats and communities.',
+      'Subscriber-count badge on your profile.',
+    ],
+    connected: false,
+  },
+];
+
+// BTCY dashboard snapshot. In production this mirrors the user's Bitcoin Yay
+// account; every CTA on the dashboard deep-links into the Bitcoin Yay app.
+export const btcyDashboard: BtcyDashboard = {
+  mining: {active: true, speed: '2.8 BTCY/hr', endsIn: '3h 12m'},
+  portfolio: {nuggets: 8450, tokens: 145},
+  alchemy: {current: 8450, target: 10000},
+  referrals: {active: 18, target: 25},
+  station: {
+    unlocked: false,
+    benefits: ['Sell Access', 'Premium Rewards', 'Higher Mining Benefits'],
+  },
+  watchEarn: {watched: 6, total: 10, nuggetsToday: 18},
+  news: [
+    {id: 'bn_1', tag: 'Update', title: 'Alchemy Reduced', detail: 'The Alchemy threshold drops from 50K to 10K nuggets — refining BTCY just got 5× faster.', hot: true},
+    {id: 'bn_2', tag: 'New Feature', title: 'Dynamic Mining', detail: 'Mining speed now adapts to your daily activity across the Indexx ecosystem.'},
+  ],
+  promo: {headline: '15% OFF Power Mining', subtitle: 'Boost your rate with a discounted Power tier.', endsIn: '2 days'},
+};
+
+// EMMM dashboard snapshot — mirrors the user's emmm.io account; every CTA
+// deep-links into the EMMM app. '—' marks values not yet wired to the API.
+export const emmmDashboard: EmmmDashboard = {
+  slate: {open: true, draw: 'Week 1 Lottery', jackpot: 'USDT 50,000.00', closesIn: '6d 23h'},
+  portfolio: {value: '$—', cash: '$—', usdt: '$—', nuggets: '—'},
+  accuracy: {overall: '—%', thisWeek: '—%', brier: '—'},
+  ticket: {title: 'Week 1 Slate — Ticket #abc123', matched: 5, total: 7, tier: 'Match 5'},
+  promo: {headline: 'Win real BTCY Tokens +20%', subtitle: '10% win boost + 7 days turbo mining'},
+};
+
+// ReHuman hub content — editorial snapshot of rehumansystem.com (a longevity
+// supplement institution, not an account-based app). Formula accents are the
+// site's own per-product colors. CTAs deep-link to the ReHuman site.
+export const rehumanDashboard: RehumanDashboard = {
+  tagline: 'Reverse · Renew · ReHuman',
+  intro: 'A regenerative longevity institution — a small, considered system of botanical and clinical formulas for cellular vitality, resilience, and the long arc of human performance.',
+  formulas: [
+    {id: 'rh_lixir', code: 'F / 01', name: 'ReHuman Lixir', focus: 'Energy · Vitality · Daily Life', blurb: 'Sustained energy — for clearer mornings, fuller days, and a steadier sense of well-being. The formula to start with.', protocol: 'Two capsules each morning · 60 vegan capsules', accent: '#5c7491'},
+    {id: 'rh_bio', code: 'F / 02', name: 'ReHuman Bio', focus: 'Heart · Lungs · Circulation', blurb: 'Cardiopulmonary support — for the rhythm of breath and the long work of the heart.', protocol: 'Daily protocol · third-party tested', accent: '#7a8b70'},
+    {id: 'rh_optima', code: 'F / 03', name: 'ReHuman Optima', focus: 'Skin · Muscles · Bones', blurb: 'Structural renewal — for skin, lean muscle, and bone density. The load-bearing architecture of a longer life.', protocol: 'Daily protocol · clinical dosing', accent: '#c58d6e'},
+  ],
+  pillars: [
+    {code: 'P / 01', name: 'Longevity', detail: 'Designing for the long arc — vitality measured in decades, not weeks.'},
+    {code: 'P / 02', name: 'Regeneration', detail: "Supporting the body's own repair systems through botanical and cellular pathways."},
+    {code: 'P / 03', name: 'Clinical Dosing', detail: 'Compounds at the dose where evidence begins — not where marketing ends.'},
+    {code: 'P / 04', name: 'Alignment', detail: 'Calibrating biology, behavior, and environment to a coherent rhythm.'},
+  ],
+  systems: [
+    {numeral: 'I', name: 'Cognition', sub: 'the mind', focus: 'Clarity · Focus · Recall'},
+    {numeral: 'II', name: 'Respiration', sub: 'the breath', focus: 'Heart · Lungs · Circulation'},
+    {numeral: 'III', name: 'Structure', sub: 'the frame', focus: 'Bone · Posture · Resilience'},
+  ],
+  stages: [
+    {stage: 'Stage A', name: 'Wellness & Optimization', detail: 'Foundational formulas for vitality, resilience, recovery, and cognitive clarity.'},
+    {stage: 'Stage B', name: 'Data & AI Personalization', detail: 'Biomarker analysis and adaptive recommendations — biological age tracking, wearables.'},
+    {stage: 'Stage C', name: 'Regenerative Research', detail: 'An institute-grade research arm — observational studies and cellular rejuvenation work.'},
+  ],
+  journal: [
+    {id: 'rh_n1', number: 'N° 01', title: 'The quiet rise of a longevity industry — and what it actually means.'},
+    {id: 'rh_n2', number: 'N° 02', title: 'Why our system has three formulas, not thirty.'},
+    {id: 'rh_n3', number: 'N° 03', title: "What your bloodwork can tell you that you can't feel."},
+    {id: 'rh_n4', number: 'N° 04', title: 'Extending the middle of life, not the end of it.'},
+  ],
+  disclaimer: 'These statements have not been evaluated by the Food and Drug Administration. These products are not intended to diagnose, treat, cure, or prevent any disease.',
+};
+
+// ShoperPal dashboard snapshot — buyer and supplier views; CTAs deep-link
+// into the ShoperPal app.
+export const shoperpalDashboard: ShoperpalDashboard = {
+  buyer: {
+    level: 'Silver',
+    nextLevel: 'Gold',
+    earnRate: '1.25 BTCY / $1',
+    monthSpend: 245,
+    nextLevelAt: 500,
+    nuggets: {released: 1340, pending: 85, wallet: 1255, lifetime: 1425},
+    flash: {title: 'Up to 40% off, ends today', endsIn: '04:12:36'},
+  },
+  supplier: {
+    plan: 'Professional',
+    productsListed: 142,
+    productsLimit: 250,
+    commission: '3% per sale',
+    aiCredits: {used: 86, total: 200, resetsIn: '14 days'},
+    earnings: {gross: '$—', fee: '$— (3%)', payout: '$—'},
+    boosts: {active: 2, daysRemaining: 5},
+  },
+};
+
+// Payment rails the user can link to the wallet, per the product must-haves:
+// PayPal, Zelle, MetaMask, Indexx Pay, and Visa/Mastercard/Amex cards.
+export const paymentMethods: PaymentMethod[] = [
+  {
+    id: 'pm_indexxpay',
+    name: 'Indexx Pay',
+    kind: 'wallet',
+    icon: 'wallet',
+    brandColor: '#11be6a',
+    blurb: 'The house rail — pay with your Indexx balances across the whole ecosystem.',
+    steps: [
+      'Sign in with your Indexx account.',
+      'Approve YaysApp’s request to use Indexx Pay.',
+      'Your Indexx balances appear as a payment option.',
+    ],
+    unlocks: [
+      'Pay in every Indexx product with one balance.',
+      'Instant settlement for BTCY and xTokens.',
+      'No card fees inside the ecosystem.',
+    ],
+    linked: false,
+  },
+  {
+    id: 'pm_paypal',
+    name: 'PayPal',
+    kind: 'wallet',
+    icon: 'logo-paypal',
+    brandColor: '#003087',
+    blurb: 'Check out with your PayPal balance or linked accounts.',
+    steps: [
+      'We open PayPal’s secure sign-in — your password stays with PayPal.',
+      'You approve YaysApp in PayPal.',
+      'PayPal shows up as a payment option at checkout.',
+    ],
+    unlocks: [
+      'Pay with PayPal at checkout across YaysApp.',
+      'Refunds go straight back to your PayPal.',
+      'PayPal buyer protection on eligible purchases.',
+    ],
+    linked: false,
+  },
+  {
+    id: 'pm_zelle',
+    name: 'Zelle',
+    kind: 'bank',
+    icon: 'flash',
+    brandColor: '#6d1ed4',
+    blurb: 'Bank-to-bank transfers through your US bank’s Zelle enrollment.',
+    steps: [
+      'Enter the email or US mobile number enrolled with Zelle at your bank.',
+      'We confirm it with a one-time code.',
+      'Zelle becomes available for eligible transfers.',
+    ],
+    unlocks: [
+      'Move money using your existing bank enrollment.',
+      'No card numbers shared with YaysApp.',
+    ],
+    linked: false,
+  },
+  {
+    id: 'pm_metamask',
+    name: 'MetaMask',
+    kind: 'crypto',
+    icon: 'cube',
+    brandColor: '#f6851b',
+    blurb: 'Connect your self-custody wallet for crypto payments.',
+    steps: [
+      'We open MetaMask on your phone.',
+      'You approve the connection request in MetaMask.',
+      'Your wallet address is linked — keys never leave MetaMask.',
+    ],
+    unlocks: [
+      'Pay and receive crypto from your own wallet.',
+      'Use your MetaMask address across Indexx products.',
+      'You approve every transaction in MetaMask.',
+    ],
+    linked: false,
+  },
+  {
+    id: 'pm_card',
+    name: 'Credit / debit card',
+    kind: 'card',
+    icon: 'card',
+    brandColor: '#1a1f71',
+    blurb: 'Visa, Mastercard, and American Express.',
+    steps: [
+      'Enter your card details — stored with our PCI-compliant processor, not YaysApp.',
+      'Your bank verifies the card (3-D Secure).',
+      'The card is saved for checkout.',
+    ],
+    unlocks: [
+      'Pay by card anywhere in YaysApp.',
+      'Visa, Mastercard, and Amex supported.',
+      'Cards stay with the payment processor — never on our servers.',
+    ],
+    linked: false,
+  },
+];
+
+/** Mock masked detail shown after linking a payment method. */
+export const paymentMockDetail: Record<string, string> = {
+  pm_indexxpay: 'Indexx account linked',
+  pm_paypal: 'j•••@spocket.co',
+  pm_zelle: '+1 ••• ••• 4821',
+  pm_metamask: '0x74b1…9f3c',
+  pm_card: 'Visa •••• 4242',
+};
 
 // ---------------------------------------------------------------------------
 // Notifications / sessions / settings
@@ -444,7 +764,7 @@ export const notifications: AppNotification[] = [
   {id: nextId('n'), title: 'Amara Okafor', body: 'Got it, reviewing now 👀', createdAt: minutesAgo(12), read: false, kind: 'chat'},
   {id: nextId('n'), title: 'Daily check-in ready', body: 'Keep your 5-day streak alive!', createdAt: hoursAgo(1), read: false, kind: 'reward'},
   {id: nextId('n'), title: 'BTCY Learners', body: 'New announcement: AMA recap posted', createdAt: hoursAgo(5), read: true, kind: 'community'},
-  {id: nextId('n'), title: 'Welcome to Yay-chat', body: 'This is a preview build with simulated data.', createdAt: daysAgo(1), read: true, kind: 'system'},
+  {id: nextId('n'), title: 'Welcome to YaysApp', body: 'This is a preview build with simulated data.', createdAt: daysAgo(1), read: true, kind: 'system'},
 ];
 
 export const deviceSessions: DeviceSession[] = [

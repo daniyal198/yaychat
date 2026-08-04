@@ -1,5 +1,5 @@
 /**
- * Yay-chat auth + onboarding screens.
+ * YaysApp auth + onboarding screens.
  *
  * Covers the full pre-app journey: Welcome → SignIn / SignUp → email + phone
  * verification → password recovery → legal docs, and the onboarding stack
@@ -93,9 +93,9 @@ export const WelcomeScreen = ({navigation}: AuthProps<'Welcome'>) => {
     <Screen>
       <Spacer size={spacing.xxxl} />
       <View style={{alignItems: 'center', gap: spacing.sm}}>
-        <BrandMark size={88} />
+        <BrandMark size={120} />
         <Spacer size={spacing.xs} />
-        <YayText variant="display">Yay-chat</YayText>
+        <YayText variant="display">YaysApp</YayText>
         <YayText variant="body" color={colors.textSecondary} style={{textAlign: 'center'}}>
           Chat. Learn. Earn. Together.
         </YayText>
@@ -112,7 +112,7 @@ export const WelcomeScreen = ({navigation}: AuthProps<'Welcome'>) => {
         />
         <ValueBullet
           icon="sparkles-outline"
-          text="Yay AI helps you translate, summarize, and learn."
+          text="aiainai helps you translate, summarize, and learn."
         />
         <ValueBullet
           icon="gift-outline"
@@ -602,23 +602,23 @@ const LEGAL_COPY: Record<'terms' | 'privacy', {title: string; paragraphs: string
   terms: {
     title: 'Terms of Service (draft)',
     paragraphs: [
-      'This is placeholder draft copy for the Yay-chat preview build. It is not a binding agreement and will be replaced by counsel-reviewed terms before public release.',
-      '1. Your account. You are responsible for the activity that happens under your account and for keeping your sign-in credentials secure. You must be at least 13 years old (or the minimum age in your country) to use Yay-chat.',
-      '2. Acceptable use. Do not use Yay-chat to harass, defraud, or harm others, to distribute unlawful content, or to interfere with the service. Community spaces have additional rules set by their organizers, and moderators may remove content or members that break them.',
+      'This is placeholder draft copy for the YaysApp preview build. It is not a binding agreement and will be replaced by counsel-reviewed terms before public release.',
+      '1. Your account. You are responsible for the activity that happens under your account and for keeping your sign-in credentials secure. You must be at least 13 years old (or the minimum age in your country) to use YaysApp.',
+      '2. Acceptable use. Do not use YaysApp to harass, defraud, or harm others, to distribute unlawful content, or to interfere with the service. Community spaces have additional rules set by their organizers, and moderators may remove content or members that break them.',
       '3. Rewards preview. YayPoints, wallet balances, and any earn features shown in this build are simulated previews. They carry no monetary value, cannot be redeemed, and may be reset at any time without notice.',
-      '4. Content. You keep ownership of what you post. By posting, you grant Yay-chat the limited license needed to store, display, and transmit your content so the service can function.',
-      '5. Termination. You can stop using Yay-chat at any time and delete your account from Settings. We may suspend accounts that violate these terms.',
+      '4. Content. You keep ownership of what you post. By posting, you grant YaysApp the limited license needed to store, display, and transmit your content so the service can function.',
+      '5. Termination. You can stop using YaysApp at any time and delete your account from Settings. We may suspend accounts that violate these terms.',
       '6. Changes. We will notify you of material changes to these terms in-app before they take effect.',
     ],
   },
   privacy: {
     title: 'Privacy Policy (draft)',
     paragraphs: [
-      'This is placeholder draft copy for the Yay-chat preview build. It is not a final policy and will be replaced by a counsel-reviewed version before public release.',
+      'This is placeholder draft copy for the YaysApp preview build. It is not a final policy and will be replaced by a counsel-reviewed version before public release.',
       '1. What we collect. Account details you provide (name, email, optional phone), the content you create, and basic usage data such as device type and crash logs that help us keep the app reliable.',
       '2. What we do not do. We do not sell your personal data, and message content is never used for advertising. In this preview build all data is simulated and stored locally on your device.',
       '3. How we use data. To operate the service, personalize your experience (like suggested communities), calculate preview rewards, and protect the platform from abuse.',
-      '4. Sharing. Content you post in public communities is visible to their members. We share data with service providers only as needed to run Yay-chat, under contractual safeguards.',
+      '4. Sharing. Content you post in public communities is visible to their members. We share data with service providers only as needed to run YaysApp, under contractual safeguards.',
       '5. Your controls. Privacy settings let you manage last-seen visibility, read receipts, and discoverability. You can export or delete your data by deleting your account from Settings.',
       '6. Contact. Questions about privacy can be sent to privacy@yay.chat once the service launches publicly.',
     ],
@@ -698,7 +698,7 @@ export const UsernameScreen = ({navigation}: OnboardingProps<'Username'>) => {
     <Screen>
       <YayText variant="title">Pick your username</YayText>
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
-        This is how friends find you across Yay-chat. You can change it later in Settings.
+        This is how friends find you across YaysApp. You can change it later in Settings.
       </YayText>
       <TextField
         label="Username"
@@ -846,7 +846,7 @@ export const PermissionsScreen = ({navigation}: OnboardingProps<'Permissions'>) 
       <Card style={{marginBottom: spacing.lg}}>
         <SwitchRow
           label="Contacts"
-          description="Find friends who already use Yay-chat by matching phone numbers. Your contacts are hashed on-device and never stored on our servers."
+          description="Find friends who already use YaysApp by matching phone numbers. Your contacts are hashed on-device and never stored on our servers."
           value={contacts}
           onValueChange={setContacts}
         />
@@ -885,7 +885,7 @@ export const OnboardingDoneScreen = (_props: OnboardingProps<'OnboardingDone'>) 
     <Screen>
       <Spacer size={spacing.xl} />
       <View style={{alignItems: 'center'}}>
-        <BrandMark size={72} />
+        <BrandMark size={96} />
       </View>
       <StateView
         icon="sparkles-outline"
@@ -899,11 +899,11 @@ export const OnboardingDoneScreen = (_props: OnboardingProps<'OnboardingDone'>) 
         </YayText>
         <ValueBullet icon="chatbubbles-outline" text="Say hi — start a chat from the Chats tab." />
         <ValueBullet icon="people-outline" text="Browse Communities and join one that fits you." />
-        <ValueBullet icon="sparkles-outline" text="Ask Yay AI to translate or summarize something." />
+        <ValueBullet icon="sparkles-outline" text="Ask aiainai to translate or summarize something." />
         <ValueBullet icon="gift-outline" text="Do your first daily check-in on the Earn tab." />
       </Card>
       <Spacer size={spacing.xl} />
-      <Button label="Enter Yay-chat" onPress={finish} loading={busy} icon="rocket-outline" />
+      <Button label="Enter YaysApp" onPress={finish} loading={busy} icon="rocket-outline" />
     </Screen>
   );
 };

@@ -1,5 +1,5 @@
 /**
- * Yay-chat Profile tab screens.
+ * YaysApp Profile tab screens.
  *
  * Covers the profile hub, profile editing, social lists (contacts, blocked,
  * notifications), every settings surface, help/about, account deletion, and
@@ -56,7 +56,7 @@ type ProfileProps<R extends keyof ProfileStackParamList> = NativeStackScreenProp
   R
 >;
 
-const APP_VERSION = 'Yay-chat 0.1.0 — Milestone 1 preview';
+const APP_VERSION = 'YaysApp 0.1.0 — Milestone 1 preview';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -221,7 +221,7 @@ export const ProfileHomeScreen = ({navigation}: ProfileProps<'ProfileHome'>) => 
       <Card style={styles.sectionCard}>
         <ListRow
           title="Friends"
-          subtitle="Your Yay-chat contacts"
+          subtitle="Your YaysApp contacts"
           icon="people-outline"
           onPress={() => navigation.navigate('Contacts')}
         />
@@ -434,7 +434,7 @@ export const QrProfileScreen = (_props: ProfileProps<'QrProfile'>) => {
   const share = async () => {
     try {
       await Share.share({
-        message: `Add me on Yay-chat! I'm @${seed} — https://yay.chat/u/${seed}`,
+        message: `Add me on YaysApp! I'm @${seed} — https://yay.chat/u/${seed}`,
       });
     } catch {
       toast.show('Could not open the share sheet.', 'error');
@@ -469,7 +469,7 @@ export const QrProfileScreen = (_props: ProfileProps<'QrProfile'>) => {
         </View>
         <Spacer size={spacing.sm} />
         <YayText variant="caption" color={colors.textMuted}>
-          Scan to add me on Yay-chat
+          Scan to add me on YaysApp
         </YayText>
       </Card>
       <Spacer />
@@ -512,7 +512,7 @@ export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
         <Banner
           tone="success"
           icon="person-add"
-          text="Invite friends to Yay-chat and earn YayPoints when they join."
+          text="Invite friends to YaysApp and earn YayPoints when they join."
         />
       </Pressable>
       <AsyncView
@@ -526,7 +526,7 @@ export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
         emptyMessage={
           query
             ? 'Try a different name or username.'
-            : 'When you connect with people on Yay-chat they show up here.'
+            : 'When you connect with people on YaysApp they show up here.'
         }>
         {() => (
           <Card style={styles.sectionCard}>
@@ -887,7 +887,7 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
           <Banner
             tone="info"
             icon="sparkles"
-            text="Yay AI never reads your private chats without an explicit action."
+            text="aiainai never reads your private chats without an explicit action."
           />
         }>
         {(s, patch) => (
@@ -902,7 +902,7 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
               <Divider />
               <SwitchRow
                 label="Personalization"
-                description="Let Yay AI tailor suggestions using your activity."
+                description="Let aiainai tailor suggestions using your activity."
                 value={s.ai.personalization}
                 onValueChange={v => patch({...s, ai: {...s.ai, personalization: v}})}
               />
@@ -921,7 +921,7 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
         visible={confirmClear}
         onClose={() => setConfirmClear(false)}
         title="Clear AI history?"
-        message="This removes all saved Yay AI conversations. It cannot be undone."
+        message="This removes all saved aiainai conversations. It cannot be undone."
         confirmLabel="Clear history"
         destructive
         onConfirm={() => toast.show('AI history cleared', 'success')}
@@ -1018,7 +1018,7 @@ export const LanguageScreen = (_props: ProfileProps<'Language'>) => {
       </Card>
       <Spacer size={spacing.sm} />
       <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-        Yay-chat is English-only in this preview build.
+        YaysApp is English-only in this preview build.
       </YayText>
     </Screen>
   );
@@ -1053,7 +1053,7 @@ export const AccessibilityScreen = (_props: ProfileProps<'Accessibility'>) => {
       </Card>
       <Spacer size={spacing.sm} />
       <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-        Yay-chat supports VoiceOver and TalkBack labels throughout the app.
+        YaysApp supports VoiceOver and TalkBack labels throughout the app.
       </YayText>
     </Screen>
   );
@@ -1175,7 +1175,7 @@ export const DevicesScreen = (_props: ProfileProps<'Devices'>) => {
 const FAQS: {q: string; a: string}[] = [
   {
     q: 'What does "preview build" mean?',
-    a: 'This is Milestone 1 of Yay-chat. Screens, flows, and states are real, but data is simulated locally on your device. Nothing you do here affects a live account.',
+    a: 'This is Milestone 1 of YaysApp. Screens, flows, and states are real, but data is simulated locally on your device. Nothing you do here affects a live account.',
   },
   {
     q: 'Are my YayPoints and rewards real?',
@@ -1195,7 +1195,7 @@ const FAQS: {q: string; a: string}[] = [
   },
   {
     q: 'Why do some features say "coming soon"?',
-    a: 'Yay-chat ships in milestones. Stickers, calls, dark mode, and camera QR scanning are planned for later milestones and are labeled where they will live.',
+    a: 'YaysApp ships in milestones. Stickers, calls, dark mode, and camera QR scanning are planned for later milestones and are labeled where they will live.',
   },
 ];
 
@@ -1255,7 +1255,7 @@ export const HelpScreen = (_props: ProfileProps<'Help'>) => {
       <Card style={{marginBottom: spacing.sm}}>
         <YayText variant="bodyStrong">Contact support</YayText>
         <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.sm}}>
-          Chat with the Yay-chat team about anything.
+          Chat with the YaysApp team about anything.
         </YayText>
         <Button
           label="Contact support"
@@ -1304,7 +1304,7 @@ export const HelpScreen = (_props: ProfileProps<'Help'>) => {
 // ---------------------------------------------------------------------------
 
 const LEGAL_DRAFT = (title: string) =>
-  `${title}\n\nDraft — for preview. This placeholder text stands in for the final ${title.toLowerCase()} which is being prepared with counsel and ships before public launch.\n\n1. Acceptance. By using this preview build of Yay-chat you acknowledge the app is under active development and data shown is simulated.\n\n2. Accounts. Preview accounts are local to your device. No personal data leaves the device in Milestone 1.\n\n3. Rewards & wallet. YayPoints, balances, and transactions in this build are simulated and carry no monetary value.\n\n4. Conduct. Be kind. Harassment, spam, and abuse are prohibited and will be enforced when live services launch.\n\n5. Changes. These terms will be replaced by final documents prior to launch; continued use after launch constitutes acceptance of the final versions.`;
+  `${title}\n\nDraft — for preview. This placeholder text stands in for the final ${title.toLowerCase()} which is being prepared with counsel and ships before public launch.\n\n1. Acceptance. By using this preview build of YaysApp you acknowledge the app is under active development and data shown is simulated.\n\n2. Accounts. Preview accounts are local to your device. No personal data leaves the device in Milestone 1.\n\n3. Rewards & wallet. YayPoints, balances, and transactions in this build are simulated and carry no monetary value.\n\n4. Conduct. Be kind. Harassment, spam, and abuse are prohibited and will be enforced when live services launch.\n\n5. Changes. These terms will be replaced by final documents prior to launch; continued use after launch constitutes acceptance of the final versions.`;
 
 export const AboutLegalScreen = ({route}: ProfileProps<'AboutLegal'>) => {
   const toast = useToast();
@@ -1340,9 +1340,9 @@ export const AboutLegalScreen = ({route}: ProfileProps<'AboutLegal'>) => {
   return (
     <Screen>
       <Card style={{alignItems: 'center', paddingVertical: spacing.xl}}>
-        <BrandMark size={64} />
+        <BrandMark size={88} />
         <Spacer size={spacing.sm} />
-        <YayText variant="title">Yay-chat</YayText>
+        <YayText variant="title">YaysApp</YayText>
         <YayText variant="caption" color={colors.textMuted}>
           {APP_VERSION}
         </YayText>
@@ -1545,9 +1545,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 9,
+    borderRadius: radius.pill,
     backgroundColor: colors.brand,
   },
   qrFrame: {

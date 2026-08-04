@@ -1,47 +1,53 @@
 /**
- * Yay-chat design tokens.
+ * YaysApp design tokens.
  *
- * Original Yay-chat identity: warm "sunrise paper" neutrals with a muted,
- * burnt-orange brand color (echoing BTCY's orange without its brightness)
- * and a deep-teal accent for contrast. Intentionally distinct from WeChat.
+ * Warm sand-and-amber identity: a golden-orange brand color over soft warm
+ * neutrals and brown ink, with dark brown as the contrast accent.
  */
 
 export const palette = {
-  // Brand — muted burnt orange
-  ember50: '#fbead9',
-  ember100: '#f3d2ac',
-  ember400: '#cf7a34',
-  ember500: '#b5642a',
-  ember600: '#8f4e20',
-  ember700: '#6e3c19',
+  // Brand — rich, elegant amber orange
+  ember50: '#fdeeda',
+  ember100: '#f8d6a8',
+  ember200: '#efb066', // primary light
+  ember400: '#e5852b', // primary
+  ember500: '#d4761f',
+  ember600: '#b26018',
+  ember700: '#8a4a12',
 
-  // Accent — deep teal, contrasts the orange brand
-  teal100: '#d9ece7',
-  teal400: '#3f8f80',
-  teal500: '#2c7568',
+  // Accent — dark brown, contrasts the amber brand
+  brown100: '#e8ddd5',
+  brown400: '#9c7c6e',
+  brown500: '#84675c',
 
   // Warm neutrals
-  paper: '#fffaf3',
-  cream: '#f7f1e7',
-  sand: '#efe6d6',
-  line: '#e3d8c6',
-  lineSoft: '#ede4d4',
+  paper: '#ffffff',
+  mist: '#eceae7', // soft light grey for ecosystem tiles
+  cream: '#f8f6f2',
+  sand: '#efeae2',
+  stone: '#dcd6cc',
+  beige: '#d5bba6',
+  line: '#e6ded3',
+  lineSoft: '#efeae2',
 
-  // Ink
-  ink900: '#1c2a22',
-  ink700: '#415047',
-  ink500: '#68756d',
-  ink300: '#98a29b',
+  // Ink (warm brown scale)
+  ink900: '#3e2a22',
+  ink700: '#84675c',
+  ink500: '#a99c92',
+  ink300: '#c7cbcf',
 
   // Semantic
   success: '#2f9a67',
-  warning: '#d98a17',
-  danger: '#d0503f',
-  info: '#2f6ab8',
+  warning: '#c6942f',
+  danger: '#c85a45',
+  info: '#4a7ba6',
   gold: '#c6942f',
 
   white: '#ffffff',
-  overlay: 'rgba(24, 34, 28, 0.45)',
+  overlay: 'rgba(18, 13, 10, 0.45)',
+
+  // Partner brand — aiainai's red (from aiainai.com), single source of truth.
+  aiainaiRed: '#ff2d2d',
 };
 
 export const colors = {
@@ -56,13 +62,13 @@ export const colors = {
   textFaint: palette.ink300,
   textOnBrand: palette.white,
 
-  brand: palette.ember500,
+  brand: palette.ember400,
   brandStrong: palette.ember600,
   brandSoft: palette.ember50,
   brandBorder: palette.ember100,
 
-  accent: palette.teal500,
-  accentSoft: palette.teal100,
+  accent: palette.brown500,
+  accentSoft: palette.brown100,
 
   border: palette.line,
   borderSoft: palette.lineSoft,
@@ -70,19 +76,24 @@ export const colors = {
   success: palette.success,
   successSoft: '#e2f3ea',
   warning: palette.warning,
-  warningSoft: '#faeed7',
+  warningSoft: '#f6ecd7',
   danger: palette.danger,
-  dangerSoft: '#f9e4e0',
+  dangerSoft: '#f7e2dc',
+  notify: '#ff3b30',
   info: palette.info,
-  infoSoft: '#e3ecf8',
+  infoSoft: '#e4edf4',
   gold: palette.gold,
   goldSoft: '#f6ecd7',
 
-  bubbleMine: palette.ember500,
+  tileSoft: palette.mist,
+
+  bubbleMine: palette.ember400,
   bubbleTheirs: palette.white,
+  bubbleMedia: palette.sand,
+  mediaBox: palette.stone,
 
   overlay: palette.overlay,
-  skeleton: '#eadfce',
+  skeleton: '#ece4d8',
   tabInactive: palette.ink500,
 };
 
@@ -96,6 +107,17 @@ export const spacing = {
   xxl: 32,
   xxxl: 44,
 } as const;
+
+/**
+ * Round elements (avatars, buttons, icon chips, count bubbles) all render the
+ * brand oval image (assets/oval.png, extracted from the master oval artwork)
+ * scaled to size — never a shape drawn in code. Colored variants (avatar DPs,
+ * unread bubbles, presence dots) tint the same image so the silhouette is
+ * always pixel-identical. Render it via the <Oval> component in components.tsx.
+ */
+export const OVAL_SOURCE = require('../../../assets/oval.png');
+// Native aspect ratio of the cropped oval artwork (width / height).
+export const OVAL_ASPECT = 1133 / 1052;
 
 export const radius = {
   xs: 8,
@@ -120,14 +142,14 @@ export const typography = {
 
 export const shadows = {
   card: {
-    shadowColor: '#1c2a22',
+    shadowColor: '#120d0a',
     shadowOpacity: 0.06,
     shadowRadius: 12,
     shadowOffset: {width: 0, height: 4},
     elevation: 2,
   },
   raised: {
-    shadowColor: '#1c2a22',
+    shadowColor: '#120d0a',
     shadowOpacity: 0.12,
     shadowRadius: 18,
     shadowOffset: {width: 0, height: 8},
@@ -136,14 +158,14 @@ export const shadows = {
 } as const;
 
 export const avatarPalette = [
-  '#b5642a',
-  '#2c7568',
-  '#2f6ab8',
+  '#e5852b',
+  '#84675c',
+  '#d4761f',
+  '#a99c92',
+  '#9c7c6e',
   '#c6942f',
-  '#7b5cb8',
-  '#d0507a',
-  '#4a8f3f',
-  '#8a6d3b',
+  '#b07a4a',
+  '#7a5d50',
 ];
 
 export const avatarColorFor = (seed: string): string => {

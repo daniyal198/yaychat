@@ -19,6 +19,12 @@ export type OnboardingStackParamList = {
   OnboardingDone: undefined;
 };
 
+export type ExploreStackParamList = {
+  ExploreHome: undefined;
+  ProductDetail: {productId: string};
+  SocialConnect: {socialId: string};
+};
+
 export type ChatsStackParamList = {
   ChatList: undefined;
   ChatSearch: undefined;
@@ -81,6 +87,7 @@ export type ProfileStackParamList = {
 };
 
 export type MainTabParamList = {
+  ExploreTab: NavigatorScreenParams<ExploreStackParamList>;
   ChatsTab: NavigatorScreenParams<ChatsStackParamList>;
   CommunitiesTab: NavigatorScreenParams<CommunitiesStackParamList>;
   AiTab: NavigatorScreenParams<AiStackParamList>;
@@ -98,11 +105,19 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   WalletOverview: undefined;
   WalletTransactions: undefined;
+  PaymentMethods: undefined;
+  PaymentMethodConnect: {methodId: string};
   TransactionDetail: {transactionId: string};
   SendPreview: undefined;
   ReceivePreview: undefined;
   Ecosystem: undefined;
   ProductPreview: {productId: string};
+  BtcyHub: undefined;
+  EmmmHub: undefined;
+  ShoperpalHub: undefined;
+  RehumanHub: undefined;
+  /** Referral screen pushed at root level so flows like the BTCY dashboard keep their back stack. */
+  InviteFriends: undefined;
   ComingSoon: {title: string; message?: string};
 };
 

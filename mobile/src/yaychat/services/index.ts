@@ -1,5 +1,5 @@
 /**
- * Yay-chat mock service layer.
+ * YaysApp mock service layer.
  *
  * This is the only module screens import for data. Signatures are designed to
  * survive the swap to real APIs in Milestones 2–3 (see
@@ -11,6 +11,10 @@ import {
   AiConversation,
   AiUsage,
   AppNotification,
+  BtcyDashboard,
+  EmmmDashboard,
+  RehumanDashboard,
+  ShoperpalDashboard,
   Community,
   Conversation,
   DeviceSession,
@@ -19,9 +23,11 @@ import {
   EcosystemProduct,
   Message,
   Page,
+  PaymentMethod,
   RewardEntry,
   Session,
   SettingsState,
+  SocialAccount,
   User,
   WalletAsset,
   WalletTransaction,
@@ -238,6 +244,15 @@ export const chatService = {
     }
   },
 
+  // Total unread across all active (non-archived) conversations — powers the
+  // Chats tab badge and the home-screen Chats shortcut. Never throws so the
+  // badge poller keeps working while offline.
+  async getUnreadTotal(): Promise<number> {
+    return db.conversations
+      .filter(c => !c.archived)
+      .reduce((sum, c) => sum + (c.unreadCount > 0 ? c.unreadCount : 0), 0);
+  },
+
   async toggleReaction(conversationId: string, messageId: string, emoji: string): Promise<Message> {
     return mockRequest('chat.toggleReaction', () => {
       const m = (db.messages[conversationId] ?? []).find(x => x.id === messageId);
@@ -275,10 +290,45 @@ export const chatService = {
     });
   },
 
+  /** Edits the text of the caller's own message. */
+  async editMessage(conversationId: string, messageId: string, text: string): Promise<Message> {
+    return mockRequest('chat.editMessage', () => {
+      const m = (db.messages[conversationId] ?? []).find(x => x.id === messageId);
+      if (!m) {
+        throw new ApiError('Message not found.', 'not_found');
+      }
+      if (m.senderId !== db.ME_ID) {
+        throw new ApiError('You can only edit your own messages.', 'unauthorized');
+      }
+      if (m.recalled || m.deleted) {
+        throw new ApiError('This message can no longer be edited.', 'validation');
+      }
+      if (!text.trim()) {
+        throw new ApiError('Message cannot be empty.', 'validation');
+      }
+      m.text = text.trim();
+      m.edited = true;
+      return {...m};
+    });
+  },
+
+  /** Deletes a whole conversation and its message history (for this user). */
+  async deleteConversation(conversationId: string): Promise<void> {
+    return mockRequest('chat.deleteConversation', () => {
+      const idx = db.conversations.findIndex(c => c.id === conversationId);
+      if (idx === -1) {
+        throw new ApiError('Chat not found.', 'not_found');
+      }
+      db.conversations.splice(idx, 1);
+      delete db.messages[conversationId];
+    });
+  },
+
   async pinMessage(conversationId: string, messageId: string): Promise<void> {
     return mockRequest('chat.pinMessage', () => {
+      // One pinned message per conversation: pinning a message unpins others.
       (db.messages[conversationId] ?? []).forEach(m => {
-        m.pinned = m.id === messageId ? !m.pinned : m.pinned;
+        m.pinned = m.id === messageId ? !m.pinned : false;
       });
     });
   },
@@ -319,7 +369,7 @@ export const chatService = {
     }
   },
 
-  async createConversation(memberIds: string[], title?: string): Promise<Conversation> {
+  async createConversation(memberIds: string[], title?: string, category?: string): Promise<Conversation> {
     return mockRequest('chat.createConversation', () => {
       if (memberIds.length === 0) {
         throw new ApiError('Pick at least one contact.', 'validation');
@@ -346,12 +396,55 @@ export const chatService = {
         archived: false,
         typingUserIds: [],
         groupRoles: isGroup ? {[db.ME_ID]: 'owner'} : undefined,
+        category: isGroup ? category : undefined,
       };
       db.conversations.unshift(convo);
       db.messages[convo.id] = isGroup
         ? [{id: db.nextId('m'), conversationId: convo.id, senderId: db.ME_ID, kind: 'system', text: 'You created the group', createdAt: new Date().toISOString(), status: 'sent', reactions: []}]
         : [];
       return convo;
+    });
+  },
+
+  async renameGroup(conversationId: string, title: string): Promise<void> {
+    return mockRequest('chat.renameGroup', () => {
+      const c = db.conversations.find(x => x.id === conversationId);
+      if (!c) {
+        throw new ApiError('Chat not found.', 'not_found');
+      }
+      if (!title.trim()) {
+        throw new ApiError('Group name cannot be empty.', 'validation');
+      }
+      c.title = title.trim();
+    });
+  },
+
+  async setGroupRole(conversationId: string, userId: string, role: 'admin' | 'member'): Promise<void> {
+    return mockRequest('chat.setGroupRole', () => {
+      const c = db.conversations.find(x => x.id === conversationId);
+      if (!c || !c.groupRoles) {
+        throw new ApiError('Group not found.', 'not_found');
+      }
+      if (c.groupRoles[userId] === 'owner') {
+        throw new ApiError("The owner's role cannot be changed.", 'validation');
+      }
+      c.groupRoles[userId] = role;
+    });
+  },
+
+  async removeGroupMember(conversationId: string, userId: string): Promise<void> {
+    return mockRequest('chat.removeGroupMember', () => {
+      const c = db.conversations.find(x => x.id === conversationId);
+      if (!c) {
+        throw new ApiError('Group not found.', 'not_found');
+      }
+      if (c.groupRoles?.[userId] === 'owner') {
+        throw new ApiError('The owner cannot be removed.', 'validation');
+      }
+      c.memberIds = c.memberIds.filter(id => id !== userId);
+      if (c.groupRoles) {
+        delete c.groupRoles[userId];
+      }
     });
   },
 
@@ -647,7 +740,7 @@ export const aiService = {
           throw new ApiError('You have used all preview credits for today.', 'rate_limited');
         }
         if (text.includes('#unavailable')) {
-          throw new ApiError('Yay AI is temporarily unavailable. Please try again shortly.', 'server');
+          throw new ApiError('aiainai is temporarily unavailable. Please try again shortly.', 'server');
         }
         c.messages.push({id: db.nextId('am'), role: 'user', text, createdAt: new Date().toISOString()});
         const canned =
@@ -766,6 +859,110 @@ export const ecosystemService = {
         throw new ApiError('Product not found.', 'not_found');
       }
       return p;
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Social accounts
+// ---------------------------------------------------------------------------
+
+export const socialService = {
+  async accounts(): Promise<SocialAccount[]> {
+    return mockRequest('social.accounts', () => db.socialAccounts.map(a => ({...a})));
+  },
+
+  async account(id: string): Promise<SocialAccount> {
+    return mockRequest('social.account', () => {
+      const account = db.socialAccounts.find(a => a.id === id);
+      if (!account) {
+        throw new ApiError('Unknown social platform.', 'not_found');
+      }
+      return {...account};
+    });
+  },
+
+  /** Connects a disconnected platform (mock OAuth) or disconnects a linked one. */
+  async toggle(id: string): Promise<SocialAccount> {
+    return mockRequest('social.toggle', () => {
+      const account = db.socialAccounts.find(a => a.id === id);
+      if (!account) {
+        throw new ApiError('Unknown social platform.', 'not_found');
+      }
+      if (account.connected) {
+        account.connected = false;
+        account.handle = undefined;
+      } else {
+        account.connected = true;
+        account.handle = `@${db.userById(db.ME_ID).name.replace(/\s+/g, '').toLowerCase()}`;
+      }
+      return {...account};
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// BTCY dashboard
+// ---------------------------------------------------------------------------
+
+export const btcyService = {
+  async dashboard(): Promise<BtcyDashboard> {
+    return mockRequest('btcy.dashboard', () => ({...db.btcyDashboard}));
+  },
+};
+
+export const emmmService = {
+  async dashboard(): Promise<EmmmDashboard> {
+    return mockRequest('emmm.dashboard', () => ({...db.emmmDashboard}));
+  },
+};
+
+export const shoperpalService = {
+  async dashboard(): Promise<ShoperpalDashboard> {
+    return mockRequest('shoperpal.dashboard', () => ({...db.shoperpalDashboard}));
+  },
+};
+
+export const rehumanService = {
+  async dashboard(): Promise<RehumanDashboard> {
+    return mockRequest('rehuman.dashboard', () => ({...db.rehumanDashboard}));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Payment methods
+// ---------------------------------------------------------------------------
+
+export const paymentService = {
+  async methods(): Promise<PaymentMethod[]> {
+    return mockRequest('payments.methods', () => db.paymentMethods.map(m => ({...m})));
+  },
+
+  async method(id: string): Promise<PaymentMethod> {
+    return mockRequest('payments.method', () => {
+      const method = db.paymentMethods.find(m => m.id === id);
+      if (!method) {
+        throw new ApiError('Unknown payment method.', 'not_found');
+      }
+      return {...method};
+    });
+  },
+
+  /** Links an unlinked rail (mock flow) or unlinks a linked one. */
+  async toggle(id: string): Promise<PaymentMethod> {
+    return mockRequest('payments.toggle', () => {
+      const method = db.paymentMethods.find(m => m.id === id);
+      if (!method) {
+        throw new ApiError('Unknown payment method.', 'not_found');
+      }
+      if (method.linked) {
+        method.linked = false;
+        method.detail = undefined;
+      } else {
+        method.linked = true;
+        method.detail = db.paymentMockDetail[method.id];
+      }
+      return {...method};
     });
   },
 };

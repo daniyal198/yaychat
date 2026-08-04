@@ -58,7 +58,7 @@ export async function mockRequest<T>(
     simulation.failNextRequest = null;
     throw new ApiError(
       code === 'server'
-        ? 'The Yay-chat service is unavailable right now.'
+        ? 'The YaysApp service is unavailable right now.'
         : code === 'unauthorized'
         ? 'Your session has expired. Please sign in again.'
         : 'Request failed.',

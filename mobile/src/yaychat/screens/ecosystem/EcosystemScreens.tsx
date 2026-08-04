@@ -14,6 +14,7 @@ import {
   Banner,
   Button,
   Card,
+  ProductBrandLogo,
   Row,
   Screen,
   SectionHeader,
@@ -27,6 +28,14 @@ import {useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import type {EcosystemProduct} from '../../types/models';
 import type {RootStackParamList} from '../../types/navigation';
+
+/** Products with an in-app hub dashboard (see screens/btcy, emmm, shoperpal). */
+const HUB_ROUTES: Record<string, string> = {
+  p_btcy: 'BtcyHub',
+  p_emmm: 'EmmmHub',
+  p_shopper: 'ShoperpalHub',
+  p_rehuman: 'RehumanHub',
+};
 
 const availabilityBadge = (availability: EcosystemProduct['availability']) => {
   switch (availability) {
@@ -61,7 +70,7 @@ export const EcosystemScreen = ({
           One account. Every Indexx product.
         </YayText>
         <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-          Your Yay-chat identity gradually unlocks the wider Indexx ecosystem as integrations
+          Your YaysApp identity gradually unlocks the wider Indexx ecosystem as integrations
           roll out.
         </YayText>
       </Card>
@@ -84,7 +93,7 @@ export const EcosystemScreen = ({
                 onPress={() => navigation.navigate('ProductPreview', {productId: product.id})}>
                 <Row gap={spacing.sm}>
                   <View style={styles.productIcon}>
-                    <Ionicons name={product.icon} size={22} color={colors.brand} />
+                    <ProductBrandLogo productId={product.id} icon={product.icon} size={30} />
                   </View>
                   <View style={{flex: 1}}>
                     <Row gap={spacing.xs}>
@@ -142,7 +151,7 @@ export const ProductPreviewScreen = ({
           <View>
             <Card style={styles.heroCard}>
               <View style={styles.heroIcon}>
-                <Ionicons name={product.icon} size={34} color={colors.brand} />
+                <ProductBrandLogo productId={product.id} icon={product.icon} size={48} />
               </View>
               <YayText variant="title" style={{textAlign: 'center'}}>
                 {product.name}
@@ -181,7 +190,17 @@ export const ProductPreviewScreen = ({
             </Card>
 
             <Spacer size={spacing.lg} />
-            {product.availability === 'coming_soon' ? (
+            {HUB_ROUTES[product.id] ? (
+              <Button
+                label={`Open ${product.name} dashboard`}
+                icon="speedometer-outline"
+                onPress={() =>
+                  (navigation as unknown as {navigate: (r: string) => void}).navigate(
+                    HUB_ROUTES[product.id],
+                  )
+                }
+              />
+            ) : product.availability === 'coming_soon' ? (
               <Card>
                 <StateView
                   compact
@@ -196,12 +215,6 @@ export const ProductPreviewScreen = ({
                   onPress={() => toast.show("We'll let you know!", 'success')}
                 />
               </Card>
-            ) : product.availability === 'preview' ? (
-              <Button
-                label="Open BTCY preview"
-                icon="wallet-outline"
-                onPress={() => navigation.navigate('WalletOverview')}
-              />
             ) : null}
 
             <Spacer size={spacing.lg} />

@@ -46,7 +46,8 @@
     "react-native-svg": "^15.11.2",
     "react-native-swiper": "^1.6.0",
     "react-native-tracking-transparency": "^0.1.2",
-    "react-native-vector-icons": "^10.2.0"
+    "react-native-vector-icons": "^10.2.0",
+    "unicode-emoji-json": "^0.9.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

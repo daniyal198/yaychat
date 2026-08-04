@@ -11,7 +11,7 @@ export const ComingSoonScreen = ({route}: any) => (
       title={route?.params?.title ?? 'Coming soon'}
       message={
         route?.params?.message ??
-        'This part of Yay-chat is on the roadmap and will unlock in a future milestone.'
+        'This part of YaysApp is on the roadmap and will unlock in a future milestone.'
       }
     />
   </Screen>
@@ -26,8 +26,8 @@ export const SplashView = () => (
       justifyContent: 'center',
       gap: spacing.md,
     }}>
-    <BrandMark size={88} />
-    <YayText variant="title">Yay-chat</YayText>
+    <BrandMark size={120} />
+    <YayText variant="title">YaysApp</YayText>
     <YayText variant="caption" color={colors.textMuted}>
       Chat. Learn. Earn. Together.
     </YayText>

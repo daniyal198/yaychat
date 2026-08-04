@@ -5,7 +5,7 @@
  * <MockNotice /> and no copy or control may imply real money movement.
  * Real wallet functionality ships in a later milestone after security review.
  */
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -29,10 +29,10 @@ import {
   YayText,
 } from '../../design/components';
 import {colors, radius, spacing} from '../../design/tokens';
-import {featureFlags, walletService} from '../../services';
+import {errorMessage, featureFlags, paymentService, walletService} from '../../services';
 import {useAsync} from '../../state/hooks';
 import {useAuth, useToast} from '../../state/AppProviders';
-import type {WalletAsset, WalletTransaction} from '../../types/models';
+import type {PaymentMethod, WalletAsset, WalletTransaction} from '../../types/models';
 import type {RootStackParamList} from '../../types/navigation';
 
 const WALLET_NOTICE =
@@ -160,19 +160,22 @@ export const WalletOverviewScreen = ({
               <Banner
                 tone="warning"
                 icon="shield-checkmark"
-                text="Never share recovery phrases. Yay-chat staff will never DM you first."
+                text="Never share recovery phrases. YaysApp staff will never DM you first."
               />
 
+              {/* Short single-line labels so the three columns align; the
+                  MockNotice above and "(preview)" screen titles keep the
+                  no-real-money-copy rule. */}
               <Row gap={spacing.xs} style={styles.actionsRow}>
                 <Button
-                  label="Send preview"
+                  label="Send"
                   kind="secondary"
                   icon="arrow-up-circle-outline"
                   onPress={() => navigation.navigate('SendPreview')}
                   style={styles.actionButton}
                 />
                 <Button
-                  label="Receive preview"
+                  label="Receive"
                   kind="secondary"
                   icon="arrow-down-circle-outline"
                   onPress={() => navigation.navigate('ReceivePreview')}
@@ -193,6 +196,20 @@ export const WalletOverviewScreen = ({
                   <AssetCard key={asset.symbol} asset={asset} />
                 ))}
               </View>
+
+              <SectionHeader title="Payments" />
+              <Card onPress={() => navigation.navigate('PaymentMethods')}>
+                <Row gap={spacing.sm}>
+                  <Ionicons name="card" size={22} color={colors.brand} />
+                  <View style={{flex: 1}}>
+                    <YayText variant="bodyStrong">Payment methods</YayText>
+                    <YayText variant="caption" color={colors.textMuted}>
+                      Indexx Pay, PayPal, Zelle, MetaMask, and cards
+                    </YayText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                </Row>
+              </Card>
 
               <SectionHeader title="Wallet setup" />
               <Card>
@@ -673,10 +690,227 @@ export const ReceivePreviewScreen = (
 };
 
 // ---------------------------------------------------------------------------
+// Payment methods — the rails the user can link (Indexx Pay, PayPal, Zelle,
+// MetaMask, cards). List + per-method connect screen, mirroring SocialConnect.
+// ---------------------------------------------------------------------------
+
+const KIND_LABEL: Record<PaymentMethod['kind'], string> = {
+  wallet: 'Digital wallet',
+  bank: 'Bank transfer',
+  card: 'Card',
+  crypto: 'Crypto wallet',
+};
+
+export const PaymentMethodsScreen = ({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, 'PaymentMethods'>) => {
+  const {data, loading, error, offline, reload} = useAsync(() => paymentService.methods(), []);
+
+  useEffect(
+    () => navigation.addListener('focus', () => void reload()),
+    // reload wraps a stable callback; subscribe once per navigator.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [navigation],
+  );
+
+  return (
+    <Screen>
+      <MockNotice text="Payments preview — linking is simulated and no real money moves." />
+      <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
+        {methods => (
+          <View style={{gap: spacing.sm}}>
+            {methods.map(m => (
+              <Card
+                key={m.id}
+                onPress={() => navigation.navigate('PaymentMethodConnect', {methodId: m.id})}>
+                <Row gap={spacing.sm}>
+                  <View style={[styles.payIcon, {backgroundColor: m.brandColor}]}>
+                    <Ionicons name={m.icon} size={20} color={colors.textOnBrand} />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Row gap={spacing.xs}>
+                      <YayText variant="bodyStrong" numberOfLines={1} style={{flexShrink: 1}}>
+                        {m.name}
+                      </YayText>
+                      <Badge
+                        label={m.linked ? 'Linked' : KIND_LABEL[m.kind]}
+                        tone={m.linked ? 'success' : 'neutral'}
+                      />
+                    </Row>
+                    <YayText variant="caption" color={colors.textMuted} numberOfLines={1}>
+                      {m.linked && m.detail ? m.detail : m.blurb}
+                    </YayText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                </Row>
+              </Card>
+            ))}
+          </View>
+        )}
+      </AsyncView>
+    </Screen>
+  );
+};
+
+export const PaymentMethodConnectScreen = ({
+  navigation,
+  route,
+}: NativeStackScreenProps<RootStackParamList, 'PaymentMethodConnect'>) => {
+  const {methodId} = route.params;
+  const toast = useToast();
+  const {data, setData, loading, error, offline, reload} = useAsync(
+    () => paymentService.method(methodId),
+    [methodId],
+  );
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (data) {
+      navigation.setOptions({title: data.name});
+    }
+  }, [navigation, data]);
+
+  const toggle = async (method: PaymentMethod) => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await paymentService.toggle(method.id);
+      setData(updated);
+      toast.show(
+        updated.linked ? `${updated.name} linked — ${updated.detail}` : `${updated.name} removed`,
+        updated.linked ? 'success' : undefined,
+      );
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Screen>
+      <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
+        {m => (
+          <>
+            {/* Hero */}
+            <Card style={{alignItems: 'center', backgroundColor: m.brandColor, borderColor: m.brandColor}}>
+              <View style={styles.payHeroIcon}>
+                <Ionicons name={m.icon} size={36} color={m.brandColor} />
+              </View>
+              <YayText variant="title" color={colors.textOnBrand} style={{marginTop: spacing.sm}}>
+                {m.name}
+              </YayText>
+              <YayText
+                variant="caption"
+                color={colors.textOnBrand}
+                style={{opacity: 0.92, textAlign: 'center'}}>
+                {m.blurb}
+              </YayText>
+              <View style={{marginTop: spacing.sm}}>
+                <Badge
+                  label={m.linked ? `Linked — ${m.detail}` : KIND_LABEL[m.kind]}
+                  tone={m.linked ? 'success' : 'neutral'}
+                />
+              </View>
+            </Card>
+
+            <SectionHeader title="How linking works" />
+            <Card>
+              {m.steps.map((step, i) => (
+                <Row
+                  key={step}
+                  gap={spacing.sm}
+                  style={{alignItems: 'flex-start', marginTop: i === 0 ? 0 : spacing.sm}}>
+                  <View style={[styles.payStepDot, {backgroundColor: m.brandColor}]}>
+                    <YayText variant="micro" color={colors.textOnBrand}>
+                      {i + 1}
+                    </YayText>
+                  </View>
+                  <YayText color={colors.textSecondary} style={{flex: 1}}>
+                    {step}
+                  </YayText>
+                </Row>
+              ))}
+            </Card>
+
+            <SectionHeader title="What you can do" />
+            <Card>
+              {m.unlocks.map((item, i) => (
+                <Row
+                  key={item}
+                  gap={spacing.sm}
+                  style={{alignItems: 'flex-start', marginTop: i === 0 ? 0 : spacing.sm}}>
+                  <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                  <YayText color={colors.textSecondary} style={{flex: 1}}>
+                    {item}
+                  </YayText>
+                </Row>
+              ))}
+            </Card>
+
+            <Spacer size={spacing.lg} />
+            {m.linked ? (
+              <Button
+                label={`Remove ${m.name}`}
+                kind="danger"
+                icon="unlink"
+                loading={busy}
+                onPress={() => toggle(m)}
+              />
+            ) : (
+              <Button label={`Link ${m.name}`} icon="link" loading={busy} onPress={() => toggle(m)} />
+            )}
+            <YayText
+              variant="micro"
+              color={colors.textFaint}
+              style={{textAlign: 'center', marginTop: spacing.xs}}>
+              {m.linked
+                ? 'Removing this method stops it from appearing at checkout.'
+                : 'You can remove a linked method at any time.'}
+            </YayText>
+            <Spacer size={spacing.md} />
+            <Banner
+              tone="warning"
+              icon="flask"
+              text={`Preview build — linking is simulated and no real money moves. The real flow will verify with ${m.name} directly.`}
+            />
+          </>
+        )}
+      </AsyncView>
+    </Screen>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
+  payIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payHeroIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payStepDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
   totalCard: {
     alignItems: 'center',
     gap: spacing.xxs,
@@ -756,11 +990,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.lg,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
   },
   qrGrid: {
     padding: spacing.xs,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: colors.borderSoft,

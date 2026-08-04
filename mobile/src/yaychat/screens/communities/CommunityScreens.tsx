@@ -407,7 +407,7 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
       message => toast.show(message, 'error'),
     );
     if (done) {
-      toast.show('Report submitted. Thanks for keeping Yay-chat safe.', 'success');
+      toast.show('Report submitted. Thanks for keeping YaysApp safe.', 'success');
     }
   };
 
@@ -432,7 +432,10 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 <Avatar name={c.name} size={72} />
                 <Spacer size={spacing.sm} />
                 <Row gap={spacing.xs}>
-                  <YayText variant="title" style={{textAlign: 'center'}}>
+                  <YayText
+                    variant="title"
+                    style={{textAlign: 'center', flexShrink: 1}}
+                    numberOfLines={1}>
                     {c.name}
                   </YayText>
                   {isStaff ? roleBadge(c.role) : null}
@@ -1147,10 +1150,14 @@ type CreateProps = NativeStackScreenProps<CommunitiesStackParamList, 'CreateComm
 export const CreateCommunityScreen = ({navigation}: CreateProps) => {
   const toast = useToast();
   const {busy, perform} = useAction();
-  const categories = useMemo(() => communityService.categories(), []);
+  // 'All' is the discovery filter, not a real category a community can have.
+  const categories = useMemo(
+    () => communityService.categories().filter(c => c !== 'All'),
+    [],
+  );
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState(categories[0] ?? 'General');
+  const [category, setCategory] = useState(categories[0] ?? 'Other');
   const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
   const [nameError, setNameError] = useState<string | null>(null);
 

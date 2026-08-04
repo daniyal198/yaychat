@@ -17,6 +17,7 @@ import {
   EmptyState,
   ListRow,
   MockNotice,
+  Oval,
   ProgressBar,
   Row,
   Screen,
@@ -25,7 +26,7 @@ import {
   StatTile,
   YayText,
 } from '../../design/components';
-import {colors, spacing} from '../../design/tokens';
+import {colors, radius, spacing} from '../../design/tokens';
 import {earnService} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
@@ -133,7 +134,7 @@ export const EarnHomeScreen = ({
       return;
     }
     if (title.includes('ai')) {
-      toast.show('Use Yay AI in the AI tab to progress', 'info');
+      toast.show('Use aiainai in the AI tab to progress', 'info');
       return;
     }
     toast.show(`Keep going — ${activity.reward} when you complete this.`, 'info');
@@ -213,6 +214,29 @@ export const EarnHomeScreen = ({
               </YayText>
             </Card>
 
+            {/* BTCY progression — points → nuggets → Alchemy → tokens */}
+            <SectionHeader title="From points to BTCY" />
+            <Card>
+              <Row gap={spacing.xxs} style={{alignItems: 'center', flexWrap: 'wrap'}}>
+                {['YayPoints', 'Nuggets', 'Alchemy', 'BTCY tokens'].map((stage, i) => (
+                  <Row key={stage} gap={spacing.xxs} style={{alignItems: 'center'}}>
+                    {i > 0 ? (
+                      <Ionicons name="arrow-forward" size={12} color={colors.textFaint} />
+                    ) : null}
+                    <View style={styles.stagePill}>
+                      <YayText variant="micro" color={colors.brandStrong}>
+                        {stage}
+                      </YayText>
+                    </View>
+                  </Row>
+                ))}
+              </Row>
+              <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
+                When rewards go live, YayPoints convert to BTCY nuggets, and nuggets refine into
+                BTCY tokens through Bitcoin Yay's Alchemy tiers.
+              </YayText>
+            </Card>
+
             {/* Activities */}
             <SectionHeader title="Ways to earn" />
             <View style={{gap: spacing.sm}}>
@@ -223,9 +247,9 @@ export const EarnHomeScreen = ({
                     key={activity.id}
                     onPress={interactive ? () => handleActivityPress(activity) : undefined}>
                     <Row gap={spacing.sm} style={{alignItems: 'flex-start'}}>
-                      <View style={styles.activityIcon}>
+                      <Oval size={40} color={colors.brandSoft}>
                         <Ionicons name={activity.icon} size={20} color={colors.brand} />
-                      </View>
+                      </Oval>
                       <View style={{flex: 1}}>
                         <Row style={{justifyContent: 'space-between'}}>
                           <YayText variant="bodyStrong" style={{flex: 1}} numberOfLines={1}>
@@ -520,7 +544,7 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
   const handleShare = async (code: string) => {
     try {
       await Share.share({
-        message: `Join me on Yay-chat! Use my invite code ${code} when you sign up. https://yay.chat/invite/${code}`,
+        message: `Join me on YaysApp! Use my invite code ${code} when you sign up. https://yay.chat/invite/${code}`,
       });
     } catch {
       toast.show('Could not open share sheet', 'error');
@@ -560,11 +584,11 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
             <Card>
               {REFERRAL_STEPS.map((step, i) => (
                 <Row key={step} gap={spacing.sm} style={{paddingVertical: spacing.xs, alignItems: 'flex-start'}}>
-                  <View style={styles.stepBubble}>
+                  <Oval size={22} style={styles.stepBubble}>
                     <YayText variant="micro" color={colors.textOnBrand}>
                       {i + 1}
                     </YayText>
-                  </View>
+                  </Oval>
                   <YayText variant="caption" color={colors.textSecondary} style={{flex: 1}}>
                     {step}
                   </YayText>
@@ -702,13 +726,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandSoft,
     borderColor: colors.brandBorder,
   },
-  activityIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  stagePill: {
     backgroundColor: colors.brandSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
   },
   historyRow: {
     flexDirection: 'row',
@@ -716,15 +738,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.xxs,
-    borderRadius: 12,
+    borderRadius: radius.sm,
   },
   stepBubble: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginTop: 1,
   },
 });

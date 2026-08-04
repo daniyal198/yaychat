@@ -1,5 +1,5 @@
 /**
- * Yay-chat Chats stack — the flagship area of the app.
+ * YaysApp Chats stack — the flagship area of the app.
  *
  * ChatList, ChatSearch, ArchivedChats, NewChat, Conversation,
  * ConversationDetails, GroupMembers, SharedMedia, ForwardMessage and
@@ -7,11 +7,13 @@
  */
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  Clipboard,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -22,6 +24,7 @@ import {
   AsyncView,
   Avatar,
   Badge,
+  Oval,
   BottomSheet,
   Button,
   Card,
@@ -45,8 +48,9 @@ import {
   TextField,
   YayText,
 } from '../../design/components';
+import {EmojiPicker} from '../../design/EmojiPicker';
 import {colors, radius, shadows, spacing, typography} from '../../design/tokens';
-import {ME_ID, chatService, userService} from '../../services';
+import {ME_ID, chatService, communityService, errorMessage, userService} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import {Conversation, Message, User} from '../../types/models';
@@ -116,7 +120,7 @@ const previewText = (c: Conversation): string => {
     return 'No messages yet';
   }
   if (m.recalled) {
-    return 'Message recalled';
+    return 'This message was deleted';
   }
   const you = m.senderId === ME_ID && m.kind !== 'system' ? 'You: ' : '';
   return `${you}${kindPrefix(m)}${m.text}`;
@@ -154,7 +158,9 @@ const ConversationRow = ({
   conversation: Conversation;
   onPress: () => void;
   onLongPress: () => void;
-}) => (
+}) => {
+  const unread = conversation.unreadCount > 0;
+  return (
   <Pressable
     onPress={onPress}
     onLongPress={onLongPress}
@@ -172,19 +178,27 @@ const ConversationRow = ({
           <Ionicons name="pin" size={13} color={colors.accent} />
         ) : null}
         <View style={{flex: 1}} />
-        <YayText variant="micro" color={colors.textMuted}>
+        <YayText
+          variant="micro"
+          color={unread ? colors.notify : colors.textMuted}
+          style={unread ? {fontWeight: '700'} : undefined}>
           {conversation.lastMessage ? timeAgo(conversation.lastMessage.createdAt) : ''}
         </YayText>
       </Row>
       <Row gap={spacing.xs} style={{marginTop: 2}}>
-        <YayText variant="caption" color={colors.textMuted} numberOfLines={1} style={{flex: 1}}>
+        <YayText
+          variant="caption"
+          color={unread ? colors.textPrimary : colors.textMuted}
+          numberOfLines={1}
+          style={unread ? {flex: 1, fontWeight: '700'} : {flex: 1}}>
           {previewText(conversation)}
         </YayText>
         <CountBubble count={conversation.unreadCount} />
       </Row>
     </View>
   </Pressable>
-);
+  );
+};
 
 export const ChatListScreen = ({
   navigation,
@@ -193,6 +207,7 @@ export const ChatListScreen = ({
   const {perform} = useAction();
   const [filter, setFilter] = useState<ChatFilter>('All');
   const [sheetConvo, setSheetConvo] = useState<Conversation | null>(null);
+  const [confirmDeleteConvo, setConfirmDeleteConvo] = useState<Conversation | null>(null);
   const {data, loading, refreshing, error, offline, reload, refresh} = useAsync(
     () => chatService.listConversations(FILTER_MAP[filter]),
     [filter],
@@ -268,7 +283,9 @@ export const ChatListScreen = ({
         accessibilityLabel="New chat"
         onPress={() => navigation.navigate('NewChat')}
         style={({pressed}) => [styles.fab, pressed && {opacity: 0.85}]}>
-        <Ionicons name="create" size={24} color={colors.textOnBrand} />
+        <Oval size={52}>
+          <Ionicons name="create" size={24} color={colors.textOnBrand} />
+        </Oval>
       </Pressable>
       <BottomSheet
         visible={sheetConvo != null}
@@ -306,9 +323,35 @@ export const ChatListScreen = ({
                 runRowAction(() => chatService.setArchived(sheetConvo.id, true), 'Archived')
               }
             />
+            <ListRow
+              icon="trash"
+              iconTone={colors.danger}
+              title="Delete chat"
+              chevron={false}
+              onPress={() => {
+                setSheetConvo(null);
+                setConfirmDeleteConvo(sheetConvo);
+              }}
+            />
           </View>
         ) : null}
       </BottomSheet>
+      <ConfirmSheet
+        visible={confirmDeleteConvo != null}
+        onClose={() => setConfirmDeleteConvo(null)}
+        title="Delete chat?"
+        message={`“${confirmDeleteConvo?.title ?? ''}” and its messages will be deleted for you. This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (confirmDeleteConvo) {
+            runRowAction(
+              () => chatService.deleteConversation(confirmDeleteConvo.id),
+              'Chat deleted',
+            );
+          }
+        }}
+      />
     </Screen>
   );
 };
@@ -469,6 +512,11 @@ export const NewChatScreen = ({
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
+  const groupCategories = useMemo(
+    () => communityService.categories().filter(c => c !== 'All'),
+    [],
+  );
+  const [groupCategory, setGroupCategory] = useState('Other');
   const {data, loading, error, offline, reload} = useAsync(() => userService.contacts());
 
   const filtered = useMemo(() => {
@@ -493,7 +541,7 @@ export const NewChatScreen = ({
 
   const createGroup = async () => {
     const convo = await perform(
-      () => chatService.createConversation(selected, groupName),
+      () => chatService.createConversation(selected, groupName, groupCategory),
       m => toast.show(m, 'error'),
     );
     if (convo) {
@@ -508,12 +556,30 @@ export const NewChatScreen = ({
       <SearchBar value={query} onChangeText={setQuery} placeholder="Search contacts" />
       <Spacer size={spacing.sm} />
       {mode === 'Group' ? (
-        <TextField
-          label="Group name"
-          placeholder="Name your group"
-          value={groupName}
-          onChangeText={setGroupName}
-        />
+        <>
+          <TextField
+            label="Group name"
+            placeholder="Name your group"
+            value={groupName}
+            onChangeText={setGroupName}
+          />
+          <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
+            Category
+          </YayText>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{gap: spacing.xxs, paddingBottom: spacing.sm}}>
+            {groupCategories.map(cat => (
+              <Chip
+                key={cat}
+                label={cat}
+                active={cat === groupCategory}
+                onPress={() => setGroupCategory(cat)}
+              />
+            ))}
+          </ScrollView>
+        </>
       ) : null}
       <View style={{flex: 1}}>
         <AsyncView
@@ -613,14 +679,14 @@ const AttachmentBody = ({message, mine}: {message: Message; mine: boolean}) => {
   if (message.kind === 'image' || message.kind === 'video') {
     return (
       <View>
-        <View style={[styles.mediaPlaceholder, {backgroundColor: boxBg}]}>
+        <View style={[styles.mediaPlaceholder, {backgroundColor: colors.mediaBox}]}>
           <Ionicons
             name={message.kind === 'image' ? 'image' : 'play-circle'}
             size={34}
-            color={mine ? colors.brandSoft : colors.textFaint}
+            color={colors.textMuted}
           />
         </View>
-        <YayText variant="micro" color={sub} style={{marginTop: spacing.xxs}}>
+        <YayText variant="micro" color={colors.textMuted} style={{marginTop: spacing.xxs}}>
           {message.attachment?.name ?? message.text}
         </YayText>
       </View>
@@ -678,6 +744,7 @@ const MessageBubble = ({
   onLongPress,
   onPress,
   onToggleReaction,
+  selected,
 }: {
   message: Message;
   mine: boolean;
@@ -687,6 +754,7 @@ const MessageBubble = ({
   onLongPress: () => void;
   onPress?: () => void;
   onToggleReaction: (emoji: string) => void;
+  selected?: boolean;
 }) => {
   if (message.kind === 'system') {
     return (
@@ -696,14 +764,20 @@ const MessageBubble = ({
     );
   }
   const status = statusIconFor(message.status);
+  const isMedia = !message.recalled && (message.kind === 'image' || message.kind === 'video');
   return (
-    <View style={[styles.bubbleWrap, mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs]}>
+    <View
+      style={[
+        styles.bubbleWrap,
+        mine ? styles.bubbleWrapMine : styles.bubbleWrapTheirs,
+        selected && styles.bubbleWrapSelected,
+      ]}>
       <Pressable
         onLongPress={message.recalled ? undefined : onLongPress}
         onPress={onPress}
         style={({pressed}) => [
           styles.bubble,
-          mine ? styles.bubbleMine : styles.bubbleTheirs,
+          mine ? (isMedia ? styles.bubbleMediaMine : styles.bubbleMine) : styles.bubbleTheirs,
           pressed && {opacity: 0.85},
         ]}>
         {senderName ? (
@@ -735,7 +809,7 @@ const MessageBubble = ({
               variant="micro"
               color={mine ? colors.textOnBrand : colors.textSecondary}
               numberOfLines={2}>
-              {quoted.recalled ? 'Message recalled' : `${kindPrefix(quoted)}${quoted.text}`}
+              {quoted.recalled ? 'This message was deleted' : `${kindPrefix(quoted)}${quoted.text}`}
             </YayText>
           </View>
         ) : null}
@@ -744,7 +818,7 @@ const MessageBubble = ({
             variant="caption"
             color={mine ? colors.brandSoft : colors.textMuted}
             style={{fontStyle: 'italic'}}>
-            Message recalled
+            {mine ? 'You deleted this message' : 'This message was deleted'}
           </YayText>
         ) : (
           <AttachmentBody message={message} mine={mine} />
@@ -772,6 +846,11 @@ const MessageBubble = ({
         <YayText variant="micro" color={colors.textFaint}>
           {clockTime(message.createdAt)}
         </YayText>
+        {message.edited && !message.recalled ? (
+          <YayText variant="micro" color={colors.textFaint}>
+            · edited
+          </YayText>
+        ) : null}
         {mine ? <Ionicons name={status.icon} size={13} color={status.color} /> : null}
         {mine && message.status === 'failed' ? (
           <YayText variant="micro" color={colors.danger}>
@@ -800,9 +879,15 @@ export const ConversationScreen = ({
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
+  const [confirmCall, setConfirmCall] = useState<'voice' | 'video' | null>(null);
+  const [confirmMsgDelete, setConfirmMsgDelete] = useState<{message: Message; everyone: boolean} | null>(null);
+  const [emojiTarget, setEmojiTarget] = useState<'composer' | {message: Message} | null>(null);
   const [attachSheet, setAttachSheet] = useState(false);
+  // Multi-select: null = normal mode, a Set = selection mode with those ids.
+  const [selectedIds, setSelectedIds] = useState<Set<string> | null>(null);
+  const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [otherTyping, setOtherTyping] = useState(false);
-  const initialUnread = useRef(0);
+  const unreadAnchorId = useRef<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const localId = useRef(0);
 
@@ -825,8 +910,12 @@ export const ConversationScreen = ({
 
   useEffect(() => {
     if (data) {
-      initialUnread.current = data.conversation.unreadCount;
-      setMsgs(data.messages.filter(m => !m.deleted));
+      // Anchor the unread separator to a message id so it doesn't drift as
+      // new messages are appended to the list.
+      const list = data.messages.filter(m => !m.deleted);
+      const count = data.conversation.unreadCount;
+      unreadAnchorId.current = count > 0 ? list[list.length - count]?.id ?? null : null;
+      setMsgs(list);
       chatService.markRead(conversationId);
     }
   }, [data, conversationId]);
@@ -847,25 +936,32 @@ export const ConversationScreen = ({
       : '';
     navigation.setOptions({
       headerTitle: () => (
-        <View>
-          <YayText variant="bodyStrong" numberOfLines={1}>
-            {conversation.title}
-          </YayText>
-          {subtitle ? (
-            <YayText
-              variant="micro"
-              color={typing || otherUser?.online ? colors.brand : colors.textMuted}>
-              {subtitle}
+        <Row gap={spacing.xs}>
+          <Avatar name={conversation.title} size={34} />
+          <View>
+            <YayText variant="bodyStrong" numberOfLines={1}>
+              {conversation.title}
             </YayText>
-          ) : null}
-        </View>
+            {subtitle ? (
+              <YayText
+                variant="micro"
+                color={typing || otherUser?.online ? colors.brand : colors.textMuted}>
+                {subtitle}
+              </YayText>
+            ) : null}
+          </View>
+        </Row>
       ),
       headerRight: () => (
-        <IconButton
-          icon="ellipsis-horizontal-circle"
-          label="Conversation details"
-          onPress={() => navigation.navigate('ConversationDetails', {conversationId})}
-        />
+        <Row gap={0}>
+          <IconButton icon="call" label="Voice call" onPress={() => setConfirmCall('voice')} />
+          <IconButton icon="videocam" label="Video call" onPress={() => setConfirmCall('video')} />
+          <IconButton
+            icon="ellipsis-horizontal-circle"
+            label="Conversation details"
+            onPress={() => navigation.navigate('ConversationDetails', {conversationId})}
+          />
+        </Row>
       ),
     });
   }, [navigation, conversation, conversationId, isGroup, otherUser, otherTyping]);
@@ -942,9 +1038,50 @@ export const ConversationScreen = ({
     if (!trimmed) {
       return;
     }
+    if (editingMsg) {
+      const target = editingMsg;
+      setEditingMsg(null);
+      setText('');
+      chatService
+        .editMessage(conversationId, target.id, trimmed)
+        .then(updated => {
+          setMsgs(prev => prev.map(x => (x.id === target.id ? updated : x)));
+          toast.show('Message updated', 'success');
+        })
+        .catch(e => toast.show(errorMessage(e), 'error'));
+      return;
+    }
     doSend({text: trimmed, replyToId: replyTo?.id});
     setText('');
     setReplyTo(null);
+  };
+
+  const toggleSelect = (m: Message) => {
+    if (m.kind === 'system') {
+      return;
+    }
+    setSelectedIds(prev => {
+      const next = new Set(prev ?? []);
+      if (next.has(m.id)) {
+        next.delete(m.id);
+      } else {
+        next.add(m.id);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelected = async () => {
+    const ids = selectedIds ? [...selectedIds] : [];
+    if (ids.length === 0) {
+      return;
+    }
+    await Promise.all(
+      ids.map(id => chatService.deleteMessage(conversationId, id, false).catch(() => undefined)),
+    );
+    setMsgs(prev => prev.filter(m => !ids.includes(m.id)));
+    setSelectedIds(null);
+    toast.show(ids.length === 1 ? 'Message deleted' : `${ids.length} messages deleted`, 'success');
   };
 
   const retryFailed = (m: Message) => {
@@ -961,6 +1098,11 @@ export const ConversationScreen = ({
       voice: {text: 'Voice note', attachment: {name: 'voice-note', sizeLabel: '96 KB', durationLabel: '0:12'}},
     };
     const spec = specs[kind];
+    // Attaching cancels an in-progress edit — an attachment is a new message.
+    if (editingMsg) {
+      setEditingMsg(null);
+      setText('');
+    }
     doSend({text: spec.text, kind, attachment: spec.attachment, replyToId: replyTo?.id});
     setReplyTo(null);
   };
@@ -998,15 +1140,13 @@ export const ConversationScreen = ({
     const visible = msgs.filter(m => !m.deleted);
     const out: ConvoRowItem[] = [];
     let lastDay = '';
-    const unreadStart =
-      initialUnread.current > 0 ? visible.length - initialUnread.current : -1;
     visible.forEach((m, i) => {
       const day = new Date(m.createdAt).toDateString();
       if (day !== lastDay) {
         out.push({rowKey: `day_${day}_${i}`, type: 'date', label: dayLabel(m.createdAt)});
         lastDay = day;
       }
-      if (i === unreadStart) {
+      if (m.id === unreadAnchorId.current) {
         out.push({rowKey: 'unread_marker', type: 'unread'});
       }
       out.push({rowKey: m.id, type: 'msg', message: m});
@@ -1033,6 +1173,17 @@ export const ConversationScreen = ({
               <YayText variant="title">{e}</YayText>
             </Pressable>
           ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More reactions"
+            onPress={() => {
+              close();
+              setEmojiTarget({message: m});
+            }}
+            hitSlop={6}
+            style={styles.moreReactions}>
+            <Ionicons name="add" size={20} color={colors.textSecondary} />
+          </Pressable>
         </Row>
         <Divider />
         <ListRow
@@ -1041,6 +1192,12 @@ export const ConversationScreen = ({
           chevron={false}
           onPress={() => {
             close();
+            // Replying cancels any in-progress edit so the two bars never
+            // stack and the edit can't silently swallow the reply.
+            if (editingMsg) {
+              setEditingMsg(null);
+              setText('');
+            }
             setReplyTo(m);
           }}
         />
@@ -1050,6 +1207,7 @@ export const ConversationScreen = ({
           chevron={false}
           onPress={() => {
             close();
+            Clipboard.setString(m.text);
             toast.show('Copied', 'success');
           }}
         />
@@ -1062,6 +1220,30 @@ export const ConversationScreen = ({
             navigation.navigate('ForwardMessage', {conversationId, messageId: m.id});
           }}
         />
+        {mine && m.kind === 'text' && !m.recalled ? (
+          <ListRow
+            icon="create-outline"
+            title="Edit"
+            chevron={false}
+            onPress={() => {
+              close();
+              setReplyTo(null);
+              setEditingMsg(m);
+              setText(m.text);
+            }}
+          />
+        ) : null}
+        <ListRow
+          icon="checkmark-circle-outline"
+          title="Select messages"
+          chevron={false}
+          onPress={() => {
+            close();
+            setEditingMsg(null);
+            setReplyTo(null);
+            setSelectedIds(new Set([m.id]));
+          }}
+        />
         <ListRow
           icon="pin"
           title={m.pinned ? 'Unpin' : 'Pin'}
@@ -1070,7 +1252,10 @@ export const ConversationScreen = ({
             close();
             try {
               await chatService.pinMessage(conversationId, m.id);
-              setMsgs(prev => prev.map(x => (x.id === m.id ? {...x, pinned: !x.pinned} : x)));
+              // Single pinned message per chat: pinning one unpins the rest.
+              setMsgs(prev =>
+                prev.map(x => ({...x, pinned: x.id === m.id ? !x.pinned : false})),
+              );
               toast.show(m.pinned ? 'Unpinned' : 'Pinned', 'success');
             } catch {
               toast.show('Could not update pin', 'error');
@@ -1082,26 +1267,20 @@ export const ConversationScreen = ({
           iconTone={colors.danger}
           title="Delete for me"
           chevron={false}
-          onPress={async () => {
+          onPress={() => {
             close();
-            await chatService.deleteMessage(conversationId, m.id, false).catch(() => undefined);
-            setMsgs(prev => prev.filter(x => x.id !== m.id));
-            toast.show('Deleted for you', 'success');
+            setConfirmMsgDelete({message: m, everyone: false});
           }}
         />
         {mine ? (
           <ListRow
-            icon="refresh-circle"
+            icon="trash-bin"
             iconTone={colors.danger}
-            title="Recall"
+            title="Delete for everyone"
             chevron={false}
-            onPress={async () => {
+            onPress={() => {
               close();
-              await chatService.deleteMessage(conversationId, m.id, true).catch(() => undefined);
-              setMsgs(prev =>
-                prev.map(x => (x.id === m.id ? {...x, recalled: true, text: ''} : x)),
-              );
-              toast.show('Message recalled', 'success');
+              setConfirmMsgDelete({message: m, everyone: true});
             }}
           />
         ) : null}
@@ -1186,9 +1365,22 @@ export const ConversationScreen = ({
                             : memberById[quoted.senderId]?.name
                           : undefined
                       }
-                      onLongPress={() => setSheetMsg(m)}
-                      onPress={mine && m.status === 'failed' ? () => retryFailed(m) : undefined}
-                      onToggleReaction={emoji => toggleReaction(m, emoji)}
+                      onLongPress={() =>
+                        selectedIds ? toggleSelect(m) : setSheetMsg(m)
+                      }
+                      onPress={
+                        selectedIds
+                          ? () => toggleSelect(m)
+                          : mine && m.status === 'failed'
+                          ? () => retryFailed(m)
+                          : undefined
+                      }
+                      onToggleReaction={
+                        // In selection mode reaction pills select the message
+                        // instead of mutating reactions.
+                        selectedIds ? () => toggleSelect(m) : emoji => toggleReaction(m, emoji)
+                      }
+                      selected={selectedIds?.has(m.id) ?? false}
                     />
                   );
                 }}
@@ -1201,7 +1393,63 @@ export const ConversationScreen = ({
                   {`${otherUser?.name ?? 'Someone'} is typing…`}
                 </YayText>
               ) : null}
+              {selectedIds ? (
+                <View style={styles.composer}>
+                  <Row style={{justifyContent: 'space-between'}}>
+                    <YayText variant="bodyStrong">
+                      {`${selectedIds.size} selected`}
+                    </YayText>
+                    <Row gap={spacing.md}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel selection"
+                        hitSlop={8}
+                        onPress={() => setSelectedIds(null)}>
+                        <YayText variant="bodyStrong" color={colors.textSecondary}>
+                          Cancel
+                        </YayText>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${selectedIds.size} messages`}
+                        disabled={selectedIds.size === 0}
+                        onPress={deleteSelected}
+                        style={({pressed}) => [
+                          styles.selectionDelete,
+                          (pressed || selectedIds.size === 0) && {opacity: 0.5},
+                        ]}>
+                        <Ionicons name="trash" size={15} color={colors.danger} />
+                        <YayText variant="bodyStrong" color={colors.danger}>
+                          Delete
+                        </YayText>
+                      </Pressable>
+                    </Row>
+                  </Row>
+                </View>
+              ) : (
               <View style={styles.composer}>
+                {editingMsg ? (
+                  <Row gap={spacing.xs} style={styles.replyBar}>
+                    <Ionicons name="create-outline" size={15} color={colors.brand} />
+                    <View style={{flex: 1}}>
+                      <YayText variant="micro" color={colors.brandStrong}>
+                        Editing message
+                      </YayText>
+                      <YayText variant="micro" color={colors.textMuted} numberOfLines={1}>
+                        {editingMsg.text}
+                      </YayText>
+                    </View>
+                    <IconButton
+                      icon="close"
+                      size={17}
+                      onPress={() => {
+                        setEditingMsg(null);
+                        setText('');
+                      }}
+                      label="Cancel edit"
+                    />
+                  </Row>
+                ) : null}
                 {replyTo ? (
                   <Row gap={spacing.xs} style={styles.replyBar}>
                     <Ionicons name="arrow-undo" size={15} color={colors.brand} />
@@ -1229,17 +1477,24 @@ export const ConversationScreen = ({
                     style={styles.composerInput}
                     accessibilityLabel="Message input"
                   />
-                  <IconButton icon="happy-outline" label="Emoji" onPress={() => setText(t => `${t}😊`)} />
+                  <IconButton icon="happy-outline" label="Emoji" onPress={() => setEmojiTarget('composer')} />
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Send"
+                    accessibilityLabel={editingMsg ? 'Save edit' : 'Send'}
                     disabled={!text.trim()}
                     onPress={sendText}
-                    style={[styles.sendButton, !text.trim() && {opacity: 0.4}]}>
-                    <Ionicons name="paper-plane" size={18} color={colors.textOnBrand} />
+                    style={!text.trim() ? {opacity: 0.4} : null}>
+                    <Oval size={38}>
+                      <Ionicons
+                        name={editingMsg ? 'checkmark' : 'paper-plane'}
+                        size={18}
+                        color={colors.textOnBrand}
+                      />
+                    </Oval>
                   </Pressable>
                 </Row>
               </View>
+              )}
             </View>
           )}
         </AsyncView>
@@ -1247,6 +1502,66 @@ export const ConversationScreen = ({
       <BottomSheet visible={sheetMsg != null} onClose={() => setSheetMsg(null)} title="Message">
         {sheetMsg ? sheetActions(sheetMsg) : null}
       </BottomSheet>
+      <ConfirmSheet
+        visible={confirmCall != null}
+        onClose={() => setConfirmCall(null)}
+        title={confirmCall === 'video' ? 'Start video call?' : 'Start voice call?'}
+        message={
+          conversation
+            ? `${confirmCall === 'video' ? 'Video call' : 'Call'} ${conversation.title}?`
+            : undefined
+        }
+        confirmLabel={confirmCall === 'video' ? 'Video call' : 'Call'}
+        onConfirm={() =>
+          toast.show(
+            confirmCall === 'video'
+              ? 'Video call started (preview)'
+              : 'Voice call started (preview)',
+            'success',
+          )
+        }
+      />
+      <ConfirmSheet
+        visible={confirmMsgDelete != null}
+        onClose={() => setConfirmMsgDelete(null)}
+        title={confirmMsgDelete?.everyone ? 'Delete for everyone?' : 'Delete this message?'}
+        message={
+          confirmMsgDelete?.everyone
+            ? 'This message will be removed for everyone in this chat.'
+            : 'This message will be deleted for you only.'
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!confirmMsgDelete) {
+            return;
+          }
+          const {message, everyone} = confirmMsgDelete;
+          await chatService.deleteMessage(conversationId, message.id, everyone).catch(() => undefined);
+          if (everyone) {
+            setMsgs(prev =>
+              prev.map(x => (x.id === message.id ? {...x, recalled: true, text: ''} : x)),
+            );
+            toast.show('Deleted for everyone', 'success');
+          } else {
+            setMsgs(prev => prev.filter(x => x.id !== message.id));
+            toast.show('Deleted for you', 'success');
+          }
+        }}
+      />
+      <EmojiPicker
+        visible={emojiTarget != null}
+        onClose={() => setEmojiTarget(null)}
+        title={emojiTarget === 'composer' ? 'Emoji' : 'React with any emoji'}
+        onSelect={emoji => {
+          if (emojiTarget === 'composer') {
+            setText(t => `${t}${emoji}`);
+          } else if (emojiTarget) {
+            toggleReaction(emojiTarget.message, emoji);
+            setEmojiTarget(null);
+          }
+        }}
+      />
       <BottomSheet visible={attachSheet} onClose={() => setAttachSheet(false)} title="Share something">
         <ListRow icon="image" title="Photo" chevron={false} onPress={() => sendAttachment('image')} />
         <ListRow icon="videocam" title="Video" chevron={false} onPress={() => sendAttachment('video')} />
@@ -1519,12 +1834,17 @@ export const ConversationDetailsScreen = ({
         <Button
           label="Save"
           disabled={nameDraft.trim().length < 2}
-          onPress={() => {
+          onPress={async () => {
             setEditNameVisible(false);
-            if (data) {
-              setData({...data, title: nameDraft.trim()});
+            try {
+              await chatService.renameGroup(conversationId, nameDraft);
+              if (data) {
+                setData({...data, title: nameDraft.trim()});
+              }
+              toast.show('Group name updated', 'success');
+            } catch (e) {
+              toast.show(errorMessage(e), 'error');
             }
-            toast.show('Group name updated', 'success');
           }}
         />
       </BottomSheet>
@@ -1610,16 +1930,21 @@ export const GroupMembersScreen = ({
               icon="shield-checkmark"
               title={roles[sheetMember.id] === 'admin' ? 'Remove admin' : 'Make admin'}
               chevron={false}
-              onPress={() => {
+              onPress={async () => {
                 const next: GroupRole = roles[sheetMember.id] === 'admin' ? 'member' : 'admin';
-                setRoles(prev => ({...prev, [sheetMember.id]: next}));
                 setSheetMember(null);
-                toast.show(
-                  next === 'admin'
-                    ? `${sheetMember.name} is now an admin`
-                    : `${sheetMember.name} is no longer an admin`,
-                  'success',
-                );
+                try {
+                  await chatService.setGroupRole(conversationId, sheetMember.id, next);
+                  setRoles(prev => ({...prev, [sheetMember.id]: next}));
+                  toast.show(
+                    next === 'admin'
+                      ? `${sheetMember.name} is now an admin`
+                      : `${sheetMember.name} is no longer an admin`,
+                    'success',
+                  );
+                } catch (e) {
+                  toast.show(errorMessage(e), 'error');
+                }
               }}
             />
             <ListRow
@@ -1627,10 +1952,15 @@ export const GroupMembersScreen = ({
               iconTone={colors.danger}
               title="Remove from group"
               chevron={false}
-              onPress={() => {
-                setRemovedIds(prev => [...prev, sheetMember.id]);
+              onPress={async () => {
                 setSheetMember(null);
-                toast.show(`${sheetMember.name} removed`, 'success');
+                try {
+                  await chatService.removeGroupMember(conversationId, sheetMember.id);
+                  setRemovedIds(prev => [...prev, sheetMember.id]);
+                  toast.show(`${sheetMember.name} removed`, 'success');
+                } catch (e) {
+                  toast.show(errorMessage(e), 'error');
+                }
               }}
             />
           </View>
@@ -1865,7 +2195,7 @@ export const ContactProfileScreen = ({
                 <Ionicons name="qr-code" size={64} color={colors.textFaint} />
               </View>
               <YayText variant="caption" color={colors.textMuted}>
-                Scan to add {user.name} on Yay-chat
+                Scan to add {user.name} on YaysApp
               </YayText>
             </Card>
             <SectionHeader title="Safety" />
@@ -1967,13 +2297,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.lg,
     bottom: spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: radius.lg,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.raised,
   },
   // Conversation
   pinnedBanner: {
@@ -2017,6 +2340,20 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     alignItems: 'flex-start',
   },
+  selectionDelete: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.dangerSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
+  bubbleWrapSelected: {
+    backgroundColor: colors.brandSoft,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.xxs,
+  },
   bubble: {
     borderRadius: radius.lg,
     paddingHorizontal: spacing.sm,
@@ -2024,6 +2361,10 @@ const styles = StyleSheet.create({
   },
   bubbleMine: {
     backgroundColor: colors.bubbleMine,
+    borderBottomRightRadius: radius.xs / 2,
+  },
+  bubbleMediaMine: {
+    backgroundColor: colors.bubbleMedia,
     borderBottomRightRadius: radius.xs / 2,
   },
   bubbleTheirs: {
@@ -2039,6 +2380,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xxs,
     marginBottom: spacing.xxs,
+  },
+  moreReactions: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
   },
   reactionPill: {
     flexDirection: 'row',
@@ -2091,14 +2442,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: typography.bodyFamily,
     color: colors.textPrimary,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   // Shared media
   mediaGrid: {

@@ -1,5 +1,5 @@
 /**
- * Yay-chat reusable component kit.
+ * YaysApp reusable component kit.
  * Every screen must build from these primitives so states and styling stay
  * consistent. See docs/yaychat-component-inventory.md.
  */
@@ -7,6 +7,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -22,7 +23,107 @@ import {
   ViewStyle,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import {avatarColorFor, colors, radius, shadows, spacing, typography} from './tokens';
+import {
+  avatarColorFor,
+  colors,
+  OVAL_ASPECT,
+  OVAL_SOURCE,
+  palette,
+  radius,
+  shadows,
+  spacing,
+  typography,
+} from './tokens';
+
+// ---------------------------------------------------------------------------
+// Oval — the brand oval image, used for every oval in the app
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the exact brand oval image (assets/oval.png) at any size, with
+ * content centered on top. Pass `color` to tint the same image (avatar DPs,
+ * unread bubbles, presence dots); omit it for the original orange artwork.
+ *
+ * - `size` sets the height; width follows the image's native aspect ratio so
+ *   the silhouette is never distorted.
+ * - Omit `size` and give min-dimensions/padding via `style` for content-driven
+ *   ovals (e.g. text buttons) — the image stretches to fit.
+ */
+export const Oval = ({
+  size,
+  minSize,
+  color,
+  style,
+  children,
+}: {
+  size?: number;
+  /** Minimum oval height when sizing to content. */
+  minSize?: number;
+  color?: string;
+  style?: ViewStyle | ViewStyle[];
+  children?: React.ReactNode;
+}) => {
+  // The oval is NEVER stretched away from the artwork's native aspect ratio.
+  // With `size`, dimensions are known up front. Without it, the content is
+  // measured and the smallest oval (at native proportions) that the content
+  // rectangle fits inside is computed: for an ellipse with width/height ratio
+  // R, a centered w×h rectangle fits when W >= sqrt(w² + (h·R)²).
+  // The image also always gets explicit pixel dimensions — with edge or
+  // percentage constraints it can fall back to its intrinsic pixel size
+  // (1133x1052) and flood the screen.
+  const [content, setContent] = useState<{width: number; height: number} | null>(null);
+  let ovalW: number | undefined;
+  let ovalH: number | undefined;
+  if (size) {
+    ovalW = Math.round(size * OVAL_ASPECT);
+    ovalH = size;
+  } else if (content) {
+    // 1.18 leaves breathing room; the artwork's tilt means the usable inner
+    // rectangle is slightly smaller than a true axis-aligned ellipse's.
+    let w =
+      Math.sqrt(content.width ** 2 + (content.height * OVAL_ASPECT) ** 2) * 1.18;
+    if (minSize) {
+      w = Math.max(w, minSize * OVAL_ASPECT);
+    }
+    ovalW = Math.ceil(w);
+    ovalH = Math.ceil(w / OVAL_ASPECT);
+  }
+  return (
+    <View
+      style={[
+        ovalW && ovalH ? {width: ovalW, height: ovalH} : null,
+        {alignItems: 'center', justifyContent: 'center'},
+        style as ViewStyle,
+      ]}>
+      {color === 'transparent' || !ovalW || !ovalH ? null : (
+        <Image
+          source={OVAL_SOURCE}
+          style={[
+            {position: 'absolute' as const, top: 0, left: 0, width: ovalW, height: ovalH},
+            color ? {tintColor: color} : null,
+          ]}
+          resizeMode="stretch"
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      )}
+      {size ? (
+        children
+      ) : (
+        <View
+          onLayout={e => {
+            const {width, height} = e.nativeEvent.layout;
+            if (content?.width !== width || content?.height !== height) {
+              setContent({width, height});
+            }
+          }}
+          style={{alignItems: 'center', justifyContent: 'center'}}>
+          {children}
+        </View>
+      )}
+    </View>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Text
@@ -113,13 +214,14 @@ export const Card = ({
   style?: ViewStyle;
   onPress?: () => void;
 }) => {
-  const body = <View style={[styles.card, style]}>{children}</View>;
   if (!onPress) {
-    return body;
+    return <View style={[styles.card, style]}>{children}</View>;
   }
   return (
-    <Pressable onPress={onPress} style={({pressed}) => [{opacity: pressed ? 0.85 : 1}]}>
-      {body}
+    <Pressable
+      onPress={onPress}
+      style={({pressed}) => [styles.card, style, pressed && {opacity: 0.85}]}>
+      {children}
     </Pressable>
   );
 };
@@ -189,6 +291,14 @@ export const Button = ({
     danger: {bg: colors.dangerSoft, fg: colors.danger},
   };
   const k = kindStyle[kind];
+  // Primary buttons use the oval artwork untinted (its exact orange); other
+  // kinds tint the same image so the silhouette never changes.
+  const ovalColor = kind === 'primary' ? undefined : k.bg;
+  // Buttons never put text inside the oval: the icon sits in a fixed-size
+  // oval badge (the exact artwork, never stretched) with the label centered
+  // beneath it.
+  const badgeIcon = icon ?? 'arrow-forward';
+  const labelColor = kind === 'danger' ? colors.danger : colors.textPrimary;
   return (
     <Pressable
       testID={testID}
@@ -197,23 +307,21 @@ export const Button = ({
       disabled={disabled || loading}
       onPress={onPress}
       style={({pressed}) => [
-        styles.button,
-        {backgroundColor: k.bg, borderColor: k.border ?? 'transparent'},
-        k.border ? {borderWidth: 1} : null,
+        styles.longButton,
         (disabled || loading) && {opacity: 0.5},
         pressed && {opacity: 0.8},
         style,
       ]}>
-      {loading ? (
-        <ActivityIndicator color={k.fg} />
-      ) : (
-        <Row gap={spacing.xs}>
-          {icon ? <Ionicons name={icon} size={17} color={k.fg} /> : null}
-          <YayText variant="bodyStrong" color={k.fg}>
-            {label}
-          </YayText>
-        </Row>
-      )}
+      <Oval size={58} color={ovalColor}>
+        {loading ? (
+          <ActivityIndicator color={k.fg} />
+        ) : (
+          <Ionicons name={badgeIcon} size={24} color={k.fg} />
+        )}
+      </Oval>
+      <YayText variant="caption" color={labelColor} style={{fontWeight: '700', textAlign: 'center'}}>
+        {label}
+      </YayText>
     </Pressable>
   );
 };
@@ -419,32 +527,24 @@ export const Avatar = ({
     .join('')
     .toUpperCase();
   return (
-    <View>
-      <View
+    <Oval size={size} color={avatarColorFor(name)}>
+      <YayText
+        variant="bodyStrong"
+        color={colors.textOnBrand}
         style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2.6,
-          backgroundColor: avatarColorFor(name),
-          alignItems: 'center',
-          justifyContent: 'center',
+          fontSize: size * 0.36,
+          lineHeight: size * 0.44,
         }}>
-        <YayText
-          variant="bodyStrong"
-          color={colors.textOnBrand}
-          style={{fontSize: size * 0.36, lineHeight: size * 0.44}}>
-          {initials || '?'}
-        </YayText>
-      </View>
+        {initials || '?'}
+      </YayText>
       {online !== undefined ? (
-        <View
-          style={[
-            styles.presenceDot,
-            {backgroundColor: online ? colors.success : colors.textFaint},
-          ]}
+        <Oval
+          size={11}
+          color={online ? colors.success : colors.textFaint}
+          style={styles.presenceDot}
         />
       ) : null}
-    </View>
+    </Oval>
   );
 };
 
@@ -477,11 +577,11 @@ export const Badge = ({
 
 export const CountBubble = ({count}: {count: number}) =>
   count > 0 ? (
-    <View style={styles.countBubble}>
+    <Oval color={colors.notify} minSize={20}>
       <YayText variant="micro" color={colors.textOnBrand}>
-        {count > 99 ? '99+' : String(count)}
+        {count > 8 ? '9+' : String(count)}
       </YayText>
-    </View>
+    </Oval>
   ) : null;
 
 export const Chip = ({
@@ -670,7 +770,7 @@ export const OfflineState = ({onRetry}: {onRetry?: () => void}) => (
   <StateView
     icon="wifi-outline"
     title="You are offline"
-    message="Check your connection. Yay-chat will pick up where you left off."
+    message="Check your connection. YaysApp will pick up where you left off."
     actionLabel={onRetry ? 'Retry' : undefined}
     onAction={onRetry}
   />
@@ -849,6 +949,42 @@ export const ConfirmSheet = ({
 // Misc
 // ---------------------------------------------------------------------------
 
+/**
+ * Hub dashboard CTA (BTCY, EMMM, ShoperPal): the brand oval (tinted to the
+ * hub's color, untinted for brand orange) with an arrow icon inside and the
+ * label centered beneath — same shape language as Button.
+ */
+export const HubCta = ({
+  label,
+  onPress,
+  background = colors.brand,
+  color = colors.textOnBrand,
+  labelColor = colors.textPrimary,
+}: {
+  label: string;
+  onPress: () => void;
+  background?: string;
+  color?: string;
+  /** Label color below the oval — set light when the CTA sits on a dark hero. */
+  labelColor?: string;
+}) => (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    onPress={onPress}
+    style={({pressed}) => [
+      {alignSelf: 'center', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.xs},
+      pressed && {opacity: 0.8},
+    ]}>
+    <Oval size={58} color={background === colors.brand ? undefined : background}>
+      <Ionicons name="arrow-forward" size={24} color={color} />
+    </Oval>
+    <YayText variant="caption" color={labelColor} style={{fontWeight: '700', textAlign: 'center'}}>
+      {label}
+    </YayText>
+  </Pressable>
+);
+
 export const ProgressBar = ({value, tone = colors.brand}: {value: number; tone?: string}) => (
   <View style={styles.progressTrack}>
     <View
@@ -882,34 +1018,116 @@ export const StatTile = ({
   </View>
 );
 
+/** YaysApp icon mark (the orange speech-bubble "y"). */
 export const BrandMark = ({size = 64}: {size?: number}) => (
-  <View
-    style={{
-      width: size,
-      height: size,
-      borderRadius: size / 2.6,
-      backgroundColor: colors.brand,
-      alignItems: 'center',
-      justifyContent: 'center',
-      ...shadows.raised,
-    }}>
-    <Ionicons name="chatbubble-ellipses" size={size * 0.5} color={colors.textOnBrand} />
+  <Image
+    source={require('../../../assets/Yaysapp-05.png')}
+    style={{width: size, height: size}}
+    resizeMode="contain"
+    accessibilityLabel="YaysApp"
+  />
+);
+
+/** YaysApp full wordmark lockup (icon + "YAYSAPP"). Aspect ratio ~3.64:1. */
+export const Wordmark = ({height = 30}: {height?: number}) => (
+  <Image
+    source={require('../../../assets/Yaysapp-08.png')}
+    style={{height, width: height * (1607 / 441)}}
+    resizeMode="contain"
+    accessibilityLabel="YaysApp"
+  />
+);
+
+/**
+ * aiAInai brand mark (aiainai.com) — a 2x2 red/white tile wordmark used for the
+ * aiainai assistant. Rendered from views so it needs no bundled asset; to use
+ * the exact PNG later, drop it in assets and swap this for an <Image>.
+ */
+const AIAI_RED = palette.aiainaiRed;
+export const AiBrandLogo = ({size = 56}: {size?: number}) => {
+  const cell = size / 2;
+  const fontSize = cell * 0.5;
+  const tile = (bg: string, fg: string, label: string) => (
+    <View style={{width: cell, height: cell, backgroundColor: bg, alignItems: 'center', justifyContent: 'center'}}>
+      <Text
+        style={{
+          color: fg,
+          fontSize,
+          fontWeight: '800',
+          fontStyle: 'italic',
+          fontFamily: typography.titleFamily,
+        }}>
+        {label}
+      </Text>
+    </View>
+  );
+  return (
     <View
       style={{
-        position: 'absolute',
-        right: -size * 0.06,
-        top: -size * 0.06,
-        width: size * 0.32,
-        height: size * 0.32,
-        borderRadius: size * 0.16,
-        backgroundColor: colors.accent,
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: size,
+        height: size,
+        borderRadius: radius.sm,
+        overflow: 'hidden',
+        ...shadows.card,
       }}>
-      <Ionicons name="sparkles" size={size * 0.18} color={colors.textOnBrand} />
+      <View style={{flexDirection: 'row'}}>
+        {tile('#ffffff', AIAI_RED, 'ai')}
+        {tile(AIAI_RED, '#ffffff', 'ai')}
+      </View>
+      <View style={{flexDirection: 'row'}}>
+        {tile(AIAI_RED, '#ffffff', 'N')}
+        {tile('#ffffff', AIAI_RED, 'ai')}
+      </View>
     </View>
-  </View>
-);
+  );
+};
+
+// Real product logos pulled from each brand's website, keyed by ecosystem
+// product id (see services/mock/db.ts ecosystemProducts).
+const BRAND_LOGOS: Record<string, number> = {
+  p_btcy: require('../../../assets/brands/btcy-logo.png'),
+  p_aiainai: require('../../../assets/brands/aiainai-logo.png'),
+  p_shopper: require('../../../assets/brands/shoperpal-logo.png'),
+  p_rehuman: require('../../../assets/brands/rehuman-logo.png'),
+  p_emmm: require('../../../assets/brands/emmm-logo.png'),
+  p_exchange: require('../../../assets/brands/indexx-logo.png'),
+};
+
+/**
+ * A product's own brand logo, falling back to its Ionicons glyph for products
+ * without a bundled asset. Logos with an opaque square background (aiainai,
+ * Indexx, ReHuman) read as rounded app-icon chips; transparent marks sit
+ * directly on the tile color.
+ */
+export const ProductBrandLogo = ({
+  productId,
+  icon,
+  size = 38,
+  iconColor = colors.textOnBrand,
+}: {
+  productId: string;
+  icon: string;
+  size?: number;
+  iconColor?: string;
+}) => {
+  const source = BRAND_LOGOS[productId];
+  if (!source) {
+    // No bundled logo: white glyph inside the brand oval so it stays visible
+    // on any tile background.
+    return (
+      <Oval size={size}>
+        <Ionicons name={icon} size={size * 0.55} color={iconColor} />
+      </Oval>
+    );
+  }
+  return (
+    <Image
+      source={source}
+      style={{width: size, height: size, borderRadius: size * 0.22}}
+      resizeMode="contain"
+    />
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -946,6 +1164,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  longButton: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   iconButton: {
     width: 38,
@@ -1012,28 +1236,14 @@ const styles = StyleSheet.create({
   },
   presenceDot: {
     position: 'absolute',
-    right: -1,
+    right: -2,
     bottom: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.surface,
   },
   badge: {
     borderRadius: radius.pill,
     paddingHorizontal: spacing.xs,
     paddingVertical: 3,
     alignSelf: 'flex-start',
-  },
-  countBubble: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
   },
   chip: {
     flexDirection: 'row',

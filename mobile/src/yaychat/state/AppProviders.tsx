@@ -4,7 +4,7 @@ import {Animated, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
-import {analytics, authService, onOfflineChange, simulation} from '../services';
+import {analytics, authService, chatService, onOfflineChange, simulation} from '../services';
 import {Session, User} from '../types/models';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +52,21 @@ const NetworkContext = createContext<{offline: boolean}>({offline: false});
 export const useNetwork = () => useContext(NetworkContext);
 
 // ---------------------------------------------------------------------------
+// Unread messages (drives the Chats tab + home shortcut badges)
+// ---------------------------------------------------------------------------
+
+interface UnreadState {
+  total: number;
+  refresh: () => void;
+}
+
+const UnreadContext = createContext<UnreadState>({total: 0, refresh: () => {}});
+export const useUnread = () => useContext(UnreadContext);
+
+/** Format an unread count for a compact badge: 1–8 exact, then "9+". */
+export const formatUnreadBadge = (n: number): string => (n > 8 ? '9+' : String(n));
+
+// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
@@ -61,6 +76,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [offline, setOffline] = useState(simulation.offline);
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
+  const [unreadTotal, setUnreadTotal] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -71,6 +87,25 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       .finally(() => setBooting(false));
     return onOfflineChange(setOffline);
   }, []);
+
+  const refreshUnread = useCallback(() => {
+    chatService
+      .getUnreadTotal()
+      .then(setUnreadTotal)
+      .catch(() => {});
+  }, []);
+
+  // Keep the badge in sync while signed in. Polling also picks up read state
+  // changes (opening a chat clears its unread count in the store).
+  useEffect(() => {
+    if (!session) {
+      setUnreadTotal(0);
+      return;
+    }
+    refreshUnread();
+    const id = setInterval(refreshUnread, 3000);
+    return () => clearInterval(id);
+  }, [session, refreshUnread]);
 
   const show = useCallback(
     (message: string, tone: ToastTone = 'info') => {
@@ -117,6 +152,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   return (
     <AuthContext.Provider value={auth}>
       <NetworkContext.Provider value={{offline}}>
+        <UnreadContext.Provider value={{total: unreadTotal, refresh: refreshUnread}}>
         <ToastContext.Provider value={{show}}>
           <View style={{flex: 1}}>
             {children}
@@ -138,6 +174,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
             ) : null}
           </View>
         </ToastContext.Provider>
+        </UnreadContext.Provider>
       </NetworkContext.Provider>
     </AuthContext.Provider>
   );

@@ -1,6 +1,6 @@
 /**
- * Yay-chat — Milestone 1 frontend.
- * Boots the self-contained Yay-chat experience in src/yaychat/ backed by the
+ * YaysApp — Milestone 1 frontend.
+ * Boots the self-contained YaysApp experience in src/yaychat/ backed by the
  * mock service layer. Legacy screens under src/screens are not mounted.
  */
 import React from 'react';
