@@ -841,6 +841,20 @@ export class UserController {
     }
   }
 
+  async logout(req: any, res: any) {
+    try {
+      const userOps = new UserOperations(req, res);
+      const dataResults = await userOps.logout(req, res);
+      res.statusCode = dataResults.status;
+      res.send(dataResults);
+      return;
+    } catch (err) {
+      res.statusCode = 500;
+      res.send({ status: 500, data: { message: "Unhandled error: " + err } });
+      return;
+    }
+  }
+
   async validateEmail(req: any, res: any) {
     try {
       let { email, code } = req.body;

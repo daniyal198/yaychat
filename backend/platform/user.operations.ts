@@ -3452,6 +3452,32 @@ export class UserOperations extends BaseAPIOperations {
       return { status: 500, data: { message: error.message } };
     }
   }
+  async logout(req: any, res: any) {
+    try {
+      let email = req?.user?.email || req?.body?.email;
+      if (!email) {
+        return { status: 400, data: { message: "badRequest" } };
+      }
+      email = String(email).toLowerCase().trim();
+
+      const getUser = await uservice.findOne({ email });
+      if (!getUser) {
+        return { status: 404, data: { message: "No user found" } };
+      }
+
+      // Clear the device push token so notifications stop after sign-out.
+      // Access/refresh JWTs are stateless; the client discards them on logout.
+      await uservice.updatePart(
+        { email },
+        { $set: { fcmToken: "", lastActive: new Date() } }
+      );
+
+      return { status: 200, data: { message: "Logged out successfully" } };
+    } catch (error: any) {
+      return { status: 500, data: { message: error.message } };
+    }
+  }
+
   // Helper method to build the query based on email or username
   buildUserQuery(email: string, username: string) {
     if (email && email.trim() !== "") {

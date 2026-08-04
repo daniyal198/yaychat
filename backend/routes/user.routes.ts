@@ -25,6 +25,7 @@ userRouter.post("/loginWithOtp", validateWhitelistOnLogin, userController.loginW
 userRouter.post("/loginWithToken", validateWhitelistOnLogin, userController.issueTokenWithSignInToken);
 userRouter.post("/hivelogin", validateWhitelistOnLogin, userController.issueTokenHive);
 userRouter.post("/refreshToken", userController.refreshToken);
+userRouter.post("/logout", validateAuthHeader, userController.logout);
 userRouter.post("/validateEmail", userController.validateEmail);
 userRouter.post("/validateOtp", userController.validateEmailOtp);
 userRouter.post("/validateForgotOtp", userController.validateForgotEmailOtp);
