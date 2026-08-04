@@ -178,9 +178,31 @@ For every milestone:
 | 5 | AI Assistant and AI Features | AI chat, in-conversation assistance, translation, summaries, document support, and usage controls |
 | 6 | Rewards and X-to-Earn Foundation | Reward events, rules engine, ledger, referrals, daily check-ins, limits, and anti-abuse controls |
 | 7 | BTCY and Wallet Foundation | Limited BTCY integration, balances, transaction history, security model, and wallet readiness |
-| 8 | Indexx Product Integrations | ShopperPal, ReHuman, EMMM, Exchange, and future product connections |
+| 8 | Indexx Product Integrations and Social Media | ShopperPal, ReHuman, EMMM, Exchange, social media login/sharing/growth integrations, and future product connections |
 | 9 | Merchant, Advertising, and Growth | Merchant accounts, promotions, rewarded ads, analytics, campaigns, and monetization tools |
 | 10 | Production Hardening and Launch | Security, performance, accessibility, compliance, QA, observability, store readiness, and release |
+
+---
+
+# 3.1 Milestone Timeline (Part-Time, AI-Accelerated)
+
+Assumptions: one developer, 4–5 focused hours/day, 5 days/week, AI-assisted fast-paced development. Every estimate **includes testing and verification time** (roughly 30% of each milestone), not just code completion. Estimates assume required business decisions (custody model, reward units, AI providers) are approved before their milestone starts — decision delays are not included.
+
+| Milestone | Working Days | Target Dates (start Aug 3, 2026) |
+|---|---|---|
+| 1 — Complete Frontend Experience | 15 | Aug 3 – Aug 21 |
+| 2 — Backend and Platform Foundation | 8 | Aug 24 – Sep 2 |
+| 3 — Real-Time Messaging | 12 | Sep 3 – Sep 18 |
+| 4 — Communities and Moderation | 8 | Sep 21 – Sep 30 |
+| 5 — AI Assistant and AI Features | 7 | Oct 1 – Oct 9 |
+| 6 — Rewards and X-to-Earn Foundation | 8 | Oct 12 – Oct 21 |
+| 7 — BTCY and Wallet Foundation | 7 | Oct 22 – Oct 30 |
+| 8 — Indexx Product Integrations and Social Media | 8 | Nov 2 – Nov 11 |
+| 9 — Merchant, Advertising, and Growth | 8 | Nov 12 – Nov 23 |
+| 10 — Production Hardening and Launch | 10 | Nov 24 – Dec 7 |
+| **Total** | **91 working days (~18 weeks)** | **Launch-ready ~Dec 7, 2026** |
+
+Each milestone ends with a test-and-verify gate: automated tests passing, manual QA of the milestone's acceptance criteria on both iOS and Android, and stakeholder review before the next milestone begins.
 
 ---
 
@@ -641,6 +663,7 @@ Implement:
 - Feature flags
 - Analytics ingestion foundation
 - Admin access foundation
+- Social sign-in foundation (Google, Apple, Facebook, X) alongside email/phone authentication
 - CI/CD foundation
 - Development, staging, and production environments
 
@@ -971,11 +994,11 @@ External transfers must not be enabled until all required reviews are complete.
 
 ---
 
-# 11. Milestone 8 — Indexx Product Integrations
+# 11. Milestone 8 — Indexx Product Integrations and Social Media
 
 ## 11.1 Objective
 
-Turn Yay-chat into the central gateway for the Indexx ecosystem.
+Turn Yay-chat into the central gateway for the Indexx ecosystem, and connect Yay-chat to external social media platforms for identity, sharing, and growth.
 
 ## 11.2 Recommended Integration Order
 
@@ -1023,7 +1046,44 @@ Do not assume that every product must become a mini app.
 
 Choose the method that provides the best user experience, security, maintainability, and delivery speed.
 
-## 11.5 Acceptance Criteria
+## 11.5 Social Media Integrations
+
+Connect Yay-chat to external social platforms. These integrations serve identity, growth, and content distribution — not a clone of any social network.
+
+### 11.5.1 Scope
+
+Implement as approved:
+
+- **Social sign-in and account linking** — Google, Apple, Facebook, X (Apple sign-in is mandatory for iOS App Store if any social login is offered). Link/unlink social accounts from Profile settings. Builds on the social sign-in foundation from Milestone 2.
+- **Share out of Yay-chat** — native share sheet plus direct share targets (WhatsApp, Instagram, X, Facebook, Telegram, TikTok) for:
+  - Referral codes and invite links
+  - Community invite links
+  - QR profile
+  - Reward/streak achievements (shareable cards)
+  - AI outputs where the user explicitly chooses to share
+- **Deep links and link previews** — universal links / app links, Open Graph metadata and preview images for shared Yay-chat links, deferred deep linking so a new install from a shared link lands in the right place (referral attribution).
+- **Contact discovery and invites** — permission-based contact sync, "invite via SMS/WhatsApp/social" flows tied into Invite Friends to Earn.
+- **Social reward events** — sharing and successful referral installs emit standard reward events into the Milestone 6 reward engine (with anti-abuse limits: capped share rewards, verified-install referral rewards only).
+- **Merchant/community cross-posting (optional, if approved)** — allow community admins and merchants to cross-post announcements/promotions to their linked Facebook/X/Instagram pages.
+
+### 11.5.2 Rules
+
+- Never post to a user's social account without an explicit per-action user confirmation.
+- Store only the minimum social profile data needed (provider ID, email, display name, avatar).
+- Handle provider token expiry and revoked access gracefully.
+- Respect each platform's API terms and rate limits.
+- Referral attribution must be fraud-checked before rewards are released.
+
+### 11.5.3 Acceptance Criteria
+
+- Users can sign in with Google, Apple, Facebook, and X, and link/unlink these from settings.
+- Shared links open the correct in-app destination for existing users and attribute correctly for new installs.
+- Share flows work on iOS and Android for all listed targets.
+- Social share and referral events produce auditable reward events with limits enforced.
+- No social action happens without explicit user consent.
+- Critical social flows (login, link/unlink, referral attribution) have automated tests.
+
+## 11.6 Acceptance Criteria
 
 - Users can access approved Indexx products from Yay-chat.
 - Authentication is seamless and secure.
@@ -1031,6 +1091,7 @@ Choose the method that provides the best user experience, security, maintainabil
 - Product events can produce reward events where approved.
 - Navigation back to Yay-chat is reliable.
 - Integration failures are handled clearly.
+- Social media integration acceptance criteria in 11.5.3 are met.
 
 ---
 
