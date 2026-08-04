@@ -2933,6 +2933,32 @@ export class ChatController {
     }
   }
 
+  // Realtime fan-out for reaction changes: group rooms for group chats,
+  // both participants' user rooms for direct messages.
+  private broadcastReactionUpdate(message: any) {
+    if (!message) return;
+    try {
+      const payload = {
+        messageId: message.messageId,
+        _id: message._id,
+        groupId: message.groupId,
+        reactions: message.reactions ?? [],
+      };
+      if (message.groupId) {
+        ChatSocketService.emitToGroup(message.groupId, "reaction:update", payload);
+      } else {
+        if (message.email) {
+          ChatSocketService.emitToUser(message.email, "reaction:update", payload);
+        }
+        if (message.receiverEmail) {
+          ChatSocketService.emitToUser(message.receiverEmail, "reaction:update", payload);
+        }
+      }
+    } catch (err: any) {
+      console.error("Error broadcasting reaction update:", err?.message);
+    }
+  }
+
   // Add reaction functionality
   async addReaction(req: Request, res: Response) {
     try {
@@ -2954,6 +2980,8 @@ export class ChatController {
         userEmail,
         name
       );
+
+      this.broadcastReactionUpdate(updatedMessage);
 
       return res.json({
         message: "Reaction added successfully",
@@ -2988,6 +3016,8 @@ export class ChatController {
         userEmail,
         name
       );
+
+      this.broadcastReactionUpdate(updatedMessage);
 
       return res.json({
         message: "Reaction removed successfully",

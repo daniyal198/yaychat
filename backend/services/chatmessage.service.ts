@@ -687,12 +687,15 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
             existingReaction.users = existingReaction.users.filter(email => email !== userEmail);
             existingReaction.count = existingReaction.users.length;
 
+            // Drop reactions nobody is using anymore
+            const remainingReactions = reactions.filter(r => r.users.length > 0);
+
             // Update the message with updated reactions
             const updatedMessage = await this.updatePart(
                 { _id: messageId },
                 {
                     $set: {
-                        reactions: reactions
+                        reactions: remainingReactions
                     }
                 }
             );
