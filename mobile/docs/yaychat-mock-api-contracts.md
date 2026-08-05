@@ -50,6 +50,12 @@ voice|sticker|gif|system`), text, createdAt, status (`sending|sent|delivered|
 read|failed`), replyToId?, reactions[{emoji,userIds}], mentions?, pinned?,
 deleted?, recalled?, attachment?{name,sizeLabel,durationLabel?}.
 
+Text messages that contain web links are classified by
+`screens/chats/linkCards.ts`: recognized Indexx ecosystem domains render as
+in-message Action Cards, while any other valid `http(s)` URL renders an External
+Link Warning card. This is rendering-only in the mock slice; real handoff and
+allowlist enforcement belong to the deep-link module.
+
 ## userService
 me · updateProfile · contacts · getUser · blockedUsers · setBlocked · report ·
 deviceSessions · revokeSession (current session not revocable).

@@ -49,12 +49,13 @@ import {
   YayText,
 } from '../../design/components';
 import {EmojiPicker} from '../../design/EmojiPicker';
-import {colors, radius, shadows, spacing, typography} from '../../design/tokens';
+import {colors, radius, spacing, typography} from '../../design/tokens';
 import {ME_ID, chatService, communityService, errorMessage, userService} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import {Conversation, Message, User} from '../../types/models';
 import {ChatsStackParamList} from '../../types/navigation';
+import {ChatLinkCard, classifyChatLink} from './linkCards';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -735,6 +736,64 @@ const AttachmentBody = ({message, mine}: {message: Message; mine: boolean}) => {
   return <YayText color={fg}>{message.text}</YayText>;
 };
 
+const LinkCardPreview = ({
+  card,
+  mine,
+}: {
+  card: ChatLinkCard;
+  mine: boolean;
+}) => {
+  if (card.type === 'action') {
+    return (
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={`${card.productName} action card preview. ${card.label}.`}
+        style={[
+          styles.linkCard,
+          mine ? styles.linkCardMine : styles.linkCardTheirs,
+        ]}>
+        <View style={styles.linkIcon}>
+          <Ionicons name={card.icon} size={18} color={colors.brandStrong} />
+        </View>
+        <View style={styles.linkCardContent}>
+          <YayText variant="micro" color={colors.textMuted}>
+            Trusted ecosystem link
+          </YayText>
+          <YayText variant="bodyStrong" numberOfLines={1}>
+            {card.productName}
+          </YayText>
+          <YayText variant="micro" color={colors.brandStrong} numberOfLines={1}>
+            {card.label}
+          </YayText>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`External link warning. This link leaves YaysApp for ${card.host}.`}
+      style={[
+        styles.linkCard,
+        styles.externalWarningCard,
+        mine ? styles.linkCardMine : styles.linkCardTheirs,
+      ]}>
+      <View style={[styles.linkIcon, {backgroundColor: colors.warningSoft}]}>
+        <Ionicons name="warning" size={18} color={colors.warning} />
+      </View>
+      <View style={styles.linkCardContent}>
+        <YayText variant="bodyStrong">External Link Warning</YayText>
+        <YayText variant="micro" color={colors.textMuted} numberOfLines={2}>
+          {`This link leaves YaysApp: ${card.host}`}
+        </YayText>
+      </View>
+    </View>
+  );
+};
+
 const MessageBubble = ({
   message,
   mine,
@@ -765,6 +824,8 @@ const MessageBubble = ({
   }
   const status = statusIconFor(message.status);
   const isMedia = !message.recalled && (message.kind === 'image' || message.kind === 'video');
+  const linkCard =
+    !message.recalled && message.kind === 'text' ? classifyChatLink(message.text) : null;
   return (
     <View
       style={[
@@ -821,7 +882,10 @@ const MessageBubble = ({
             {mine ? 'You deleted this message' : 'This message was deleted'}
           </YayText>
         ) : (
-          <AttachmentBody message={message} mine={mine} />
+          <View>
+            <AttachmentBody message={message} mine={mine} />
+            {linkCard ? <LinkCardPreview card={linkCard} mine={mine} /> : null}
+          </View>
         )}
       </Pressable>
       {message.reactions.length > 0 ? (
@@ -903,8 +967,9 @@ export const ConversationScreen = ({
   const otherUser = conversation && !isGroup ? memberById[otherMemberId(conversation) ?? ''] : undefined;
 
   useEffect(() => {
+    const scheduledTimers = timers.current;
     return () => {
-      timers.current.forEach(clearTimeout);
+      scheduledTimers.forEach(clearTimeout);
     };
   }, []);
 
@@ -2400,6 +2465,40 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
+  },
+  linkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minWidth: 210,
+    maxWidth: 260,
+    marginTop: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  linkCardMine: {
+    backgroundColor: colors.surface,
+    borderColor: colors.brandBorder,
+  },
+  linkCardTheirs: {
+    backgroundColor: colors.brandSoft,
+    borderColor: colors.brandBorder,
+  },
+  externalWarningCard: {
+    borderColor: colors.warning,
+  },
+  linkCardContent: {
+    flex: 1,
+  },
+  linkIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
   },
   mediaPlaceholder: {
     width: 190,

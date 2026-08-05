@@ -104,6 +104,7 @@ export const messages: Record<string, Message[]> = {
       kind: 'image',
       attachment: {name: 'btcy-weekly.png', sizeLabel: '840 KB'},
     }),
+    msg('c_marco', 'u_marco', 'Mining explainer is live: https://www.bitcoinyay.com/mining', 126),
     msg('c_marco', ME_ID, 'Interesting. Long-term I am more into the rewards side.', 100),
     msg('c_marco', 'u_marco', 'Fair. Voice note incoming', 95),
     msg('c_marco', 'u_marco', 'Voice note', 94, {
@@ -124,6 +125,7 @@ export const messages: Record<string, Message[]> = {
   c_priya: [
     msg('c_priya', 'u_priya', 'Did your BTCY preview screen load for you?', 3000),
     msg('c_priya', ME_ID, 'Yes — remember it is preview only, no real transfers yet.', 2990),
+    msg('c_priya', 'u_priya', 'Someone also sent this: https://example.com/yaysapp-offer', 2984),
   ],
   c_liu: [
     msg('c_liu', 'u_liu', 'Lunch tomorrow?', 1500),

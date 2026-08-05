@@ -33,6 +33,7 @@ variants each component supports.
 | `AsyncView` | Async orchestrator | loading, offline, error+retry, empty, content |
 | `BottomSheet` | Action sheet/modal | title, arbitrary content |
 | `ConfirmSheet` | Confirmation | default, destructive |
+| Chat link cards (`screens/chats/linkCards.ts`) | In-message link treatment | Indexx ecosystem Action Card, External Link Warning |
 | `ProgressBar` | Progress/limits | 0–1, tone |
 | `StatTile` | Metric tile | icon, tone |
 | `BrandMark` | App logo mark | size |

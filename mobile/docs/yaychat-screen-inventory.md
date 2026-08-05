@@ -28,7 +28,8 @@ messages · archived chats · new chat (direct/group contact selection) ·
 conversation (1:1 + group) with text/image/video/file/voice/system kinds,
 replies, reactions, mentions render, forwarding, delete, recall state, copy,
 pin, delivery/read ticks, typing indicator, presence subtitle, failed + retry,
-optimistic send, upload-style attachment sends, date + unread separators ·
+optimistic send, upload-style attachment sends, date + unread separators,
+Indexx ecosystem Action Cards, External Link Warning cards ·
 conversation details (mute, block, report, archive, search, shared media) ·
 group members/roles/settings/leave · forward picker · contact profile — all ✅.
 Stickers/GIFs 🔶 (composer rows marked coming soon). Download progress 🔶
