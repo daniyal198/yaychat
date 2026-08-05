@@ -10,7 +10,7 @@ import { SubscriptionService } from "./subscription.service";
 
 const COIN_SYMBOL = "BTCY";
 export const DEFAULT_GOOGLE_PLAY_PACKAGE_NAME =
-  process.env.GOOGLE_PLAY_PACKAGE_NAME || "com.bitcoin2";
+  process.env.GOOGLE_PLAY_PACKAGE_NAME || "com.yaysapp";
 
 const GOOGLE_PLAY_KEY_PATH = path.resolve(
   __dirname,

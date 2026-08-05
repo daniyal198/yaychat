@@ -84,9 +84,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.bitcoin2"
+    namespace "com.yaysapp"
     defaultConfig {
-        applicationId "com.bitcoin2"
+        applicationId "com.yaysapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 20
@@ -101,7 +101,7 @@ android {
     productFlavors {
       play {
         dimension "store"
-        resValue "string", "build_config_package", "com.bitcoin2"  
+        resValue "string", "build_config_package", "com.yaysapp"  
         buildConfigField "String", "ENVFILE", '"play"'
 
         missingDimensionStrategy 'react-native', 'react-native-default'
@@ -109,7 +109,7 @@ android {
 
       dev {
         dimension "store"
-        resValue "string", "build_config_package", "com.bitcoin2"  
+        resValue "string", "build_config_package", "com.yaysapp"  
         buildConfigField "String", "ENVFILE", '"dev"'
      }
     } 

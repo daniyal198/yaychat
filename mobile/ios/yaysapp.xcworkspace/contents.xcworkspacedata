@@ -2,8 +2,8 @@
 <Workspace
    version = "1.0">
    <Group
-      location = "group:bitcoin2"
-      name = "bitcoin2">
+      location = "group:yaysapp"
+      name = "yaysapp">
       <FileRef
          location = "group:LaunchScreen.storyboard">
       </FileRef>
@@ -21,10 +21,10 @@
       </FileRef>
    </Group>
    <FileRef
-      location = "group:bitcoin2.xcodeproj">
+      location = "group:yaysapp.xcodeproj">
    </FileRef>
    <FileRef
-      location = "group:bitcoin2.xcworkspace">
+      location = "group:yaysapp.xcworkspace">
    </FileRef>
    <FileRef
       location = "group:link-assets-manifest.json">
@@ -2171,61 +2171,61 @@
             </FileRef>
          </Group>
          <Group
-            location = "group:Pods-bitcoin2"
-            name = "Pods-bitcoin2">
+            location = "group:Pods-yaysapp"
+            name = "Pods-yaysapp">
             <FileRef
-               location = "group:Pods-bitcoin2-acknowledgements.markdown">
+               location = "group:Pods-yaysapp-acknowledgements.markdown">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-acknowledgements.plist">
+               location = "group:Pods-yaysapp-acknowledgements.plist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-umbrella.h">
+               location = "group:Pods-yaysapp-umbrella.h">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-resources-Release-output-files.xcfilelist">
+               location = "group:Pods-yaysapp-resources-Release-output-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-resources-Debug-output-files.xcfilelist">
+               location = "group:Pods-yaysapp-resources-Debug-output-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2.release.xcconfig">
+               location = "group:Pods-yaysapp.release.xcconfig">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-frameworks.sh">
+               location = "group:Pods-yaysapp-frameworks.sh">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2.debug.xcconfig">
+               location = "group:Pods-yaysapp.debug.xcconfig">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-frameworks-Debug-output-files.xcfilelist">
+               location = "group:Pods-yaysapp-frameworks-Debug-output-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-resources-Debug-input-files.xcfilelist">
+               location = "group:Pods-yaysapp-resources-Debug-input-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-resources-Release-input-files.xcfilelist">
+               location = "group:Pods-yaysapp-resources-Release-input-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-frameworks-Release-output-files.xcfilelist">
+               location = "group:Pods-yaysapp-frameworks-Release-output-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-dummy.m">
+               location = "group:Pods-yaysapp-dummy.m">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-frameworks-Debug-input-files.xcfilelist">
+               location = "group:Pods-yaysapp-frameworks-Debug-input-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-frameworks-Release-input-files.xcfilelist">
+               location = "group:Pods-yaysapp-frameworks-Release-input-files.xcfilelist">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2.modulemap">
+               location = "group:Pods-yaysapp.modulemap">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-resources.sh">
+               location = "group:Pods-yaysapp-resources.sh">
             </FileRef>
             <FileRef
-               location = "group:Pods-bitcoin2-Info.plist">
+               location = "group:Pods-yaysapp-Info.plist">
             </FileRef>
          </Group>
          <Group

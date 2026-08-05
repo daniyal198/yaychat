@@ -1,4 +1,4 @@
-package com.bitcoin2
+package com.yaysapp
 
 import android.app.Application
 import com.facebook.react.PackageList

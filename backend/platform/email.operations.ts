@@ -8160,7 +8160,7 @@ export class SendEmail {
 
             const displayName = String(firstName || "").trim() || "there";
             const iosLink = "https://apps.apple.com/ph/app/bitcoin-yay/id6744868017";
-            const androidLink = "https://play.google.com/store/apps/details?id=com.bitcoin2&hl=en&pli=1";
+            const androidLink = "https://play.google.com/store/apps/details?id=com.yaysapp&hl=en&pli=1";
             const iosQr = "https://bitcoinyay.com/_next/static/media/apple-qr.d6c8ae74.webp";
             const androidQr = "https://bitcoinyay.com/_next/static/media/playstore-qr.c6a63e0a.webp";
 
@@ -8301,7 +8301,7 @@ export class SendEmail {
             const displayName = String(firstName || "").trim() || "there";
             const subject = "We saved your progress — enjoy 7 days of FREE Nuclear Mining ⚡";
             const iosLink = "https://apps.apple.com/ph/app/bitcoin-yay/id6744868017";
-            const androidLink = "https://play.google.com/store/apps/details?id=com.bitcoin2&hl=en&pli=1";
+            const androidLink = "https://play.google.com/store/apps/details?id=com.yaysapp&hl=en&pli=1";
             const iosQr = "https://bitcoinyay.com/_next/static/media/apple-qr.d6c8ae74.webp";
             const androidQr = "https://bitcoinyay.com/_next/static/media/playstore-qr.c6a63e0a.webp";
 
@@ -8440,7 +8440,7 @@ export class SendEmail {
             const subject = "Your FREE Nuclear Mining is waiting ⚡";
             const appLink = "https://bitcoinyay.com/";
             const iosLink = "https://apps.apple.com/ph/app/bitcoin-yay/id6744868017";
-            const androidLink = "https://play.google.com/store/apps/details?id=com.bitcoin2&hl=en&pli=1";
+            const androidLink = "https://play.google.com/store/apps/details?id=com.yaysapp&hl=en&pli=1";
             const iosQr = "https://bitcoinyay.com/_next/static/media/apple-qr.d6c8ae74.webp";
             const androidQr = "https://bitcoinyay.com/_next/static/media/playstore-qr.c6a63e0a.webp";
 
@@ -8612,7 +8612,7 @@ export class SendEmail {
             const displayName = String(firstName || "").trim();
             const subject = "BTCY Loyalty Reward Activated";
             const iosLink = "https://apps.apple.com/ph/app/bitcoin-yay/id6744868017";
-            const androidLink = "https://play.google.com/store/apps/details?id=com.bitcoin2&hl=en&pli=1";
+            const androidLink = "https://play.google.com/store/apps/details?id=com.yaysapp&hl=en&pli=1";
             const iosQr = "https://bitcoinyay.com/_next/static/media/apple-qr.d6c8ae74.webp";
             const androidQr = "https://bitcoinyay.com/_next/static/media/playstore-qr.c6a63e0a.webp";
 
@@ -9259,7 +9259,7 @@ export class SendEmail {
             const subject = "Last reminder — don’t miss your 7 days of Nuclear Mining ⚡";
             const appLink = "https://bitcoinyay.com/";
             const iosLink = "https://apps.apple.com/ph/app/bitcoin-yay/id6744868017";
-            const androidLink = "https://play.google.com/store/apps/details?id=com.bitcoin2&hl=en&pli=1";
+            const androidLink = "https://play.google.com/store/apps/details?id=com.yaysapp&hl=en&pli=1";
             const iosQr = "https://bitcoinyay.com/_next/static/media/apple-qr.d6c8ae74.webp";
             const androidQr = "https://bitcoinyay.com/_next/static/media/playstore-qr.c6a63e0a.webp";
 

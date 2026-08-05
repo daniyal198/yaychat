@@ -12,7 +12,7 @@ use_modular_headers!
 use_frameworks! :linkage => :static
 
 # Target the main app
-target 'bitcoin2' do
+target 'yaysapp' do
   config = use_native_modules!
 
 

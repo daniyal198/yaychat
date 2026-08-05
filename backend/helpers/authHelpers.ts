@@ -20,7 +20,7 @@ export async function verifyAppleToken(appleToken: string): Promise<any> {
           issuer: APPLE_ISSUER,
           audience: [
             'com.bitcoinyay.appname', 
-            'org.reactjs.native.example.bitcoin2',
+            'org.reactjs.native.example.yaysapp',
           ],
         });
 
@@ -51,7 +51,7 @@ export async function verifyAppleToken(appleToken: string): Promise<any> {
 
 //       const { payload } = await jwtVerify(identityToken, JWKS, {
 //         issuer: 'https://appleid.apple.com',
-//         audience: '	4Q588TKPT7.org.reactjs.native.example.bitcoin2',
+//         audience: '	4Q588TKPT7.org.reactjs.native.example.yaysapp',
 //       });
 
 //       console.log('Apple token payload:', payload);
