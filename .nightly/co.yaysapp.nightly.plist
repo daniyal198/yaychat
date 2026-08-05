@@ -2,44 +2,41 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key>
-    <string>co.yaysapp.nightly</string>
-
-    <!-- Run the wrapper via bash so exec permissions/shebang are irrelevant. -->
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>/Users/user/Documents/Indexx/YayChat/.nightly/run-nightly.sh</string>
-    </array>
-
-    <!-- 17:00 machine-local (America/Los_Angeles) == 00:00 UTC == 5:00 AM Pakistan.
-         launchd runs a missed StartCalendarInterval job when the Mac wakes from sleep. -->
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>17</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
-
-    <key>RunAtLoad</key>
-    <false/>
-
-    <!-- Give the session a longer allowed runtime; the wrapper enforces the real budget. -->
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>SESSION_HOURS</key>
-        <string>4</string>
-        <key>PATH</key>
-        <string>/Users/user/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    </dict>
-
-    <key>StandardOutPath</key>
-    <string>/Users/user/Documents/Indexx/YayChat/.nightly/logs/launchd.out.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/user/Documents/Indexx/YayChat/.nightly/logs/launchd.err.log</string>
-
-    <key>ProcessType</key>
-    <string>Background</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AGENT_DAILY_USAGE_MINUTES</key>
+		<string>30</string>
+		<key>AGENT_USAGE_STOP_PERCENT</key>
+		<string>85</string>
+		<key>PATH</key>
+		<string>/Users/user/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>SESSION_HOURS</key>
+		<string>0.5</string>
+		<key>YAYSAPP_CODING_MODEL</key>
+		<string>gpt-5.5</string>
+		<key>YAYSAPP_REVIEW_MODEL</key>
+		<string>gpt-5.4</string>
+	</dict>
+	<key>Label</key>
+	<string>co.yaysapp.nightly</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/user/.local/bin/yaysapp-nightly-launcher</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/Users/user/Developer/YaysApp-nightly/.nightly/logs/launchd.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/user/Developer/YaysApp-nightly/.nightly/logs/launchd.out.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>5</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
 </dict>
 </plist>

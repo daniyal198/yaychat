@@ -2,13 +2,17 @@
 #
 # YaysApp autonomous nightly session runner.
 #
-# Sets up an isolated git worktree from a fresh origin/main, runs a headless Claude Opus
-# session driven by orchestrator.md, then cleans up. The user's working copy is never touched.
+# Syncs main, runs a headless Codex session driven by orchestrator.md, and lets
+# the agent commit/push directly to main.
 #
 # Env overrides:
-#   SESSION_HOURS   wall-clock budget for the Claude session (default 4; accepts decimals)
+#   SESSION_HOURS          per-run wall-clock budget for the Codex session (default 0.5; accepts decimals)
+#   AGENT_DAILY_USAGE_MINUTES assigned local daily runtime budget for this agent (default 30)
+#   AGENT_USAGE_STOP_PERCENT  stop once local daily runtime reaches this percentage (default 85)
 #   REPO            path to the YayChat repo (default: derived from this script's location)
-#   CLAUDE_BIN      path to the claude CLI (default: looked up on PATH / ~/.local/bin)
+#   CODEX_BIN       path to the codex CLI (default: looked up on PATH / ~/.local/bin)
+#   YAYSAPP_CODING_MODEL   model for implementation (default: gpt-5.5)
+#   YAYSAPP_REVIEW_MODEL   model for review/improvements (default: gpt-5.4)
 #
 # Usage:
 #   bash .nightly/run-nightly.sh            # normal run
@@ -23,12 +27,17 @@ NIGHTLY_DIR="$REPO/.nightly"
 LOG_DIR="$NIGHTLY_DIR/logs"
 DATE="$(date +%Y-%m-%d)"
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
-BRANCH="nightly/$DATE"
-WORKTREE="/tmp/yaysapp-nightly/$DATE"
+BRANCH="main"
+WORKDIR="$REPO"
 LOG="$LOG_DIR/$DATE.log"
-SESSION_HOURS="${SESSION_HOURS:-4}"
+SESSION_HOURS="${SESSION_HOURS:-0.5}"
+AGENT_DAILY_USAGE_MINUTES="${AGENT_DAILY_USAGE_MINUTES:-30}"
+AGENT_USAGE_STOP_PERCENT="${AGENT_USAGE_STOP_PERCENT:-85}"
+USAGE_DIR="$NIGHTLY_DIR/usage"
+USAGE_FILE="$USAGE_DIR/$DATE.tsv"
+EFFECTIVE_SESSION_SECONDS=0
 
-mkdir -p "$LOG_DIR" "$(dirname "$WORKTREE")"
+mkdir -p "$LOG_DIR" "$USAGE_DIR"
 
 # Log to both the per-day file and stdout (launchd also captures stdout/stderr).
 exec > >(tee -a "$LOG") 2>&1
@@ -37,73 +46,106 @@ log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 # Ensure PATH includes common CLI locations (launchd runs with a minimal PATH).
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || true)}"
+CODEX_BIN="${CODEX_BIN:-$(command -v codex || find "$HOME/.cursor/extensions" -path "*/bin/macos-*/codex" -type f -perm -111 2>/dev/null | sort -r | head -1 || true)}"
+YAYSAPP_CODING_MODEL="${YAYSAPP_CODING_MODEL:-gpt-5.5}"
+YAYSAPP_REVIEW_MODEL="${YAYSAPP_REVIEW_MODEL:-gpt-5.4}"
+export YAYSAPP_REVIEW_MODEL
 
 log "=== YaysApp nightly session $STAMP ==="
-log "repo=$REPO branch=$BRANCH worktree=$WORKTREE budget=${SESSION_HOURS}h"
+log "repo=$REPO branch=$BRANCH workdir=$WORKDIR budget=${SESSION_HOURS}h assigned_daily=${AGENT_DAILY_USAGE_MINUTES}m stop_at=${AGENT_USAGE_STOP_PERCENT}% coding_model=$YAYSAPP_CODING_MODEL review_model=$YAYSAPP_REVIEW_MODEL"
 
-if [ -z "$CLAUDE_BIN" ]; then
-  log "FATAL: claude CLI not found on PATH"; exit 127
+if [ -z "$CODEX_BIN" ]; then
+  log "FATAL: codex CLI not found on PATH"; exit 127
 fi
 if [ ! -d "$REPO/.git" ]; then
   log "FATAL: $REPO is not a git repository"; exit 1
 fi
 
+# --- Local usage guard --------------------------------------------------------
+# Codex does not expose a reliable CLI command for ChatGPT/Codex account usage.
+# This guard enforces a local budget for this automation only, so the scheduled
+# agent cannot run for hours unattended.
+usage_seconds_for_today() {
+  awk -F '\t' '$3 == "codex" {sum += $5} END {print int(sum)}' "$USAGE_FILE" 2>/dev/null || echo 0
+}
+
+budget_seconds="$(perl -e 'my $m = $ARGV[0] + 0; my $p = $ARGV[1] + 0; my $s = int($m * 60 * $p / 100); $s = 1 if $s < 1; print $s' "$AGENT_DAILY_USAGE_MINUTES" "$AGENT_USAGE_STOP_PERCENT")"
+requested_seconds="$(perl -e 'my $s = int($ARGV[0] * 3600); $s = 1 if $s < 1; print $s' "$SESSION_HOURS")"
+used_seconds="$(usage_seconds_for_today)"
+remaining_seconds=$((budget_seconds - used_seconds))
+
+if [ "$remaining_seconds" -le 0 ]; then
+  log "usage guard: stopping before Codex; local assigned daily budget is already at ${AGENT_USAGE_STOP_PERCENT}% (${used_seconds}s/${budget_seconds}s)"
+  mkdir -p "$REPO/reports"
+  {
+    echo "# YaysApp Nightly Report — $DATE"
+    echo
+    echo "**Branch:** main · **PR:** none · **Commits:** none"
+    echo
+    echo "## Completed tasks"
+    echo "- None; run skipped by the local usage guard."
+    echo
+    echo "## Features implemented"
+    echo "- None."
+    echo
+    echo "## Bugs fixed"
+    echo "- None."
+    echo
+    echo "## Files changed"
+    echo "- None."
+    echo
+    echo "## Review improvements (Codex \`$YAYSAPP_REVIEW_MODEL\`)"
+    echo "- None; review was not started."
+    echo
+    echo "## Remaining tasks / blockers"
+    echo "- Local usage guard stopped the run before Codex because this agent reached ${AGENT_USAGE_STOP_PERCENT}% of its assigned ${AGENT_DAILY_USAGE_MINUTES}-minute daily budget."
+  } > "$REPO/reports/$DATE.md"
+  exit 0
+fi
+
+if [ "$requested_seconds" -gt "$remaining_seconds" ]; then
+  EFFECTIVE_SESSION_SECONDS="$remaining_seconds"
+else
+  EFFECTIVE_SESSION_SECONDS="$requested_seconds"
+fi
+EFFECTIVE_SESSION_HOURS="$(perl -e 'printf "%.3f", $ARGV[0] / 3600' "$EFFECTIVE_SESSION_SECONDS")"
+log "usage guard: used=${used_seconds}s limit=${budget_seconds}s remaining=${remaining_seconds}s effective_session=${EFFECTIVE_SESSION_SECONDS}s (${EFFECTIVE_SESSION_HOURS}h)"
+
 # --- Cleanup on any exit ------------------------------------------------------
 cleanup() {
   local rc=$?
-  log "cleanup: removing worktree $WORKTREE (exit=$rc)"
-  git -C "$REPO" worktree remove --force "$WORKTREE" 2>/dev/null || rm -rf "$WORKTREE"
-  git -C "$REPO" worktree prune 2>/dev/null || true
   log "=== session end (exit=$rc) ==="
 }
 trap cleanup EXIT INT TERM
 
-# --- Fetch and build the isolated worktree ------------------------------------
+# --- Sync main ----------------------------------------------------------------
 log "fetching origin..."
 if ! git -C "$REPO" fetch --prune origin; then
   log "FATAL: git fetch failed"; exit 1
 fi
 
-# Start clean: if a stale worktree/branch from a crashed run exists, clear it.
-git -C "$REPO" worktree remove --force "$WORKTREE" 2>/dev/null || true
-rm -rf "$WORKTREE"
-git -C "$REPO" worktree prune 2>/dev/null || true
-
-# If the branch already exists (e.g. re-run same day), reuse it; else create from origin/main.
-if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  log "branch $BRANCH exists; checking it out into worktree"
-  git -C "$REPO" worktree add "$WORKTREE" "$BRANCH" || { log "FATAL: worktree add (existing branch) failed"; exit 1; }
-else
-  log "creating branch $BRANCH from origin/main"
-  git -C "$REPO" worktree add -b "$BRANCH" "$WORKTREE" origin/main || { log "FATAL: worktree add failed"; exit 1; }
+if [ "$(git -C "$REPO" branch --show-current)" != "main" ]; then
+  log "checking out main"
+  git -C "$REPO" checkout main || { log "FATAL: could not check out main"; exit 1; }
 fi
+log "fast-forwarding main from origin/main..."
+git -C "$REPO" pull --ff-only origin main || { log "FATAL: could not fast-forward main"; exit 1; }
 
-# --- Seed the persistent ledger into the worktree -----------------------------
-# The ledger lives on disk in the MAIN repo's .nightly/ so it survives across nights
-# (worktrees are cut from origin/main and don't carry it). Copy it in; copy it back after.
-mkdir -p "$WORKTREE/.nightly"
-if [ -f "$NIGHTLY_DIR/progress-ledger.md" ]; then
-  cp "$NIGHTLY_DIR/progress-ledger.md" "$WORKTREE/.nightly/progress-ledger.md"
-fi
-# Keep the agent from committing .nightly/ to the branch (reports/ stays committable).
-EXCLUDE_FILE="$(git -C "$WORKTREE" rev-parse --git-path info/exclude 2>/dev/null)"
+# Keep the agent from committing .nightly/ (reports/ stays committable).
+EXCLUDE_FILE="$(git -C "$WORKDIR" rev-parse --git-path info/exclude 2>/dev/null)"
 if [ -n "$EXCLUDE_FILE" ]; then
   mkdir -p "$(dirname "$EXCLUDE_FILE")"
   grep -qxF ".nightly/" "$EXCLUDE_FILE" 2>/dev/null || echo ".nightly/" >> "$EXCLUDE_FILE"
 fi
 
-# --- Install mobile deps (isolated to the worktree) ---------------------------
+# --- Install mobile deps ------------------------------------------------------
 log "installing mobile npm deps (this can take a while)..."
-( cd "$WORKTREE/mobile" && npm ci --no-audit --no-fund 2>&1 | tail -5 ) \
-  || ( cd "$WORKTREE/mobile" && npm install --no-audit --no-fund 2>&1 | tail -5 ) \
+( cd "$WORKDIR/mobile" && npm install --legacy-peer-deps --no-audit --no-fund ) \
   || log "WARN: npm install had issues; the session will surface test/lint failures"
 
 # --- Portable timeout wrapper (no gtimeout on stock macOS) --------------------
 # Runs "$@" but kills it after SESSION_HOURS. Uses perl's alarm as a portable timeout.
 run_with_timeout() {
-  local secs
-  secs="$(perl -e 'printf("%d", $ARGV[0]*3600)' "$SESSION_HOURS")"
   perl -e '
     my $t = shift;
     my $pid = fork();
@@ -114,58 +156,51 @@ run_with_timeout() {
     alarm $t;
     waitpid($pid, 0);
     exit($? >> 8);
-  ' "$secs" "$@"
+  ' "$EFFECTIVE_SESSION_SECONDS" "$@"
 }
 
-# --- Run the headless Claude Opus session -------------------------------------
+# --- Run the headless Codex session -------------------------------------------
 PROMPT="$(cat "$NIGHTLY_DIR/orchestrator.md")"
-log "starting Claude Opus session (budget ${SESSION_HOURS}h)..."
-cd "$WORKTREE"
+log "starting Codex session (effective budget ${EFFECTIVE_SESSION_SECONDS}s / ${EFFECTIVE_SESSION_HOURS}h)..."
+cd "$WORKDIR"
+CODEX_STARTED_AT="$(date +%s)"
 
-# Optional hard dollar cap on API spend per session (set MAX_BUDGET_USD to enable).
-BUDGET_ARGS=()
-if [ -n "${MAX_BUDGET_USD:-}" ]; then
-  BUDGET_ARGS=(--max-budget-usd "$MAX_BUDGET_USD")
-  log "cost cap: \$$MAX_BUDGET_USD"
-fi
-
-run_with_timeout "$CLAUDE_BIN" \
-  --print \
-  --model claude-opus-4-8 \
-  --dangerously-skip-permissions \
-  --add-dir "$WORKTREE" \
-  "${BUDGET_ARGS[@]}" \
+# Bash 3.2 + `set -u` treats empty arrays as unset, so build the command incrementally.
+CODEX_CMD=(
+  "$CODEX_BIN"
+  exec
+  --model "$YAYSAPP_CODING_MODEL"
+  --dangerously-bypass-approvals-and-sandbox
+  -C "$WORKDIR"
+  --add-dir "$WORKDIR"
   "$PROMPT"
-CLAUDE_RC=$?
-
-if [ "$CLAUDE_RC" -eq 124 ]; then
-  log "session hit the ${SESSION_HOURS}h budget and was stopped (expected stop condition)"
-else
-  log "session exited with code $CLAUDE_RC"
+)
+if [ -n "${MAX_BUDGET_USD:-}" ]; then
+  log "WARN: MAX_BUDGET_USD is not supported by codex exec; ignoring"
 fi
 
-# --- Safety net: if the agent committed but failed to push, push the branch ---
-if git -C "$WORKTREE" rev-parse --verify --quiet HEAD >/dev/null; then
-  AHEAD="$(git -C "$WORKTREE" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
+run_with_timeout "${CODEX_CMD[@]}"
+CODEX_RC=$?
+CODEX_ENDED_AT="$(date +%s)"
+CODEX_ELAPSED_SECONDS=$((CODEX_ENDED_AT - CODEX_STARTED_AT))
+printf '%s\t%s\tcodex\t%s\t%s\t%s\n' "$STAMP" "$BRANCH" "$YAYSAPP_CODING_MODEL" "$CODEX_ELAPSED_SECONDS" "$CODEX_RC" >> "$USAGE_FILE"
+log "usage guard: recorded ${CODEX_ELAPSED_SECONDS}s for $YAYSAPP_CODING_MODEL in $USAGE_FILE"
+
+if [ "$CODEX_RC" -eq 124 ]; then
+  log "session hit the effective ${EFFECTIVE_SESSION_SECONDS}s budget and was stopped (expected stop condition)"
+else
+  log "session exited with code $CODEX_RC"
+fi
+
+# --- Safety net: if the agent committed but failed to push, push main ---------
+if git -C "$WORKDIR" rev-parse --verify --quiet HEAD >/dev/null; then
+  AHEAD="$(git -C "$WORKDIR" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
   if [ "${AHEAD:-0}" -gt 0 ]; then
-    if [ -z "$(git -C "$WORKTREE" branch -r --contains HEAD 2>/dev/null | grep "origin/$BRANCH")" ]; then
-      log "safety net: pushing $BRANCH ($AHEAD commit(s) not yet on origin)"
-      git -C "$WORKTREE" push -u origin "$BRANCH" 2>&1 | tail -3 || log "WARN: safety-net push failed"
-    fi
+    log "safety net: pushing main ($AHEAD commit(s) not yet on origin)"
+    git -C "$WORKDIR" push origin main 2>&1 | tail -3 || log "WARN: safety-net push failed"
   else
     log "no new commits this session"
   fi
-fi
-
-# --- Persist ledger + reports back to the main repo (survives worktree removal) ---
-if [ -f "$WORKTREE/.nightly/progress-ledger.md" ]; then
-  cp "$WORKTREE/.nightly/progress-ledger.md" "$NIGHTLY_DIR/progress-ledger.md"
-  log "ledger persisted to main repo"
-fi
-if compgen -G "$WORKTREE/reports/*.md" > /dev/null; then
-  mkdir -p "$REPO/reports"
-  cp "$WORKTREE"/reports/*.md "$REPO/reports/" 2>/dev/null || true
-  log "reports mirrored to $REPO/reports/"
 fi
 
 exit 0
