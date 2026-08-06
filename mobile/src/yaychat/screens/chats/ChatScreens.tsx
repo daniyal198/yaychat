@@ -133,12 +133,32 @@ const otherMemberId = (c: Conversation): string | undefined =>
 const emailLike = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const mergeMessages = (current: Message[], incoming: Message[]): Message[] => {
-  const byKey = new Map<string, Message>();
+  const merged: Message[] = [];
   [...current, ...incoming].forEach(message => {
     const key = message.clientId ?? message.id;
-    byKey.set(key, {...byKey.get(key), ...message});
+    const existingIndex = merged.findIndex(existing => {
+      if ((existing.clientId ?? existing.id) === key) {
+        return true;
+      }
+      if (existing.id === message.id) {
+        return true;
+      }
+      const sameOptimisticMessage =
+        existing.senderId === message.senderId &&
+        existing.text === message.text &&
+        existing.kind === message.kind &&
+        existing.status === 'sending' &&
+        message.status !== 'sending' &&
+        Math.abs(new Date(existing.createdAt).getTime() - new Date(message.createdAt).getTime()) < 60_000;
+      return sameOptimisticMessage;
+    });
+    if (existingIndex >= 0) {
+      merged[existingIndex] = {...merged[existingIndex], ...message};
+    } else {
+      merged.push(message);
+    }
   });
-  return [...byKey.values()].sort((a, b) => {
+  return merged.sort((a, b) => {
     const byTime = a.createdAt.localeCompare(b.createdAt);
     return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
   });
@@ -1083,10 +1103,11 @@ export const ConversationScreen = ({
   useEffect(() => {
     return chatService.subscribeConversation(conversationId, event => {
       if (event.type === 'message.upsert') {
-        setMsgs(prev => mergeMessages(prev, [event.message]).filter(m => !m.deleted));
-        if (event.message.senderId !== ME_ID) {
-          chatService.markRead(conversationId);
+        if (event.message.senderId === ME_ID) {
+          return;
         }
+        setMsgs(prev => mergeMessages(prev, [event.message]).filter(m => !m.deleted));
+        chatService.markRead(conversationId);
         return;
       }
       if (event.type === 'message.deleted') {

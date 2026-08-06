@@ -709,7 +709,7 @@ const backendChat = {
           ...body,
           to: directPeerFromId(conversationId),
         });
-    const message = backendMessageToMessage(saved, meEmail);
+    const message = {...backendMessageToMessage(saved, meEmail), clientId: input.clientId};
     emitChatEvent({type: 'message.upsert', conversationId, message});
     emitChatEvent({type: 'conversation.updated', conversation: await this.getConversation(conversationId)});
     return message;
