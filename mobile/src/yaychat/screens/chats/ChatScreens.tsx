@@ -299,7 +299,7 @@ export const ChatListScreen = ({
         ...conversation,
         unreadCount: Math.max(
           conversation.unreadCount,
-          getConversationUnread(conversation.id, conversation.lastMessage),
+          getConversationUnread(conversation.id),
         ),
       }));
       return filter === 'Unread' ? merged.filter(conversation => conversation.unreadCount > 0) : merged;

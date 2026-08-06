@@ -5,7 +5,8 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
 import {ME_ID, analytics, authService, chatService, onOfflineChange, simulation} from '../services';
-import {Conversation, Message, Session, User} from '../types/models';
+import {pushNotificationService} from '../services/pushNotifications';
+import {Conversation, Session, User} from '../types/models';
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -58,7 +59,7 @@ export const useNetwork = () => useContext(NetworkContext);
 interface UnreadState {
   total: number;
   refresh: () => void;
-  getConversationUnread: (conversationId: string, lastMessage?: Message) => number;
+  getConversationUnread: (conversationId: string) => number;
   recordIncoming: (conversationId: string, count?: number) => void;
   clearConversation: (conversationId: string, lastMessageId?: string) => void;
   syncConversations: (conversations: Conversation[]) => void;
@@ -94,7 +95,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [offline, setOffline] = useState(simulation.offline);
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
-  const [backendUnreadTotal, setBackendUnreadTotal] = useState(0);
+  const [backendUnreadByConversation, setBackendUnreadByConversation] = useState<Record<string, number>>({});
   const [localUnreadByConversation, setLocalUnreadByConversation] = useState<Record<string, number>>({});
   const [clearedLastMessageByConversation, setClearedLastMessageByConversation] = useState<Record<string, string>>({});
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -111,29 +112,43 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     return onOfflineChange(setOffline);
   }, []);
 
+  const syncConversations = useCallback((conversations: Conversation[]) => {
+    setBackendUnreadByConversation(prev => {
+      let changed = false;
+      const next = {...prev};
+      conversations.forEach(conversation => {
+        const lastMessageId = conversation.lastMessage?.id;
+        const wasClearedLocally =
+          Boolean(lastMessageId) && clearedLastMessageByConversation[conversation.id] === lastMessageId;
+        const count =
+          activeConversationId.current === conversation.id || wasClearedLocally
+            ? 0
+            : Math.max(conversation.unreadCount, 0);
+
+        if ((next[conversation.id] ?? 0) !== count) {
+          if (count > 0) {
+            next[conversation.id] = count;
+          } else {
+            delete next[conversation.id];
+          }
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [clearedLastMessageByConversation]);
+
   const refreshUnread = useCallback(() => {
     chatService
-      .getUnreadTotal()
-      .then(setBackendUnreadTotal)
+      .listConversations('all')
+      .then(syncConversations)
       .catch(() => {});
-  }, []);
+  }, [syncConversations]);
 
   const getConversationUnread = useCallback(
-    (conversationId: string, lastMessage?: Message) => {
-      const localCount = localUnreadByConversation[conversationId] ?? 0;
-      if (localCount > 0) {
-        return localCount;
-      }
-      if (
-        lastMessage &&
-        lastMessage.senderId !== ME_ID &&
-        clearedLastMessageByConversation[conversationId] !== lastMessage.id
-      ) {
-        return 1;
-      }
-      return 0;
-    },
-    [clearedLastMessageByConversation, localUnreadByConversation],
+    (conversationId: string) =>
+      Math.max(localUnreadByConversation[conversationId] ?? 0, backendUnreadByConversation[conversationId] ?? 0),
+    [backendUnreadByConversation, localUnreadByConversation],
   );
 
   const recordIncoming = useCallback((conversationId: string, count?: number) => {
@@ -159,52 +174,57 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     if (lastMessageId) {
       setClearedLastMessageByConversation(prev => ({...prev, [conversationId]: lastMessageId}));
     }
-    refreshUnread();
-  }, [refreshUnread]);
-
-  const syncConversations = useCallback((conversations: Conversation[]) => {
-    setLocalUnreadByConversation(prev => {
-      let changed = false;
+    setBackendUnreadByConversation(prev => {
+      if (!prev[conversationId]) {
+        return prev;
+      }
       const next = {...prev};
-      conversations.forEach(conversation => {
-        const lastMessage = conversation.lastMessage;
-        if (
-          !lastMessage ||
-          lastMessage.senderId === ME_ID ||
-          activeConversationId.current === conversation.id ||
-          clearedLastMessageByConversation[conversation.id] === lastMessage.id
-        ) {
-          return;
-        }
-        const inferredCount = Math.max(conversation.unreadCount, 1);
-        if ((next[conversation.id] ?? 0) < inferredCount) {
-          next[conversation.id] = inferredCount;
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
+      delete next[conversationId];
+      return next;
     });
-  }, [clearedLastMessageByConversation]);
+  }, []);
 
   const setActiveConversation = useCallback((conversationId: string | null) => {
     activeConversationId.current = conversationId;
   }, []);
 
-  const localUnreadTotal = Object.values(localUnreadByConversation).reduce((sum, n) => sum + n, 0);
-  const unreadTotal = Math.max(backendUnreadTotal, localUnreadTotal);
+  const unreadTotal = Array.from(
+    new Set([...Object.keys(localUnreadByConversation), ...Object.keys(backendUnreadByConversation)]),
+  ).reduce(
+    (sum, conversationId) =>
+      sum +
+      Math.max(localUnreadByConversation[conversationId] ?? 0, backendUnreadByConversation[conversationId] ?? 0),
+    0,
+  );
 
   // Keep the badge in sync while signed in. Polling also picks up read state
   // changes (opening a chat clears its unread count in the store).
   useEffect(() => {
     if (!session) {
-      setBackendUnreadTotal(0);
+      setBackendUnreadByConversation({});
       setLocalUnreadByConversation({});
       setClearedLastMessageByConversation({});
       return;
     }
+    let mounted = true;
+    let unsubscribePushTokenRefresh: (() => void) | undefined;
+    pushNotificationService
+      .registerForSession(session)
+      .then(unsubscribe => {
+        if (mounted) {
+          unsubscribePushTokenRefresh = unsubscribe;
+        } else {
+          unsubscribe();
+        }
+      })
+      .catch(() => {});
     refreshUnread();
-    const id = setInterval(refreshUnread, 3000);
-    return () => clearInterval(id);
+    const id = setInterval(refreshUnread, 8000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+      unsubscribePushTokenRefresh?.();
+    };
   }, [session, refreshUnread]);
 
   const show = useCallback(
@@ -222,6 +242,19 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     },
     [toastOpacity],
   );
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    return pushNotificationService.subscribeForegroundChatMessages(message => {
+      show(`${message.title}: ${chatNotificationPreview(message.body)}`, 'info');
+      if (message.conversationId) {
+        recordIncoming(message.conversationId);
+      }
+    });
+  }, [session, show, recordIncoming]);
 
   // Surface incoming chat messages while the app is open. The backend chat
   // transport currently polls conversation summaries, so this gives users a
@@ -246,6 +279,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
         conversations.forEach(conversation => {
           snapshot[conversation.id] = conversation.lastMessage?.id;
         });
+        syncConversations(conversations);
         lastMessageByConversation.current = snapshot;
         chatNotificationsReady.current = true;
       })
@@ -274,15 +308,15 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       }
 
       show(`${conversation.title}: ${chatNotificationPreview(lastMessage.text)}`, 'info');
+      syncConversations([conversation]);
       recordIncoming(conversation.id, conversation.unreadCount);
-      refreshUnread();
     });
 
     return () => {
       mounted = false;
       unsubscribe();
     };
-  }, [session, show, recordIncoming, refreshUnread]);
+  }, [session, show, recordIncoming, syncConversations]);
 
   const auth: AuthState = {
     booting,
