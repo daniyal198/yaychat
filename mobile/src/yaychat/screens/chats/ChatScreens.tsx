@@ -388,67 +388,107 @@ export const ChatSearchScreen = ({
   navigation,
 }: NativeStackScreenProps<ChatsStackParamList, 'ChatSearch'>) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<{conversation: Conversation; message: Message}[] | null>(
-    null,
-  );
+  const toast = useToast();
+  const {busy, perform} = useAction();
+  const [messageResults, setMessageResults] = useState<
+    {conversation: Conversation; message: Message}[] | null
+  >(null);
+  const [peopleResults, setPeopleResults] = useState<User[] | null>(null);
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!query.trim()) {
-      setResults(null);
+      setMessageResults(null);
+      setPeopleResults(null);
       setSearching(false);
       return;
     }
     setSearching(true);
     const t = setTimeout(() => {
-      chatService
-        .searchMessages(query)
-        .then(setResults)
-        .catch(() => setResults([]))
+      Promise.all([
+        userService.searchUsers(query).catch(() => []),
+        chatService.searchMessages(query).catch(() => []),
+      ])
+        .then(([people, messages]) => {
+          setPeopleResults(people);
+          setMessageResults(messages);
+        })
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(t);
   }, [query]);
 
+  const openPerson = async (user: User) => {
+    const convo = await perform(
+      () => chatService.createConversation([user.id]),
+      m => toast.show(m, 'error'),
+    );
+    if (convo) {
+      navigation.navigate('Conversation', {conversationId: convo.id});
+    }
+  };
+
+  const noResults = !!query.trim() && !searching && !peopleResults?.length && !messageResults?.length;
+
   return (
     <Screen scroll={false}>
-      <SearchBar value={query} onChangeText={setQuery} placeholder="Search messages" autoFocus />
+      <SearchBar value={query} onChangeText={setQuery} placeholder="Search people or messages" autoFocus />
       <Spacer size={spacing.sm} />
       {!query.trim() ? (
         <StateView
           icon="search"
-          title="Search your messages"
-          message="Try a name, a word from a conversation, or a file name."
+          title="Search people and messages"
+          message="Type a username, name, email address, or a word from a conversation."
         />
       ) : searching ? (
         <ListSkeleton rows={4} />
-      ) : results && results.length === 0 ? (
+      ) : noResults ? (
         <StateView
           icon="search"
           title={`No results for “${query.trim()}”`}
-          message="Check the spelling or try a different word."
+          message="To start a new direct chat before backend search deploys, type the other user’s full email address."
         />
       ) : (
-        <FlatList
-          data={results ?? []}
-          keyExtractor={r => r.message.id}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({item}) => (
-            <ListRow
-              avatarName={item.conversation.title}
-              title={item.conversation.title}
-              subtitle={`${kindPrefix(item.message)}${item.message.text}`}
-              right={
-                <YayText variant="micro" color={colors.textMuted}>
-                  {timeAgo(item.message.createdAt)}
-                </YayText>
-              }
-              onPress={() =>
-                navigation.navigate('Conversation', {conversationId: item.conversation.id})
-              }
-            />
-          )}
-        />
+        <ScrollView keyboardShouldPersistTaps="handled">
+          {peopleResults?.length ? (
+            <>
+              <SectionHeader title="People" />
+              {peopleResults.map(user => (
+                <ListRow
+                  key={user.id}
+                  avatarName={user.name}
+                  online={user.online}
+                  title={user.name}
+                  subtitle={user.email ? user.email : `@${user.username}`}
+                  right={busy ? <YayText variant="micro" color={colors.textMuted}>Opening…</YayText> : undefined}
+                  onPress={() => openPerson(user)}
+                />
+              ))}
+              <Spacer size={spacing.sm} />
+            </>
+          ) : null}
+          {messageResults?.length ? (
+            <>
+              <SectionHeader title="Messages" />
+              {messageResults.map(item => (
+                <ListRow
+                  key={item.message.id}
+                  avatarName={item.conversation.title}
+                  title={item.conversation.title}
+                  subtitle={`${kindPrefix(item.message)}${item.message.text}`}
+                  right={
+                    <YayText variant="micro" color={colors.textMuted}>
+                      {timeAgo(item.message.createdAt)}
+                    </YayText>
+                  }
+                  onPress={() =>
+                    navigation.navigate('Conversation', {conversationId: item.conversation.id})
+                  }
+                />
+              ))}
+            </>
+          ) : null}
+        </ScrollView>
       )}
     </Screen>
   );

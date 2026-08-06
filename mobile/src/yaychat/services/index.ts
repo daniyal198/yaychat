@@ -1441,6 +1441,70 @@ export const userService = {
     );
   },
 
+  async searchUsers(query: string): Promise<User[]> {
+    const q = query.trim().toLowerCase();
+    if (BACKEND_ENABLED) {
+      const meEmail = await backendSessionEmail();
+      if (!q) {
+        return this.contacts();
+      }
+      try {
+        const payload = await backendGet<any>('/api/v1/chat/users/search', {
+          email: meEmail,
+          q,
+          limit: 25,
+        });
+        return backendList(payload)
+          .map((u: BackendUser) => backendUserToUser(u))
+          .filter(u => u.email && u.email !== meEmail);
+      } catch {
+        // Production may not have the new chat search route deployed yet.
+      }
+      if (EMAIL_RE.test(q)) {
+        try {
+          const payload = await backendGet<any>(`/api/v1/inex/user/getUserByEmail/${encodeURIComponent(q)}`);
+          const user = backendUserToUser(backendBody(payload), q);
+          return user.email && user.email !== meEmail ? [user] : [];
+        } catch {
+          return q !== meEmail
+            ? [
+                {
+                  id: q,
+                  name: q,
+                  username: q.split('@')[0],
+                  email: q,
+                  bio: '',
+                  online: false,
+                  lastSeen: new Date().toISOString(),
+                  isContact: false,
+                },
+              ]
+            : [];
+        }
+      }
+      if (/^[a-zA-Z0-9_]{3,30}$/.test(q)) {
+        try {
+          const payload = await backendGet<any>(`/api/v1/inex/user/getUserByUsername/${encodeURIComponent(q)}`);
+          const user = backendUserToUser(backendBody(payload));
+          return user.email && user.email !== meEmail ? [user] : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    }
+    return mockRequest('user.searchUsers', () =>
+      db.users
+        .filter(u => u.id !== db.ME_ID && !db.blockedUsers.includes(u.id))
+        .filter(
+          u =>
+            u.name.toLowerCase().includes(q) ||
+            u.username.toLowerCase().includes(q) ||
+            u.email.toLowerCase().includes(q),
+        ),
+    );
+  },
+
   async getUser(id: string): Promise<User> {
     if (BACKEND_ENABLED) {
       if (id === db.ME_ID) {
