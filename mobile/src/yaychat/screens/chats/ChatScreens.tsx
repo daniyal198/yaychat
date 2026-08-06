@@ -1044,6 +1044,7 @@ export const ConversationScreen = ({
 }: NativeStackScreenProps<ChatsStackParamList, 'Conversation'>) => {
   const {conversationId} = route.params;
   const toast = useToast();
+  const showToast = toast.show;
   const {data, loading, error, offline, reload} = useAsync(async () => {
     const conversation = await chatService.getConversation(conversationId);
     const page = await chatService.getMessages(conversationId);
@@ -1066,6 +1067,7 @@ export const ConversationScreen = ({
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [otherTyping, setOtherTyping] = useState(false);
   const unreadAnchorId = useRef<string | null>(null);
+  const seenMessageIds = useRef<Set<string>>(new Set());
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const localId = useRef(0);
 
@@ -1094,6 +1096,7 @@ export const ConversationScreen = ({
       const list = data.messages.filter(m => !m.deleted);
       const count = data.conversation.unreadCount;
       unreadAnchorId.current = count > 0 ? list[list.length - count]?.id ?? null : null;
+      seenMessageIds.current = new Set(list.map(m => m.id));
       setMsgs(list);
       setNextCursor(data.nextCursor);
       chatService.markRead(conversationId);
@@ -1104,9 +1107,15 @@ export const ConversationScreen = ({
     return chatService.subscribeConversation(conversationId, event => {
       if (event.type === 'message.upsert') {
         if (event.message.senderId === ME_ID) {
+          seenMessageIds.current.add(event.message.id);
           return;
         }
+        const isNewIncoming = !seenMessageIds.current.has(event.message.id);
+        seenMessageIds.current.add(event.message.id);
         setMsgs(prev => mergeMessages(prev, [event.message]).filter(m => !m.deleted));
+        if (isNewIncoming && !event.message.deleted) {
+          showToast(event.message.text.trim() || 'New message', 'info');
+        }
         chatService.markRead(conversationId);
         return;
       }
@@ -1122,7 +1131,7 @@ export const ConversationScreen = ({
         setOtherTyping(event.userIds.some(id => id !== ME_ID));
       }
     });
-  }, [conversationId]);
+  }, [conversationId, showToast]);
 
   useEffect(() => {
     if (!conversation) {

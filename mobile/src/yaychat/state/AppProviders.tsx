@@ -4,7 +4,7 @@ import {Animated, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
-import {analytics, authService, chatService, onOfflineChange, simulation} from '../services';
+import {ME_ID, analytics, authService, chatService, onOfflineChange, simulation} from '../services';
 import {Session, User} from '../types/models';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +66,11 @@ export const useUnread = () => useContext(UnreadContext);
 /** Format an unread count for a compact badge: 1–8 exact, then "9+". */
 export const formatUnreadBadge = (n: number): string => (n > 8 ? '9+' : String(n));
 
+const chatNotificationPreview = (text: string): string => {
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : 'New message';
+};
+
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
@@ -79,6 +84,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMessageByConversation = useRef<Record<string, string | undefined>>({});
 
   useEffect(() => {
     authService
@@ -122,6 +128,61 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     },
     [toastOpacity],
   );
+
+  // Surface incoming chat messages while the app is open. The backend chat
+  // transport currently polls conversation summaries, so this gives users a
+  // foreground notification as soon as a conversation's last incoming message
+  // changes instead of silently updating the list.
+  useEffect(() => {
+    if (!session) {
+      lastMessageByConversation.current = {};
+      return;
+    }
+
+    let mounted = true;
+    chatService
+      .listConversations('all')
+      .then(conversations => {
+        if (!mounted) {
+          return;
+        }
+        const snapshot: Record<string, string | undefined> = {};
+        conversations.forEach(conversation => {
+          snapshot[conversation.id] = conversation.lastMessage?.id;
+        });
+        lastMessageByConversation.current = snapshot;
+      })
+      .catch(() => {});
+
+    const unsubscribe = chatService.subscribe(event => {
+      if (event.type !== 'conversation.updated') {
+        return;
+      }
+      const {conversation} = event;
+      const lastMessage = conversation.lastMessage;
+      const previousLastId = lastMessageByConversation.current[conversation.id];
+      lastMessageByConversation.current[conversation.id] = lastMessage?.id;
+
+      if (
+        !lastMessage ||
+        !previousLastId ||
+        previousLastId === lastMessage.id ||
+        lastMessage.senderId === ME_ID ||
+        conversation.unreadCount <= 0 ||
+        conversation.muted
+      ) {
+        return;
+      }
+
+      show(`${conversation.title}: ${chatNotificationPreview(lastMessage.text)}`, 'info');
+      refreshUnread();
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [session, show, refreshUnread]);
 
   const auth: AuthState = {
     booting,
