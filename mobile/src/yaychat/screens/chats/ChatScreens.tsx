@@ -52,7 +52,7 @@ import {EmojiPicker} from '../../design/EmojiPicker';
 import {colors, radius, spacing, typography} from '../../design/tokens';
 import {ME_ID, chatService, communityService, errorMessage, userService} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
-import {useToast} from '../../state/AppProviders';
+import {useToast, useUnread} from '../../state/AppProviders';
 import {Conversation, Message, User} from '../../types/models';
 import {ChatsStackParamList} from '../../types/navigation';
 import {ChatLinkCard, classifyChatLink} from './linkCards';
@@ -284,13 +284,24 @@ export const ChatListScreen = ({
   navigation,
 }: NativeStackScreenProps<ChatsStackParamList, 'ChatList'>) => {
   const toast = useToast();
+  const {getConversationUnread} = useUnread();
   const {perform} = useAction();
   const [filter, setFilter] = useState<ChatFilter>('All');
   const [sheetConvo, setSheetConvo] = useState<Conversation | null>(null);
   const [confirmDeleteConvo, setConfirmDeleteConvo] = useState<Conversation | null>(null);
   const {data, loading, refreshing, error, offline, reload, refresh} = useAsync(
-    () => chatService.listConversations(FILTER_MAP[filter]),
+    () => chatService.listConversations(filter === 'Unread' ? 'all' : FILTER_MAP[filter]),
     [filter],
+  );
+  const conversationsWithLocalUnread = useMemo(
+    () => {
+      const merged = (data ?? []).map(conversation => ({
+        ...conversation,
+        unreadCount: Math.max(conversation.unreadCount, getConversationUnread(conversation.id)),
+      }));
+      return filter === 'Unread' ? merged.filter(conversation => conversation.unreadCount > 0) : merged;
+    },
+    [data, filter, getConversationUnread],
   );
 
   useEffect(() => {
@@ -341,8 +352,8 @@ export const ChatListScreen = ({
           error={error}
           offline={offline}
           onRetry={reload}
-          data={data}
-          isEmpty={data?.length === 0}
+          data={conversationsWithLocalUnread}
+          isEmpty={conversationsWithLocalUnread.length === 0}
           emptyTitle={filter === 'All' ? 'No chats yet' : `No ${filter.toLowerCase()} chats`}
           emptyMessage="Start a conversation with a friend to see it here."
           emptyAction={{label: 'Start a chat', onPress: () => navigation.navigate('NewChat')}}>
@@ -1090,6 +1101,7 @@ export const ConversationScreen = ({
   const {conversationId} = route.params;
   const toast = useToast();
   const showToast = toast.show;
+  const {clearConversation, setActiveConversation} = useUnread();
   const {data, loading, error, offline, reload} = useAsync(async () => {
     const conversation = await chatService.getConversation(conversationId);
     const page = await chatService.getMessages(conversationId);
@@ -1148,9 +1160,16 @@ export const ConversationScreen = ({
       }
       setMsgs(list);
       setNextCursor(data.nextCursor);
+      setActiveConversation(conversationId);
+      clearConversation(conversationId);
       chatService.markRead(conversationId);
     }
-  }, [data, conversationId]);
+  }, [data, conversationId, clearConversation, setActiveConversation]);
+
+  useEffect(() => {
+    setActiveConversation(conversationId);
+    return () => setActiveConversation(null);
+  }, [conversationId, setActiveConversation]);
 
   useEffect(() => {
     return chatService.subscribeConversation(conversationId, event => {
@@ -1167,6 +1186,7 @@ export const ConversationScreen = ({
         }
         const isNewIncoming = !seenMessageIds.current.has(event.message.id);
         seenMessageIds.current.add(event.message.id);
+        clearConversation(conversationId);
         setMsgs(prev => {
           const withReadReceipts = isNewIncoming
             ? prev.map(m =>
@@ -1192,7 +1212,7 @@ export const ConversationScreen = ({
         setOtherTyping(event.userIds.some(id => id !== ME_ID));
       }
     });
-  }, [conversationId, showToast]);
+  }, [conversationId, showToast, clearConversation]);
 
   useEffect(() => {
     const latestIncoming = latestIncomingMessage(msgs);

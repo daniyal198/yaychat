@@ -58,9 +58,20 @@ export const useNetwork = () => useContext(NetworkContext);
 interface UnreadState {
   total: number;
   refresh: () => void;
+  getConversationUnread: (conversationId: string) => number;
+  recordIncoming: (conversationId: string, count?: number) => void;
+  clearConversation: (conversationId: string) => void;
+  setActiveConversation: (conversationId: string | null) => void;
 }
 
-const UnreadContext = createContext<UnreadState>({total: 0, refresh: () => {}});
+const UnreadContext = createContext<UnreadState>({
+  total: 0,
+  refresh: () => {},
+  getConversationUnread: () => 0,
+  recordIncoming: () => {},
+  clearConversation: () => {},
+  setActiveConversation: () => {},
+});
 export const useUnread = () => useContext(UnreadContext);
 
 /** Format an unread count for a compact badge: 1–8 exact, then "9+". */
@@ -81,11 +92,13 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [offline, setOffline] = useState(simulation.offline);
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
-  const [unreadTotal, setUnreadTotal] = useState(0);
+  const [backendUnreadTotal, setBackendUnreadTotal] = useState(0);
+  const [localUnreadByConversation, setLocalUnreadByConversation] = useState<Record<string, number>>({});
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageByConversation = useRef<Record<string, string | undefined>>({});
   const chatNotificationsReady = useRef(false);
+  const activeConversationId = useRef<string | null>(null);
 
   useEffect(() => {
     authService
@@ -98,15 +111,51 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const refreshUnread = useCallback(() => {
     chatService
       .getUnreadTotal()
-      .then(setUnreadTotal)
+      .then(setBackendUnreadTotal)
       .catch(() => {});
   }, []);
+
+  const getConversationUnread = useCallback(
+    (conversationId: string) => localUnreadByConversation[conversationId] ?? 0,
+    [localUnreadByConversation],
+  );
+
+  const recordIncoming = useCallback((conversationId: string, count?: number) => {
+    if (activeConversationId.current === conversationId) {
+      return;
+    }
+    setLocalUnreadByConversation(prev => {
+      const current = prev[conversationId] ?? 0;
+      const nextCount = Math.max(current + 1, count ?? 0);
+      return {...prev, [conversationId]: nextCount};
+    });
+  }, []);
+
+  const clearConversation = useCallback((conversationId: string) => {
+    setLocalUnreadByConversation(prev => {
+      if (!prev[conversationId]) {
+        return prev;
+      }
+      const next = {...prev};
+      delete next[conversationId];
+      return next;
+    });
+    refreshUnread();
+  }, [refreshUnread]);
+
+  const setActiveConversation = useCallback((conversationId: string | null) => {
+    activeConversationId.current = conversationId;
+  }, []);
+
+  const localUnreadTotal = Object.values(localUnreadByConversation).reduce((sum, n) => sum + n, 0);
+  const unreadTotal = Math.max(backendUnreadTotal, localUnreadTotal);
 
   // Keep the badge in sync while signed in. Polling also picks up read state
   // changes (opening a chat clears its unread count in the store).
   useEffect(() => {
     if (!session) {
-      setUnreadTotal(0);
+      setBackendUnreadTotal(0);
+      setLocalUnreadByConversation({});
       return;
     }
     refreshUnread();
@@ -181,6 +230,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       }
 
       show(`${conversation.title}: ${chatNotificationPreview(lastMessage.text)}`, 'info');
+      recordIncoming(conversation.id, conversation.unreadCount);
       refreshUnread();
     });
 
@@ -188,7 +238,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       mounted = false;
       unsubscribe();
     };
-  }, [session, show, refreshUnread]);
+  }, [session, show, recordIncoming, refreshUnread]);
 
   const auth: AuthState = {
     booting,
@@ -219,7 +269,15 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   return (
     <AuthContext.Provider value={auth}>
       <NetworkContext.Provider value={{offline}}>
-        <UnreadContext.Provider value={{total: unreadTotal, refresh: refreshUnread}}>
+        <UnreadContext.Provider
+          value={{
+            total: unreadTotal,
+            refresh: refreshUnread,
+            getConversationUnread,
+            recordIncoming,
+            clearConversation,
+            setActiveConversation,
+          }}>
         <ToastContext.Provider value={{show}}>
           <View style={{flex: 1}}>
             {children}
