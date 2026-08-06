@@ -1108,6 +1108,12 @@ export const ConversationScreen = ({
       if (event.type === 'message.upsert') {
         if (event.message.senderId === ME_ID) {
           seenMessageIds.current.add(event.message.id);
+          setMsgs(prev => {
+            const exists = prev.some(
+              m => m.id === event.message.id || (event.message.clientId && m.clientId === event.message.clientId),
+            );
+            return exists ? mergeMessages(prev, [event.message]).filter(m => !m.deleted) : prev;
+          });
           return;
         }
         const isNewIncoming = !seenMessageIds.current.has(event.message.id);

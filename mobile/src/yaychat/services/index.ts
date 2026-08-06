@@ -260,7 +260,7 @@ const backendMessageToMessage = (m: BackendMessage, meEmail: string): Message =>
     kind: backendMessageKind(m),
     text: m.message || '',
     createdAt: new Date(m.timestamp || Date.now()).toISOString(),
-    status: mine ? 'sent' : m.isRead ? 'read' : 'delivered',
+    status: m.isRead ? 'read' : mine ? 'sent' : 'delivered',
     replyToId: m.replyTo?.messageId,
     reactions: (m.reactions || []).map(r => ({
       emoji: r.name || '👍',
@@ -867,7 +867,7 @@ const backendChat = {
       }
       try {
         const page = await this.getMessages(conversationId);
-        const version = page.items.map(m => `${m.id}:${m.edited}:${m.deleted}:${m.text}`).join('|');
+        const version = page.items.map(m => `${m.id}:${m.status}:${m.edited}:${m.deleted}:${m.text}`).join('|');
         if (backendPollVersions[conversationId] && backendPollVersions[conversationId] !== version) {
           page.items.forEach(message => listener({type: 'message.upsert', conversationId, message}));
         }
