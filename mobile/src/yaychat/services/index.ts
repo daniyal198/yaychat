@@ -570,6 +570,9 @@ const pageMessages = (all: Message[], cursor?: string): Page<Message> => {
   };
 };
 
+const sortMessagesByCreatedAt = (messages: Message[]): Message[] =>
+  [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
 const backendChat = {
   async listConversations(filter: 'all' | 'unread' | 'groups' | 'archived' = 'all'): Promise<Conversation[]> {
     if (filter === 'archived') {
@@ -624,21 +627,53 @@ const backendChat = {
       params.beforeId = cursor;
     }
 
-    const payload = isBackendGroupId(conversationId)
-      ? await backendGet<any>(
+    if (isBackendGroupId(conversationId)) {
+      try {
+        const payload = await backendGet<any>(
           `/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/messages/paged`,
           params,
-        )
-      : await backendGet<any>(
-          `/api/v1/chat/messages/${encodeURIComponent(meEmail)}/paged`,
-          {...params, with: directPeerFromId(conversationId)},
         );
-    const rawMessages = (payload?.messages || []) as BackendMessage[];
-    const items = rawMessages.map(m => backendMessageToMessage(m, meEmail)).reverse();
-    return {
-      items,
-      nextCursor: payload?.hasMoreOlder ? payload?.nextBeforeId || items[0]?.id || null : null,
-    };
+        const rawMessages = (payload?.messages || []) as BackendMessage[];
+        const items = rawMessages.map(m => backendMessageToMessage(m, meEmail)).reverse();
+        return {
+          items,
+          nextCursor: payload?.hasMoreOlder ? payload?.nextBeforeId || items[0]?.id || null : null,
+        };
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.code !== 'not_found') {
+          throw e;
+        }
+        const payload = await backendGet<any>(
+          `/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/messages`,
+          {email: meEmail},
+        );
+        const rawMessages = (backendBody(payload)?.messages || []) as BackendMessage[];
+        return pageMessages(sortMessagesByCreatedAt(rawMessages.map(m => backendMessageToMessage(m, meEmail))), cursor);
+      }
+    }
+
+    const peerEmail = directPeerFromId(conversationId);
+    try {
+      const payload = await backendGet<any>(
+        `/api/v1/chat/messages/${encodeURIComponent(meEmail)}/paged`,
+        {...params, with: peerEmail},
+      );
+      const rawMessages = (payload?.messages || []) as BackendMessage[];
+      const items = rawMessages.map(m => backendMessageToMessage(m, meEmail)).reverse();
+      return {
+        items,
+        nextCursor: payload?.hasMoreOlder ? payload?.nextBeforeId || items[0]?.id || null : null,
+      };
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.code !== 'not_found') {
+        throw e;
+      }
+      const payload = await backendGet<any>(`/api/v1/chat/messages/${encodeURIComponent(meEmail)}`);
+      const rawMessages = backendList(payload).filter(
+        (m: BackendMessage) => !m.groupId && directPeerFromMessage(m, meEmail) === peerEmail,
+      );
+      return pageMessages(sortMessagesByCreatedAt(rawMessages.map(m => backendMessageToMessage(m, meEmail))), cursor);
+    }
   },
 
   async sendMessage(
