@@ -164,6 +164,28 @@ const mergeMessages = (current: Message[], incoming: Message[]): Message[] => {
   });
 };
 
+const latestIncomingMessage = (messages: Message[]): Message | undefined =>
+  [...messages]
+    .filter(m => m.senderId !== ME_ID && !m.deleted && !m.recalled)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+const withDerivedReadReceipts = (messages: Message[]): Message[] => {
+  const latestIncoming = latestIncomingMessage(messages);
+  if (!latestIncoming) {
+    return messages;
+  }
+  const latestIncomingAt = new Date(latestIncoming.createdAt).getTime();
+  return messages.map(message => {
+    const eligible =
+      message.senderId === ME_ID &&
+      message.status !== 'read' &&
+      message.status !== 'failed' &&
+      message.status !== 'sending' &&
+      new Date(message.createdAt).getTime() < latestIncomingAt;
+    return eligible ? {...message, status: 'read'} : message;
+  });
+};
+
 const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
 const CANNED_REPLIES = [
@@ -1068,6 +1090,7 @@ export const ConversationScreen = ({
   const [otherTyping, setOtherTyping] = useState(false);
   const unreadAnchorId = useRef<string | null>(null);
   const seenMessageIds = useRef<Set<string>>(new Set());
+  const lastNotifiedIncomingId = useRef<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const localId = useRef(0);
 
@@ -1097,6 +1120,9 @@ export const ConversationScreen = ({
       const count = data.conversation.unreadCount;
       unreadAnchorId.current = count > 0 ? list[list.length - count]?.id ?? null : null;
       seenMessageIds.current = new Set(list.map(m => m.id));
+      if (lastNotifiedIncomingId.current === null) {
+        lastNotifiedIncomingId.current = latestIncomingMessage(list)?.id ?? '';
+      }
       setMsgs(list);
       setNextCursor(data.nextCursor);
       chatService.markRead(conversationId);
@@ -1128,9 +1154,6 @@ export const ConversationScreen = ({
             : prev;
           return mergeMessages(withReadReceipts, [event.message]).filter(m => !m.deleted);
         });
-        if (isNewIncoming && !event.message.deleted) {
-          showToast(event.message.text.trim() || 'New message', 'info');
-        }
         chatService.markRead(conversationId);
         return;
       }
@@ -1147,6 +1170,21 @@ export const ConversationScreen = ({
       }
     });
   }, [conversationId, showToast]);
+
+  useEffect(() => {
+    const latestIncoming = latestIncomingMessage(msgs);
+    if (!latestIncoming) {
+      return;
+    }
+    if (lastNotifiedIncomingId.current === null) {
+      lastNotifiedIncomingId.current = latestIncoming.id;
+      return;
+    }
+    if (lastNotifiedIncomingId.current !== latestIncoming.id) {
+      lastNotifiedIncomingId.current = latestIncoming.id;
+      showToast(latestIncoming.text.trim() || 'New message', 'info');
+    }
+  }, [msgs, showToast]);
 
   useEffect(() => {
     if (!conversation) {
@@ -1387,7 +1425,7 @@ export const ConversationScreen = ({
   };
 
   const rows = useMemo<ConvoRowItem[]>(() => {
-    const visible = msgs.filter(m => !m.deleted);
+    const visible = withDerivedReadReceipts(msgs.filter(m => !m.deleted));
     const out: ConvoRowItem[] = [];
     let lastDay = '';
     visible.forEach((m, i) => {

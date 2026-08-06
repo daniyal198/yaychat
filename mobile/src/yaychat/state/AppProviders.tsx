@@ -253,6 +253,7 @@ const styles = StyleSheet.create({
     left: spacing.md,
     right: spacing.md,
     bottom: 96,
+    zIndex: 1000,
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -263,6 +264,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     ...shadows.raised,
+    elevation: 24,
   },
   offlineBar: {
     position: 'absolute',
