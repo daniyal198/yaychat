@@ -130,6 +130,8 @@ const previewText = (c: Conversation): string => {
 const otherMemberId = (c: Conversation): string | undefined =>
   c.memberIds.find(id => id !== ME_ID);
 
+const emailLike = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const mergeMessages = (current: Message[], incoming: Message[]): Message[] => {
   const byKey = new Map<string, Message>();
   [...current, ...incoming].forEach(message => {
@@ -551,6 +553,31 @@ export const NewChatScreen = ({
       : data;
   }, [data, query]);
 
+  const typedEmailUser = useMemo<User | null>(() => {
+    const email = query.trim().toLowerCase();
+    if (mode !== 'Direct' || !emailLike.test(email)) {
+      return null;
+    }
+    if (data?.some(u => u.email?.toLowerCase() === email || u.id.toLowerCase() === email)) {
+      return null;
+    }
+    return {
+      id: email,
+      name: email,
+      username: email.split('@')[0],
+      email,
+      bio: '',
+      online: false,
+      lastSeen: new Date().toISOString(),
+      isContact: false,
+    };
+  }, [data, mode, query]);
+
+  const displayedUsers = useMemo(
+    () => (typedEmailUser ? [typedEmailUser, ...filtered] : filtered),
+    [filtered, typedEmailUser],
+  );
+
   const openDirect = async (userId: string) => {
     const convo = await perform(
       () => chatService.createConversation([userId]),
@@ -610,12 +637,16 @@ export const NewChatScreen = ({
           offline={offline}
           onRetry={reload}
           data={data}
-          isEmpty={filtered.length === 0}
+          isEmpty={displayedUsers.length === 0}
           emptyTitle={query ? 'No contacts found' : 'No contacts yet'}
-          emptyMessage={query ? `Nothing matched “${query.trim()}”.` : 'Add friends to start chatting.'}>
+          emptyMessage={
+            query
+              ? `Nothing matched “${query.trim()}”. Type the full email address to start a direct chat.`
+              : 'Type a full email address to start chatting.'
+          }>
           {() => (
             <FlatList
-              data={filtered}
+              data={displayedUsers}
               keyExtractor={u => u.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({item}) =>
@@ -624,7 +655,7 @@ export const NewChatScreen = ({
                     avatarName={item.name}
                     online={item.online}
                     title={item.name}
-                    subtitle={`@${item.username}`}
+                    subtitle={item.email ? item.email : `@${item.username}`}
                     onPress={() => openDirect(item.id)}
                   />
                 ) : (

@@ -1416,10 +1416,25 @@ export const userService = {
   async contacts(): Promise<User[]> {
     if (BACKEND_ENABLED) {
       const meEmail = await backendSessionEmail();
-      const payload = await backendGet<any>('/api/v1/inex/user/getAllUsersLite');
-      return backendList(payload)
-        .map((u: BackendUser) => backendUserToUser(u))
-        .filter(u => u.email && u.email !== meEmail);
+      try {
+        const payload = await backendGet<any>('/api/v1/chat/users/search', {email: meEmail});
+        return backendList(payload)
+          .map((u: BackendUser) => backendUserToUser(u))
+          .filter(u => u.email && u.email !== meEmail);
+      } catch (searchError) {
+        try {
+          const payload = await backendGet<any>('/api/v1/inex/user/getAllUsersLite');
+          return backendList(payload)
+            .map((u: BackendUser) => backendUserToUser(u))
+            .filter(u => u.email && u.email !== meEmail);
+        } catch (legacyError) {
+          const legacy = legacyError as ApiError;
+          if (legacy.code === 'unauthorized' || legacy.code === 'server' || legacy.code === 'offline') {
+            return [];
+          }
+          throw searchError;
+        }
+      }
     }
     return mockRequest('user.contacts', () =>
       db.users.filter(u => u.isContact && u.id !== db.ME_ID && !db.blockedUsers.includes(u.id)),

@@ -87,6 +87,7 @@ export class ChatController {
     this.getReportedUsers = this.getReportedUsers.bind(this);
     this.getGroupUnreadCount = this.getGroupUnreadCount.bind(this);
     this.markGroupRead = this.markGroupRead.bind(this);
+    this.searchUsers = this.searchUsers.bind(this);
     this.getMessages = this.getMessages.bind(this);
     this.getMessagesPaged = this.getMessagesPaged.bind(this);
     this.getLatestMessages = this.getLatestMessages.bind(this);
@@ -161,6 +162,60 @@ export class ChatController {
     } catch (error) {
       console.error("Error generating S3 URL:", error);
       res.status(500).json({ message: "Failed to generate presigned URL" });
+    }
+  }
+
+  async searchUsers(req: Request, res: Response) {
+    try {
+      const requesterEmail = String(req.query.email || "").trim().toLowerCase();
+      const query = String(req.query.q || "").trim();
+      const limitRaw = Number(req.query.limit || 25);
+      const limit = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 25, 50));
+
+      if (!requesterEmail) {
+        return res.status(400).json({
+          status: 400,
+          data: { message: "email is required" },
+        });
+      }
+
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const matcher = query
+        ? {
+            $or: [
+              { email: { $regex: escaped, $options: "i" } },
+              { username: { $regex: escaped, $options: "i" } },
+              { firstName: { $regex: escaped, $options: "i" } },
+              { lastName: { $regex: escaped, $options: "i" } },
+            ],
+          }
+        : {};
+
+      const users = await userService.findSelect(
+        {
+          ...matcher,
+          email: { $ne: requesterEmail },
+        },
+        {
+          email: 1,
+          username: 1,
+          firstName: 1,
+          lastName: 1,
+          phone: 1,
+          profilePic: 1,
+        }
+      );
+
+      return res.status(200).json({
+        status: 200,
+        data: users.slice(0, limit),
+      });
+    } catch (error) {
+      console.error("[chat.searchUsers] error", error);
+      return res.status(500).json({
+        status: 500,
+        data: { message: "Failed to search users" },
+      });
     }
   }
 
