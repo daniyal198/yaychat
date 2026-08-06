@@ -130,6 +130,18 @@ const previewText = (c: Conversation): string => {
 const otherMemberId = (c: Conversation): string | undefined =>
   c.memberIds.find(id => id !== ME_ID);
 
+const mergeMessages = (current: Message[], incoming: Message[]): Message[] => {
+  const byKey = new Map<string, Message>();
+  [...current, ...incoming].forEach(message => {
+    const key = message.clientId ?? message.id;
+    byKey.set(key, {...byKey.get(key), ...message});
+  });
+  return [...byKey.values()].sort((a, b) => {
+    const byTime = a.createdAt.localeCompare(b.createdAt);
+    return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
+  });
+};
+
 const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
 const CANNED_REPLIES = [
@@ -219,6 +231,15 @@ export const ChatListScreen = ({
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
+
+  useEffect(() => {
+    return chatService.subscribe(event => {
+      if (event.type === 'conversation.updated' || event.type === 'conversation.deleted') {
+        refresh();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runRowAction = async (fn: () => Promise<unknown>, message: string) => {
     setSheetConvo(null);
@@ -936,10 +957,12 @@ export const ConversationScreen = ({
     const conversation = await chatService.getConversation(conversationId);
     const page = await chatService.getMessages(conversationId);
     const members = await Promise.all(conversation.memberIds.map(id => userService.getUser(id)));
-    return {conversation, messages: page.items, members};
+    return {conversation, messages: page.items, members, nextCursor: page.nextCursor};
   }, [conversationId]);
 
   const [msgs, setMsgs] = useState<Message[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
@@ -981,9 +1004,33 @@ export const ConversationScreen = ({
       const count = data.conversation.unreadCount;
       unreadAnchorId.current = count > 0 ? list[list.length - count]?.id ?? null : null;
       setMsgs(list);
+      setNextCursor(data.nextCursor);
       chatService.markRead(conversationId);
     }
   }, [data, conversationId]);
+
+  useEffect(() => {
+    return chatService.subscribeConversation(conversationId, event => {
+      if (event.type === 'message.upsert') {
+        setMsgs(prev => mergeMessages(prev, [event.message]).filter(m => !m.deleted));
+        if (event.message.senderId !== ME_ID) {
+          chatService.markRead(conversationId);
+        }
+        return;
+      }
+      if (event.type === 'message.deleted') {
+        if (event.message?.recalled) {
+          setMsgs(prev => prev.map(m => (m.id === event.messageId ? event.message! : m)));
+        } else {
+          setMsgs(prev => prev.filter(m => m.id !== event.messageId));
+        }
+        return;
+      }
+      if (event.type === 'typing.changed') {
+        setOtherTyping(event.userIds.some(id => id !== ME_ID));
+      }
+    });
+  }, [conversationId]);
 
   useEffect(() => {
     if (!conversation) {
@@ -1040,21 +1087,16 @@ export const ConversationScreen = ({
       return;
     }
     const t1 = setTimeout(() => {
-      setOtherTyping(true);
+      chatService.setTyping(conversationId, senderId, true);
       const t2 = setTimeout(() => {
-        setOtherTyping(false);
+        chatService.setTyping(conversationId, senderId, false);
         localId.current += 1;
-        const reply: Message = {
-          id: `sim_${Date.now()}_${localId.current}`,
-          conversationId,
-          senderId,
-          kind: 'text',
-          text: CANNED_REPLIES[localId.current % CANNED_REPLIES.length],
-          createdAt: new Date().toISOString(),
-          status: 'delivered',
-          reactions: [],
-        };
-        setMsgs(prev => [...prev, reply]);
+        chatService
+          .simulateIncomingMessage(conversationId, {
+            senderId,
+            text: CANNED_REPLIES[localId.current % CANNED_REPLIES.length],
+          })
+          .catch(() => undefined);
       }, 1400);
       timers.current.push(t2);
     }, 2500);
@@ -1067,11 +1109,13 @@ export const ConversationScreen = ({
       kind?: Message['kind'];
       attachment?: Message['attachment'];
       replyToId?: string;
+      clientId?: string;
     }) => {
       localId.current += 1;
-      const tempId = `local_${Date.now()}_${localId.current}`;
+      const clientId = input.clientId ?? `client_${Date.now()}_${localId.current}`;
       const temp: Message = {
-        id: tempId,
+        id: clientId,
+        clientId,
         conversationId,
         senderId: ME_ID,
         kind: input.kind ?? 'text',
@@ -1082,21 +1126,41 @@ export const ConversationScreen = ({
         reactions: [],
         attachment: input.attachment,
       };
-      setMsgs(prev => [...prev, temp]);
+      setMsgs(prev => mergeMessages(prev, [temp]));
       chatService
-        .sendMessage(conversationId, input)
+        .sendMessage(conversationId, {...input, clientId})
         .then(saved => {
-          setMsgs(prev => prev.map(m => (m.id === tempId ? saved : m)));
+          setMsgs(prev => mergeMessages(prev, [saved]));
           if ((input.kind ?? 'text') === 'text') {
             scheduleIncomingReply();
           }
         })
         .catch(() => {
-          setMsgs(prev => prev.map(m => (m.id === tempId ? {...m, status: 'failed'} : m)));
+          setMsgs(prev =>
+            prev.map(m =>
+              (m.clientId ?? m.id) === clientId ? {...m, status: 'failed'} : m,
+            ),
+          );
         });
     },
     [conversationId, scheduleIncomingReply],
   );
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!nextCursor || loadingOlder) {
+      return;
+    }
+    setLoadingOlder(true);
+    try {
+      const page = await chatService.getMessages(conversationId, nextCursor);
+      setMsgs(prev => mergeMessages(page.items.filter(m => !m.deleted), prev));
+      setNextCursor(page.nextCursor);
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [conversationId, loadingOlder, nextCursor, toast]);
 
   const sendText = () => {
     const trimmed = text.trim();
@@ -1150,8 +1214,13 @@ export const ConversationScreen = ({
   };
 
   const retryFailed = (m: Message) => {
-    setMsgs(prev => prev.filter(x => x.id !== m.id));
-    doSend({text: m.text, kind: m.kind, attachment: m.attachment, replyToId: m.replyToId});
+    doSend({
+      text: m.text,
+      kind: m.kind,
+      attachment: m.attachment,
+      replyToId: m.replyToId,
+      clientId: m.clientId ?? m.id,
+    });
   };
 
   const sendAttachment = (kind: 'image' | 'video' | 'file' | 'voice') => {
@@ -1386,6 +1455,18 @@ export const ConversationScreen = ({
                 inverted
                 keyExtractor={r => r.rowKey}
                 keyboardShouldPersistTaps="handled"
+                onEndReached={loadOlderMessages}
+                onEndReachedThreshold={0.2}
+                ListFooterComponent={
+                  loadingOlder ? (
+                    <YayText
+                      variant="micro"
+                      color={colors.textMuted}
+                      style={{textAlign: 'center', paddingVertical: spacing.sm}}>
+                      Loading older messages...
+                    </YayText>
+                  ) : null
+                }
                 contentContainerStyle={{paddingHorizontal: spacing.md, paddingVertical: spacing.sm}}
                 renderItem={({item}) => {
                   if (item.type === 'date') {

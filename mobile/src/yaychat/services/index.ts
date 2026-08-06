@@ -5,6 +5,8 @@
  * survive the swap to real APIs in Milestones 2–3 (see
  * docs/yaychat-mock-api-contracts.md).
  */
+import Config from 'react-native-config';
+import API from '../../services/api';
 import {ApiError, delay, mockRequest, secureTokenStore} from './client';
 import * as db from './mock/db';
 import {
@@ -37,6 +39,322 @@ export {ApiError, errorMessage, isOfflineError, simulation, setSimulatedOffline,
 export {ME_ID} from './mock/db';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BACKEND_ENABLED = String(Config.YAYCHAT_USE_BACKEND || '').toLowerCase() === 'true';
+const BACKEND_PAGE_SIZE = 30;
+
+type StoredSession = Session & {refreshToken?: string};
+type BackendUser = {
+  _id?: string;
+  id?: string;
+  email?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  bio?: string;
+  profilePic?: string;
+  mutedChatIds?: string[];
+};
+type BackendMessage = {
+  _id?: string;
+  id?: string;
+  messageId?: string;
+  clientId?: string;
+  email?: string;
+  receiverEmail?: string;
+  userId?: string;
+  firstName?: string;
+  lastName?: string;
+  message?: string;
+  fileUrl?: string;
+  fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file';
+  timestamp?: string | Date;
+  groupId?: string;
+  isRead?: boolean;
+  isDeleted?: boolean;
+  isUpdated?: boolean;
+  reactions?: {name?: string; users?: string[]; count?: number}[];
+  replyTo?: {messageId?: string};
+};
+type BackendGroup = {
+  _id?: string;
+  id?: string;
+  groupId?: string;
+  name?: string;
+  createdBy?: string;
+  members?: string[];
+  isGlobal?: boolean;
+  isAdminOnly?: boolean;
+  lastMessage?: string | null;
+  lastMessageAt?: string | Date | null;
+};
+
+const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const directConversationId = (email: string) => `dm:${normalizeEmail(email)}`;
+const groupConversationId = (groupId: string) => `group:${groupId}`;
+const isBackendDirectId = (id: string) => id.startsWith('dm:');
+const isBackendGroupId = (id: string) => id.startsWith('group:');
+const directPeerFromId = (id: string) => id.replace(/^dm:/, '');
+const groupIdFromConversationId = (id: string) => id.replace(/^group:/, '');
+
+const backendBody = (payload: any) => {
+  if (payload && typeof payload === 'object' && 'data' in payload && 'status' in payload) {
+    return payload.data;
+  }
+  return payload;
+};
+
+const backendList = (payload: any): any[] => {
+  const body = backendBody(payload);
+  if (Array.isArray(body)) {
+    return body;
+  }
+  if (Array.isArray(body?.data)) {
+    return body.data;
+  }
+  if (Array.isArray(body?.users)) {
+    return body.users;
+  }
+  if (Array.isArray(body?.result)) {
+    return body.result;
+  }
+  return [];
+};
+
+const backendErrorMessage = (e: any): string =>
+  e?.response?.data?.message ||
+  e?.response?.data?.data?.message ||
+  e?.response?.data?.data ||
+  e?.message ||
+  'The Indexx service is unavailable right now.';
+
+const toApiError = (e: any): ApiError => {
+  if (!e?.response) {
+    return new ApiError('No internet connection.', 'offline');
+  }
+  if (e.response.status === 401 || e.response.status === 403) {
+    return new ApiError(backendErrorMessage(e), 'unauthorized');
+  }
+  if (e.response.status === 404) {
+    return new ApiError(backendErrorMessage(e), 'not_found');
+  }
+  if (e.response.status === 400) {
+    return new ApiError(backendErrorMessage(e), 'validation');
+  }
+  return new ApiError(backendErrorMessage(e), 'server');
+};
+
+const loadStoredSession = async (): Promise<StoredSession | null> => {
+  const raw = await secureTokenStore.load();
+  return raw ? (JSON.parse(raw) as StoredSession) : null;
+};
+
+const backendSessionEmail = async (): Promise<string> => {
+  const session = await loadStoredSession();
+  const email = normalizeEmail(session?.user?.email);
+  if (!email) {
+    throw new ApiError('Please sign in again.', 'unauthorized');
+  }
+  return email;
+};
+
+const backendAuthHeaders = async () => {
+  const session = await loadStoredSession();
+  return session?.token ? {Authorization: `Bearer ${session.token}`} : undefined;
+};
+
+const backendGet = async <T,>(path: string, params?: Record<string, unknown>): Promise<T> => {
+  try {
+    const res = await API.get(path, {params, headers: await backendAuthHeaders()});
+    return res.data;
+  } catch (e) {
+    throw toApiError(e);
+  }
+};
+
+const backendPost = async <T,>(path: string, body?: Record<string, unknown>): Promise<T> => {
+  try {
+    const res = await API.post(path, body, {headers: await backendAuthHeaders()});
+    return res.data;
+  } catch (e) {
+    throw toApiError(e);
+  }
+};
+
+const backendPatch = async <T,>(path: string, body?: Record<string, unknown>): Promise<T> => {
+  try {
+    const res = await API.patch(path, body, {headers: await backendAuthHeaders()});
+    return res.data;
+  } catch (e) {
+    throw toApiError(e);
+  }
+};
+
+const backendDelete = async <T,>(path: string, body?: Record<string, unknown>): Promise<T> => {
+  try {
+    const res = await API.delete(path, {data: body, headers: await backendAuthHeaders()});
+    return res.data;
+  } catch (e) {
+    throw toApiError(e);
+  }
+};
+
+const backendUserToUser = (input: BackendUser, fallbackEmail?: string): User => {
+  const email = normalizeEmail(input.email || fallbackEmail);
+  const first = String(input.firstName || '').trim();
+  const last = String(input.lastName || '').trim();
+  const name = [first, last].filter(Boolean).join(' ') || input.username || email || 'Indexx user';
+  return {
+    id: email || String(input.id || input._id || ''),
+    name,
+    username: input.username || email.split('@')[0] || 'indexx_user',
+    email,
+    phone: input.phone,
+    bio: input.bio || '',
+    online: false,
+    lastSeen: new Date().toISOString(),
+    isContact: true,
+  };
+};
+
+const backendSessionToUser = (payload: any, email: string): User =>
+  backendUserToUser(
+    {
+      email: payload?.email || email,
+      username: payload?.username,
+      firstName: payload?.firstName,
+      lastName: payload?.lastName,
+    },
+    email,
+  );
+
+const backendMessageKind = (m: BackendMessage): Message['kind'] => {
+  if (!m.fileType) {
+    return 'text';
+  }
+  if (m.fileType === 'document' || m.fileType === 'pdf' || m.fileType === 'word') {
+    return 'file';
+  }
+  return m.fileType;
+};
+
+const backendAttachment = (m: BackendMessage): Message['attachment'] | undefined => {
+  if (!m.fileUrl && !m.fileType) {
+    return undefined;
+  }
+  const rawName = String(m.fileUrl || m.fileType || 'attachment');
+  const name = rawName.split('/').pop() || rawName;
+  return {name, sizeLabel: 'Uploaded'};
+};
+
+const backendMessageToMessage = (m: BackendMessage, meEmail: string): Message => {
+  const senderEmail = normalizeEmail(m.email);
+  const mine = senderEmail === meEmail;
+  const peer = mine ? normalizeEmail(m.receiverEmail) : senderEmail;
+  const conversationId = m.groupId ? groupConversationId(String(m.groupId)) : directConversationId(peer);
+  return {
+    id: String(m.messageId || m._id || m.id || m.clientId || Date.now()),
+    clientId: m.clientId,
+    conversationId,
+    senderId: mine ? db.ME_ID : senderEmail,
+    kind: backendMessageKind(m),
+    text: m.message || '',
+    createdAt: new Date(m.timestamp || Date.now()).toISOString(),
+    status: mine ? 'sent' : m.isRead ? 'read' : 'delivered',
+    replyToId: m.replyTo?.messageId,
+    reactions: (m.reactions || []).map(r => ({
+      emoji: r.name || '👍',
+      userIds: (r.users || []).map(u => (normalizeEmail(u) === meEmail ? db.ME_ID : normalizeEmail(u))),
+    })),
+    deleted: !!m.isDeleted,
+    recalled: !!m.isDeleted,
+    edited: !!m.isUpdated,
+    attachment: backendAttachment(m),
+  };
+};
+
+const directPeerFromMessage = (m: BackendMessage, meEmail: string): string => {
+  const sender = normalizeEmail(m.email);
+  const receiver = normalizeEmail(m.receiverEmail);
+  return sender === meEmail ? receiver : sender;
+};
+
+const backendDirectConversation = (
+  peerEmail: string,
+  meEmail: string,
+  last?: BackendMessage,
+  unreadCount = 0,
+): Conversation => ({
+  id: directConversationId(peerEmail),
+  type: 'direct',
+  title: peerEmail,
+  memberIds: [db.ME_ID, normalizeEmail(peerEmail)],
+  lastMessage: last ? backendMessageToMessage(last, meEmail) : undefined,
+  unreadCount,
+  muted: false,
+  pinned: false,
+  archived: false,
+  typingUserIds: [],
+});
+
+const backendGroupConversation = (
+  group: BackendGroup,
+  meEmail: string,
+  unreadCount = 0,
+): Conversation => {
+  const gid = String(group.groupId || group.id || group._id || '');
+  const lastText = group.lastMessage || '';
+  const lastAt = group.lastMessageAt ? new Date(group.lastMessageAt).toISOString() : undefined;
+  return {
+    id: groupConversationId(gid),
+    type: 'group',
+    title: group.name || 'Group',
+    memberIds: [
+      db.ME_ID,
+      ...((group.members || [])
+        .map(normalizeEmail)
+        .filter(email => email && email !== meEmail)),
+    ],
+    lastMessage: lastText
+      ? {
+          id: `last_${gid}`,
+          conversationId: groupConversationId(gid),
+          senderId: '',
+          kind: 'text',
+          text: lastText,
+          createdAt: lastAt || new Date().toISOString(),
+          status: 'delivered',
+          reactions: [],
+        }
+      : undefined,
+    unreadCount,
+    muted: false,
+    pinned: false,
+    archived: false,
+    typingUserIds: [],
+    groupRoles: group.createdBy ? {[normalizeEmail(group.createdBy)]: 'owner'} : undefined,
+  };
+};
+
+const backendUnreadSummary = async (meEmail: string) => {
+  try {
+    return await backendGet<any>('/api/v1/chat/counts/unread', {email: meEmail});
+  } catch {
+    return {total: 0, direct: {perPeer: []}, groups: {perGroup: []}};
+  }
+};
+
+const unreadForPeer = (summary: any, peerEmail: string): number => {
+  const peer = normalizeEmail(peerEmail);
+  return Number(
+    summary?.direct?.perPeer?.find((x: any) => normalizeEmail(x.peerEmail) === peer)?.count || 0,
+  );
+};
+
+const unreadForGroup = (summary: any, groupId: string): number =>
+  Number(summary?.groups?.perGroup?.find((x: any) => String(x.groupId) === groupId)?.count || 0);
+
+let backendPollVersions: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -44,6 +362,37 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const authService = {
   async signIn(email: string, password: string): Promise<Session> {
+    if (BACKEND_ENABLED) {
+      if (!EMAIL_RE.test(email)) {
+        throw new ApiError('Enter a valid email address.', 'validation');
+      }
+      if (password.length < 6) {
+        throw new ApiError('Password must be at least 6 characters.', 'validation');
+      }
+      try {
+        const res = await API.post('/api/v1/inex/user/login', {
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        const payload = backendBody(res.data);
+        if (!payload?.access_token) {
+          throw new ApiError(payload?.message || 'Could not sign in.', 'unauthorized');
+        }
+        const session: StoredSession = {
+          token: payload.access_token,
+          refreshToken: payload.refresh_token,
+          user: backendSessionToUser(payload, email),
+          onboarded: true,
+        };
+        await secureTokenStore.save(JSON.stringify(session));
+        return session;
+      } catch (e) {
+        if (e instanceof ApiError) {
+          throw e;
+        }
+        throw toApiError(e);
+      }
+    }
     return mockRequest('auth.signIn', () => {
       if (!EMAIL_RE.test(email)) {
         throw new ApiError('Enter a valid email address.', 'validation');
@@ -61,6 +410,29 @@ export const authService = {
   },
 
   async signUp(input: {name: string; email: string; password: string}): Promise<Session> {
+    if (BACKEND_ENABLED) {
+      if (input.name.trim().length < 2) {
+        throw new ApiError('Enter your name.', 'validation');
+      }
+      if (!EMAIL_RE.test(input.email)) {
+        throw new ApiError('Enter a valid email address.', 'validation');
+      }
+      if (input.password.length < 8) {
+        throw new ApiError('Password must be at least 8 characters.', 'validation');
+      }
+      try {
+        const username = input.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20);
+        await API.post('/api/v1/inex/user/registerwithapp', {
+          email: input.email.trim().toLowerCase(),
+          password: input.password,
+          username: username || input.name.trim().replace(/\s+/g, '_').toLowerCase(),
+          registerFrom: 'YaysApp',
+        });
+        return this.signIn(input.email, input.password);
+      } catch (e) {
+        throw toApiError(e);
+      }
+    }
     return mockRequest('auth.signUp', () => {
       if (input.name.trim().length < 2) {
         throw new ApiError('Enter your name.', 'validation');
@@ -127,6 +499,9 @@ export const authService = {
   },
 
   async restoreSession(): Promise<Session | null> {
+    if (BACKEND_ENABLED) {
+      return loadStoredSession();
+    }
     const raw = await secureTokenStore.load();
     await delay(300);
     return raw ? (JSON.parse(raw) as Session) : null;
@@ -163,8 +538,382 @@ const withLastMessage = (c: Conversation): Conversation => {
   return {...c, lastMessage: visible[visible.length - 1]};
 };
 
-export const chatService = {
+export type ChatEvent =
+  | {type: 'message.upsert'; conversationId: string; message: Message}
+  | {type: 'message.deleted'; conversationId: string; messageId: string; message?: Message}
+  | {type: 'conversation.updated'; conversation: Conversation}
+  | {type: 'conversation.deleted'; conversationId: string}
+  | {type: 'typing.changed'; conversationId: string; userIds: string[]};
+
+const chatListeners = new Set<(event: ChatEvent) => void>();
+
+const emitChatEvent = (event: ChatEvent) => {
+  chatListeners.forEach(listener => listener(event));
+};
+
+const emitConversation = (conversationId: string) => {
+  const c = db.conversations.find(x => x.id === conversationId);
+  if (c) {
+    emitChatEvent({type: 'conversation.updated', conversation: withLastMessage(c)});
+  }
+};
+
+const pageMessages = (all: Message[], cursor?: string): Page<Message> => {
+  const pageSize = 30;
+  const cursorIndex = cursor ? all.findIndex(m => m.id === cursor) : -1;
+  const safeEnd = cursor ? (cursorIndex >= 0 ? cursorIndex : all.length) : all.length;
+  const start = Math.max(0, safeEnd - pageSize);
+  const items = all.slice(start, safeEnd);
+  return {
+    items,
+    nextCursor: start > 0 ? items[0]?.id ?? null : null,
+  };
+};
+
+const backendChat = {
   async listConversations(filter: 'all' | 'unread' | 'groups' | 'archived' = 'all'): Promise<Conversation[]> {
+    if (filter === 'archived') {
+      return [];
+    }
+    const meEmail = await backendSessionEmail();
+    const [latestPayload, groupsPayload, summary] = await Promise.all([
+      backendGet<any>(`/api/v1/chat/lastmessages/${encodeURIComponent(meEmail)}`, {limit: 20}).catch(() => []),
+      backendGet<any>('/api/v1/chat/groups', {email: meEmail}).catch(() => []),
+      backendUnreadSummary(meEmail),
+    ]);
+
+    const directConversations = backendList(latestPayload)
+      .map((m: BackendMessage) => {
+        const peer = directPeerFromMessage(m, meEmail);
+        return peer ? backendDirectConversation(peer, meEmail, m, unreadForPeer(summary, peer)) : null;
+      })
+      .filter(Boolean) as Conversation[];
+
+    const groupConversations = backendList(groupsPayload).map((g: BackendGroup) => {
+      const gid = String(g.groupId || g.id || g._id || '');
+      return backendGroupConversation(g, meEmail, unreadForGroup(summary, gid));
+    });
+
+    const list = filter === 'groups' ? groupConversations : [...directConversations, ...groupConversations];
+    return sortConversations(filter === 'unread' ? list.filter(c => c.unreadCount > 0) : list);
+  },
+
+  async getConversation(id: string): Promise<Conversation> {
+    const meEmail = await backendSessionEmail();
+    const summary = await backendUnreadSummary(meEmail);
+    if (isBackendDirectId(id)) {
+      const peer = directPeerFromId(id);
+      return backendDirectConversation(peer, meEmail, undefined, unreadForPeer(summary, peer));
+    }
+    if (isBackendGroupId(id)) {
+      const gid = groupIdFromConversationId(id);
+      const groups = backendList(await backendGet<any>('/api/v1/chat/groups', {email: meEmail}));
+      const group = groups.find((g: BackendGroup) => String(g.groupId || g.id || g._id) === gid);
+      if (!group) {
+        throw new ApiError('Conversation not found.', 'not_found');
+      }
+      return backendGroupConversation(group, meEmail, unreadForGroup(summary, gid));
+    }
+    throw new ApiError('Conversation not found.', 'not_found');
+  },
+
+  async getMessages(conversationId: string, cursor?: string): Promise<Page<Message>> {
+    const meEmail = await backendSessionEmail();
+    const params: Record<string, unknown> = {email: meEmail, limit: BACKEND_PAGE_SIZE};
+    if (cursor) {
+      params.beforeId = cursor;
+    }
+
+    const payload = isBackendGroupId(conversationId)
+      ? await backendGet<any>(
+          `/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/messages/paged`,
+          params,
+        )
+      : await backendGet<any>(
+          `/api/v1/chat/messages/${encodeURIComponent(meEmail)}/paged`,
+          {...params, with: directPeerFromId(conversationId)},
+        );
+    const rawMessages = (payload?.messages || []) as BackendMessage[];
+    const items = rawMessages.map(m => backendMessageToMessage(m, meEmail)).reverse();
+    return {
+      items,
+      nextCursor: payload?.hasMoreOlder ? payload?.nextBeforeId || items[0]?.id || null : null,
+    };
+  },
+
+  async sendMessage(
+    conversationId: string,
+    input: {
+      text: string;
+      kind?: Message['kind'];
+      replyToId?: string;
+      attachment?: Message['attachment'];
+      clientId?: string;
+    },
+  ): Promise<Message> {
+    const meEmail = await backendSessionEmail();
+    const fileType = input.attachment
+      ? input.kind === 'image' || input.kind === 'video'
+        ? input.kind
+        : 'file'
+      : undefined;
+    const body = {
+      email: meEmail,
+      message: input.text,
+      fileType,
+      fileUrl: input.attachment?.name,
+      replyToMessageId: input.replyToId,
+      clientId: input.clientId,
+    };
+    const saved = isBackendGroupId(conversationId)
+      ? await backendPost<BackendMessage>('/api/v1/chat/sendGroupmessage', {
+          ...body,
+          groupId: groupIdFromConversationId(conversationId),
+        })
+      : await backendPost<BackendMessage>('/api/v1/chat/messages', {
+          ...body,
+          to: directPeerFromId(conversationId),
+        });
+    const message = backendMessageToMessage(saved, meEmail);
+    emitChatEvent({type: 'message.upsert', conversationId, message});
+    emitChatEvent({type: 'conversation.updated', conversation: await this.getConversation(conversationId)});
+    return message;
+  },
+
+  async markRead(conversationId: string): Promise<void> {
+    const meEmail = await backendSessionEmail();
+    if (isBackendGroupId(conversationId)) {
+      await backendPost(`/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/read`, {
+        email: meEmail,
+      });
+      return;
+    }
+    const page = await this.getMessages(conversationId);
+    const unreadIds = page.items.filter(m => m.senderId !== db.ME_ID && m.status !== 'read').map(m => m.id);
+    if (unreadIds.length) {
+      await backendPost('/api/v1/chat/messages/read', {email: meEmail, messageIds: unreadIds});
+    }
+  },
+
+  async getUnreadTotal(): Promise<number> {
+    const meEmail = await backendSessionEmail();
+    const summary = await backendUnreadSummary(meEmail);
+    return Number(summary?.total || 0);
+  },
+
+  async toggleReaction(conversationId: string, messageId: string, emoji: string): Promise<Message> {
+    const meEmail = await backendSessionEmail();
+    const page = await this.getMessages(conversationId);
+    const existing = page.items.find(m => m.id === messageId);
+    const reacted = existing?.reactions.some(
+      r => r.emoji === emoji && r.userIds.some(u => u === db.ME_ID || normalizeEmail(u) === meEmail),
+    );
+    const payload = reacted
+      ? await backendPost<any>('/api/v1/chat/messages/reactions/remove', {messageId, name: emoji})
+      : await backendPost<any>('/api/v1/chat/messages/reactions/add', {messageId, name: emoji});
+    const updated = backendBody(payload)?.data || backendBody(payload) || existing;
+    return backendMessageToMessage(updated, meEmail);
+  },
+
+  async deleteMessage(_conversationId: string, messageId: string): Promise<void> {
+    await backendDelete('/api/v1/chat/messages/delete', {messageId});
+  },
+
+  async editMessage(_conversationId: string, messageId: string, text: string): Promise<Message> {
+    const meEmail = await backendSessionEmail();
+    const payload = await backendPatch<any>('/api/v1/chat/messages/update', {messageId, newMessage: text});
+    const updated = backendBody(payload)?.data || backendBody(payload);
+    return updated?._id || updated?.messageId
+      ? backendMessageToMessage(updated, meEmail)
+      : {
+          id: messageId,
+          conversationId: _conversationId,
+          senderId: db.ME_ID,
+          kind: 'text',
+          text,
+          createdAt: new Date().toISOString(),
+          status: 'sent',
+          reactions: [],
+          edited: true,
+        };
+  },
+
+  async createConversation(memberIds: string[], title?: string): Promise<Conversation> {
+    const meEmail = await backendSessionEmail();
+    const members = memberIds.map(normalizeEmail).filter(Boolean);
+    if (members.length === 1) {
+      return backendDirectConversation(members[0], meEmail);
+    }
+    const group = await backendPost<BackendGroup>('/api/v1/chat/groups/custom', {
+      creatorEmail: meEmail,
+      groupName: title?.trim() || 'New group',
+      memberEmails: members,
+    });
+    return backendGroupConversation(group, meEmail);
+  },
+
+  async setMuted(conversationId: string, muted: boolean): Promise<void> {
+    const meEmail = await backendSessionEmail();
+    await backendPost('/api/v1/chat/mute', {email: meEmail, chatId: conversationId, newState: muted});
+  },
+
+  async setArchived(_conversationId: string, _archived: boolean): Promise<void> {
+    return undefined;
+  },
+
+  async setPinned(_conversationId: string, _pinned: boolean): Promise<void> {
+    return undefined;
+  },
+
+  async pinMessage(_conversationId: string, _messageId: string): Promise<void> {
+    return undefined;
+  },
+
+  async forwardMessage(messageId: string, fromConversationId: string, toConversationIds: string[]): Promise<void> {
+    const page = await this.getMessages(fromConversationId);
+    const original = page.items.find(m => m.id === messageId);
+    if (!original) {
+      throw new ApiError('Message not found.', 'not_found');
+    }
+    await Promise.all(
+      toConversationIds.map(cid =>
+        this.sendMessage(cid, {
+          text: original.text,
+          kind: original.kind,
+          attachment: original.attachment,
+        }),
+      ),
+    );
+  },
+
+  async renameGroup(conversationId: string, title: string): Promise<void> {
+    await backendPatch(`/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}`, {
+      name: title,
+    });
+  },
+
+  async removeGroupMember(conversationId: string, userId: string): Promise<void> {
+    await backendDelete(`/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/members`, {
+      memberEmails: [normalizeEmail(userId)],
+    });
+  },
+
+  async leaveGroup(conversationId: string): Promise<void> {
+    const meEmail = await backendSessionEmail();
+    await backendPost(`/api/v1/chat/groups/${encodeURIComponent(groupIdFromConversationId(conversationId))}/leave`, {
+      email: meEmail,
+    });
+  },
+
+  async searchMessages(query: string): Promise<{conversation: Conversation; message: Message}[]> {
+    if (!query.trim()) {
+      return [];
+    }
+    const conversations = await this.listConversations('all');
+    const pages = await Promise.all(
+      conversations.map(async conversation => ({
+        conversation,
+        page: await this.getMessages(conversation.id).catch(() => ({items: [] as Message[], nextCursor: null})),
+      })),
+    );
+    const needle = query.toLowerCase();
+    return pages.flatMap(({conversation, page}) =>
+      page.items
+        .filter(message => message.text.toLowerCase().includes(needle))
+        .map(message => ({conversation, message})),
+    );
+  },
+
+  subscribeConversation(conversationId: string, listener: (event: ChatEvent) => void): () => void {
+    let stopped = false;
+    const poll = async () => {
+      if (stopped) {
+        return;
+      }
+      try {
+        const page = await this.getMessages(conversationId);
+        const version = page.items.map(m => `${m.id}:${m.edited}:${m.deleted}:${m.text}`).join('|');
+        if (backendPollVersions[conversationId] && backendPollVersions[conversationId] !== version) {
+          page.items.forEach(message => listener({type: 'message.upsert', conversationId, message}));
+        }
+        backendPollVersions[conversationId] = version;
+      } catch {
+        // Polling is best-effort; foreground refresh still works.
+      }
+    };
+    const id = setInterval(poll, 3000);
+    poll();
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  },
+};
+
+export const chatService = {
+  subscribe(listener: (event: ChatEvent) => void): () => void {
+    if (BACKEND_ENABLED) {
+      chatListeners.add(listener);
+      let stopped = false;
+      let lastVersion = '';
+      const poll = async () => {
+        if (stopped) {
+          return;
+        }
+        try {
+          const list = await backendChat.listConversations('all');
+          const version = list
+            .map(c => `${c.id}:${c.lastMessage?.id}:${c.lastMessage?.text}:${c.unreadCount}`)
+            .join('|');
+          if (lastVersion && lastVersion !== version) {
+            list.forEach(conversation =>
+              listener({type: 'conversation.updated', conversation}),
+            );
+          }
+          lastVersion = version;
+        } catch {
+          // Chat-list polling is best-effort; screen focus still refreshes.
+        }
+      };
+      const id = setInterval(poll, 5000);
+      poll();
+      return () => {
+        stopped = true;
+        clearInterval(id);
+        chatListeners.delete(listener);
+      };
+    }
+    chatListeners.add(listener);
+    return () => {
+      chatListeners.delete(listener);
+    };
+  },
+
+  subscribeConversation(
+    conversationId: string,
+    listener: (event: ChatEvent) => void,
+  ): () => void {
+    if (BACKEND_ENABLED) {
+      return backendChat.subscribeConversation(conversationId, listener);
+    }
+    const wrapped = (event: ChatEvent) => {
+      if (
+        ('conversationId' in event && event.conversationId === conversationId) ||
+        (event.type === 'conversation.updated' && event.conversation.id === conversationId)
+      ) {
+        listener(event);
+      }
+    };
+    chatListeners.add(wrapped);
+    return () => {
+      chatListeners.delete(wrapped);
+    };
+  },
+
+  async listConversations(filter: 'all' | 'unread' | 'groups' | 'archived' = 'all'): Promise<Conversation[]> {
+    if (BACKEND_ENABLED) {
+      return backendChat.listConversations(filter);
+    }
     return mockRequest('chat.listConversations', () => {
       let list = db.conversations.map(withLastMessage);
       if (filter === 'archived') {
@@ -183,6 +932,9 @@ export const chatService = {
   },
 
   async getConversation(id: string): Promise<Conversation> {
+    if (BACKEND_ENABLED) {
+      return backendChat.getConversation(id);
+    }
     return mockRequest('chat.getConversation', () => {
       const c = db.conversations.find(x => x.id === id);
       if (!c) {
@@ -193,22 +945,28 @@ export const chatService = {
   },
 
   async getMessages(conversationId: string, cursor?: string): Promise<Page<Message>> {
+    if (BACKEND_ENABLED) {
+      return backendChat.getMessages(conversationId, cursor);
+    }
     return mockRequest('chat.getMessages', () => {
       const all = db.messages[conversationId] ?? [];
-      const pageSize = 30;
-      const end = cursor ? Number(cursor) : all.length;
-      const start = Math.max(0, end - pageSize);
-      return {
-        items: all.slice(start, end),
-        nextCursor: start > 0 ? String(start) : null,
-      };
+      return pageMessages(all, cursor);
     });
   },
 
   async sendMessage(
     conversationId: string,
-    input: {text: string; kind?: Message['kind']; replyToId?: string; attachment?: Message['attachment']},
+    input: {
+      text: string;
+      kind?: Message['kind'];
+      replyToId?: string;
+      attachment?: Message['attachment'];
+      clientId?: string;
+    },
   ): Promise<Message> {
+    if (BACKEND_ENABLED) {
+      return backendChat.sendMessage(conversationId, input);
+    }
     return mockRequest(
       'chat.sendMessage',
       () => {
@@ -218,8 +976,16 @@ export const chatService = {
         if (input.text.includes('#fail')) {
           throw new ApiError('Message failed to send.', 'server');
         }
+        const list = db.messages[conversationId] ?? [];
+        const existing = input.clientId
+          ? list.find(m => m.clientId === input.clientId && m.senderId === db.ME_ID)
+          : undefined;
+        if (existing) {
+          return {...existing};
+        }
         const message: Message = {
           id: db.nextId('m'),
+          clientId: input.clientId,
           conversationId,
           senderId: db.ME_ID,
           kind: input.kind ?? 'text',
@@ -230,7 +996,9 @@ export const chatService = {
           reactions: [],
           attachment: input.attachment,
         };
-        db.messages[conversationId] = [...(db.messages[conversationId] ?? []), message];
+        db.messages[conversationId] = [...list, message];
+        emitChatEvent({type: 'message.upsert', conversationId, message: {...message}});
+        emitConversation(conversationId);
         return message;
       },
       {latencyMs: 350},
@@ -238,9 +1006,13 @@ export const chatService = {
   },
 
   async markRead(conversationId: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.markRead(conversationId);
+    }
     const c = db.conversations.find(x => x.id === conversationId);
     if (c) {
       c.unreadCount = 0;
+      emitConversation(conversationId);
     }
   },
 
@@ -248,12 +1020,18 @@ export const chatService = {
   // Chats tab badge and the home-screen Chats shortcut. Never throws so the
   // badge poller keeps working while offline.
   async getUnreadTotal(): Promise<number> {
+    if (BACKEND_ENABLED) {
+      return backendChat.getUnreadTotal();
+    }
     return db.conversations
       .filter(c => !c.archived)
       .reduce((sum, c) => sum + (c.unreadCount > 0 ? c.unreadCount : 0), 0);
   },
 
   async toggleReaction(conversationId: string, messageId: string, emoji: string): Promise<Message> {
+    if (BACKEND_ENABLED) {
+      return backendChat.toggleReaction(conversationId, messageId, emoji);
+    }
     return mockRequest('chat.toggleReaction', () => {
       const m = (db.messages[conversationId] ?? []).find(x => x.id === messageId);
       if (!m) {
@@ -272,11 +1050,15 @@ export const chatService = {
       } else {
         m.reactions.push({emoji, userIds: [db.ME_ID]});
       }
+      emitChatEvent({type: 'message.upsert', conversationId, message: {...m}});
       return {...m};
     }, {latencyMs: 120});
   },
 
   async deleteMessage(conversationId: string, messageId: string, recall: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.deleteMessage(conversationId, messageId);
+    }
     return mockRequest('chat.deleteMessage', () => {
       const m = (db.messages[conversationId] ?? []).find(x => x.id === messageId);
       if (m) {
@@ -286,12 +1068,22 @@ export const chatService = {
         } else {
           m.deleted = true;
         }
+        emitChatEvent({
+          type: 'message.deleted',
+          conversationId,
+          messageId,
+          message: {...m},
+        });
+        emitConversation(conversationId);
       }
     });
   },
 
   /** Edits the text of the caller's own message. */
   async editMessage(conversationId: string, messageId: string, text: string): Promise<Message> {
+    if (BACKEND_ENABLED) {
+      return backendChat.editMessage(conversationId, messageId, text);
+    }
     return mockRequest('chat.editMessage', () => {
       const m = (db.messages[conversationId] ?? []).find(x => x.id === messageId);
       if (!m) {
@@ -308,12 +1100,17 @@ export const chatService = {
       }
       m.text = text.trim();
       m.edited = true;
+      emitChatEvent({type: 'message.upsert', conversationId, message: {...m}});
+      emitConversation(conversationId);
       return {...m};
     });
   },
 
   /** Deletes a whole conversation and its message history (for this user). */
   async deleteConversation(conversationId: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return undefined;
+    }
     return mockRequest('chat.deleteConversation', () => {
       const idx = db.conversations.findIndex(c => c.id === conversationId);
       if (idx === -1) {
@@ -321,55 +1118,88 @@ export const chatService = {
       }
       db.conversations.splice(idx, 1);
       delete db.messages[conversationId];
+      emitChatEvent({type: 'conversation.deleted', conversationId});
     });
   },
 
   async pinMessage(conversationId: string, messageId: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.pinMessage(conversationId, messageId);
+    }
     return mockRequest('chat.pinMessage', () => {
       // One pinned message per conversation: pinning a message unpins others.
       (db.messages[conversationId] ?? []).forEach(m => {
         m.pinned = m.id === messageId ? !m.pinned : false;
+        emitChatEvent({type: 'message.upsert', conversationId, message: {...m}});
       });
     });
   },
 
   async forwardMessage(messageId: string, fromConversationId: string, toConversationIds: string[]): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.forwardMessage(messageId, fromConversationId, toConversationIds);
+    }
     return mockRequest('chat.forwardMessage', () => {
       const m = (db.messages[fromConversationId] ?? []).find(x => x.id === messageId);
       if (!m) {
         throw new ApiError('Message not found.', 'not_found');
       }
       toConversationIds.forEach(cid => {
-        db.messages[cid] = [
-          ...(db.messages[cid] ?? []),
-          {...m, id: db.nextId('m'), conversationId: cid, senderId: db.ME_ID, createdAt: new Date().toISOString(), status: 'sent', reactions: [], pinned: false},
-        ];
+        const forwarded = {
+          ...m,
+          id: db.nextId('m'),
+          clientId: undefined,
+          conversationId: cid,
+          senderId: db.ME_ID,
+          createdAt: new Date().toISOString(),
+          status: 'sent' as const,
+          reactions: [],
+          pinned: false,
+        };
+        db.messages[cid] = [...(db.messages[cid] ?? []), forwarded];
+        emitChatEvent({type: 'message.upsert', conversationId: cid, message: forwarded});
+        emitConversation(cid);
       });
     });
   },
 
   async setMuted(conversationId: string, muted: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.setMuted(conversationId, muted);
+    }
     const c = db.conversations.find(x => x.id === conversationId);
     if (c) {
       c.muted = muted;
+      emitConversation(conversationId);
     }
   },
 
   async setArchived(conversationId: string, archived: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.setArchived(conversationId, archived);
+    }
     const c = db.conversations.find(x => x.id === conversationId);
     if (c) {
       c.archived = archived;
+      emitConversation(conversationId);
     }
   },
 
   async setPinned(conversationId: string, pinned: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.setPinned(conversationId, pinned);
+    }
     const c = db.conversations.find(x => x.id === conversationId);
     if (c) {
       c.pinned = pinned;
+      emitConversation(conversationId);
     }
   },
 
   async createConversation(memberIds: string[], title?: string, category?: string): Promise<Conversation> {
+    if (BACKEND_ENABLED) {
+      return backendChat.createConversation(memberIds, title);
+    }
     return mockRequest('chat.createConversation', () => {
       if (memberIds.length === 0) {
         throw new ApiError('Pick at least one contact.', 'validation');
@@ -402,11 +1232,15 @@ export const chatService = {
       db.messages[convo.id] = isGroup
         ? [{id: db.nextId('m'), conversationId: convo.id, senderId: db.ME_ID, kind: 'system', text: 'You created the group', createdAt: new Date().toISOString(), status: 'sent', reactions: []}]
         : [];
+      emitChatEvent({type: 'conversation.updated', conversation: withLastMessage(convo)});
       return convo;
     });
   },
 
   async renameGroup(conversationId: string, title: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.renameGroup(conversationId, title);
+    }
     return mockRequest('chat.renameGroup', () => {
       const c = db.conversations.find(x => x.id === conversationId);
       if (!c) {
@@ -416,10 +1250,14 @@ export const chatService = {
         throw new ApiError('Group name cannot be empty.', 'validation');
       }
       c.title = title.trim();
+      emitConversation(conversationId);
     });
   },
 
   async setGroupRole(conversationId: string, userId: string, role: 'admin' | 'member'): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return undefined;
+    }
     return mockRequest('chat.setGroupRole', () => {
       const c = db.conversations.find(x => x.id === conversationId);
       if (!c || !c.groupRoles) {
@@ -429,10 +1267,14 @@ export const chatService = {
         throw new ApiError("The owner's role cannot be changed.", 'validation');
       }
       c.groupRoles[userId] = role;
+      emitConversation(conversationId);
     });
   },
 
   async removeGroupMember(conversationId: string, userId: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.removeGroupMember(conversationId, userId);
+    }
     return mockRequest('chat.removeGroupMember', () => {
       const c = db.conversations.find(x => x.id === conversationId);
       if (!c) {
@@ -445,19 +1287,81 @@ export const chatService = {
       if (c.groupRoles) {
         delete c.groupRoles[userId];
       }
+      emitConversation(conversationId);
     });
   },
 
   async leaveGroup(conversationId: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return backendChat.leaveGroup(conversationId);
+    }
     return mockRequest('chat.leaveGroup', () => {
       const i = db.conversations.findIndex(x => x.id === conversationId);
       if (i >= 0) {
         db.conversations.splice(i, 1);
+        emitChatEvent({type: 'conversation.deleted', conversationId});
       }
     });
   },
 
+  async setTyping(conversationId: string, userId: string, typing: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return undefined;
+    }
+    const c = db.conversations.find(x => x.id === conversationId);
+    if (!c) {
+      return;
+    }
+    c.typingUserIds = typing
+      ? [...new Set([...c.typingUserIds, userId])]
+      : c.typingUserIds.filter(id => id !== userId);
+    emitChatEvent({type: 'typing.changed', conversationId, userIds: [...c.typingUserIds]});
+  },
+
+  async simulateIncomingMessage(
+    conversationId: string,
+    input: {
+      senderId: string;
+      text: string;
+      kind?: Message['kind'];
+      attachment?: Message['attachment'];
+    },
+  ): Promise<Message> {
+    if (BACKEND_ENABLED) {
+      throw new ApiError('Simulated replies are disabled in backend mode.', 'validation');
+    }
+    return mockRequest(
+      'chat.simulateIncomingMessage',
+      () => {
+        const c = db.conversations.find(x => x.id === conversationId);
+        if (!c) {
+          throw new ApiError('Conversation not found.', 'not_found');
+        }
+        const message: Message = {
+          id: db.nextId('m'),
+          conversationId,
+          senderId: input.senderId,
+          kind: input.kind ?? 'text',
+          text: input.text,
+          createdAt: new Date().toISOString(),
+          status: 'delivered',
+          reactions: [],
+          attachment: input.attachment,
+        };
+        db.messages[conversationId] = [...(db.messages[conversationId] ?? []), message];
+        c.unreadCount += 1;
+        emitChatEvent({type: 'message.upsert', conversationId, message: {...message}});
+        emitConversation(conversationId);
+        return message;
+      },
+      {latencyMs: 150},
+    );
+  },
+
   async searchMessages(query: string): Promise<{conversation: Conversation; message: Message}[]> {
+    if (BACKEND_ENABLED) {
+      return backendChat.searchMessages(query);
+    }
     return mockRequest('chat.searchMessages', () => {
       if (!query.trim()) {
         return [];
@@ -482,10 +1386,26 @@ export const chatService = {
 
 export const userService = {
   async me(): Promise<User> {
+    if (BACKEND_ENABLED) {
+      const session = await loadStoredSession();
+      if (!session?.user) {
+        throw new ApiError('Please sign in again.', 'unauthorized');
+      }
+      return session.user;
+    }
     return mockRequest('user.me', () => ({...db.userById(db.ME_ID)}));
   },
 
   async updateProfile(update: Partial<Pick<User, 'name' | 'bio' | 'username'>>): Promise<User> {
+    if (BACKEND_ENABLED) {
+      const session = await loadStoredSession();
+      if (!session) {
+        throw new ApiError('Please sign in again.', 'unauthorized');
+      }
+      const user = {...session.user, ...update};
+      await secureTokenStore.save(JSON.stringify({...session, user}));
+      return user;
+    }
     return mockRequest('user.updateProfile', () => {
       const me = db.userById(db.ME_ID);
       Object.assign(me, update);
@@ -494,20 +1414,50 @@ export const userService = {
   },
 
   async contacts(): Promise<User[]> {
+    if (BACKEND_ENABLED) {
+      const meEmail = await backendSessionEmail();
+      const payload = await backendGet<any>('/api/v1/inex/user/getAllUsersLite');
+      return backendList(payload)
+        .map((u: BackendUser) => backendUserToUser(u))
+        .filter(u => u.email && u.email !== meEmail);
+    }
     return mockRequest('user.contacts', () =>
       db.users.filter(u => u.isContact && u.id !== db.ME_ID && !db.blockedUsers.includes(u.id)),
     );
   },
 
   async getUser(id: string): Promise<User> {
+    if (BACKEND_ENABLED) {
+      if (id === db.ME_ID) {
+        return this.me();
+      }
+      const email = normalizeEmail(id);
+      try {
+        const payload = await backendGet<any>(`/api/v1/inex/user/getUserByEmail/${encodeURIComponent(email)}`);
+        return backendUserToUser(backendBody(payload), email);
+      } catch {
+        return backendUserToUser({email}, email);
+      }
+    }
     return mockRequest('user.getUser', () => ({...db.userById(id), blocked: db.blockedUsers.includes(id)}));
   },
 
   async blockedUsers(): Promise<User[]> {
+    if (BACKEND_ENABLED) {
+      return [];
+    }
     return mockRequest('user.blockedUsers', () => db.blockedUsers.map(db.userById));
   },
 
   async setBlocked(id: string, blocked: boolean): Promise<void> {
+    if (BACKEND_ENABLED) {
+      const meEmail = await backendSessionEmail();
+      await backendPost(blocked ? '/api/v1/chat/users/block-direct' : '/api/v1/chat/users/unblock-direct', {
+        email: meEmail,
+        blockedEmail: normalizeEmail(id),
+      });
+      return;
+    }
     return mockRequest('user.setBlocked', () => {
       const i = db.blockedUsers.indexOf(id);
       if (blocked && i < 0) {
@@ -520,14 +1470,29 @@ export const userService = {
   },
 
   async report(_targetId: string, _reason: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      const meEmail = await backendSessionEmail();
+      await backendPost('/api/v1/chat/users/report', {
+        email: meEmail,
+        reportedEmail: normalizeEmail(_targetId),
+        reason: _reason,
+      });
+      return;
+    }
     return mockRequest('user.report', () => undefined);
   },
 
   async deviceSessions(): Promise<DeviceSession[]> {
+    if (BACKEND_ENABLED) {
+      return [];
+    }
     return mockRequest('user.deviceSessions', () => [...db.deviceSessions]);
   },
 
   async revokeSession(id: string): Promise<void> {
+    if (BACKEND_ENABLED) {
+      return undefined;
+    }
     return mockRequest('user.revokeSession', () => {
       const i = db.deviceSessions.findIndex(s => s.id === id);
       if (i >= 0 && !db.deviceSessions[i].current) {

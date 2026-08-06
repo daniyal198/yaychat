@@ -90,6 +90,42 @@ describe('chatService', () => {
     expect(after.items.length).toBe(before.items.length + 1);
   });
 
+  it('deduplicates retries with the same client id', async () => {
+    const clientId = `jest-client-${Date.now()}`;
+    const first = await chatService.sendMessage('c_amara', {
+      text: 'Retry-safe hello',
+      clientId,
+    });
+    const retry = await chatService.sendMessage('c_amara', {
+      text: 'Retry-safe hello',
+      clientId,
+    });
+    const page = await chatService.getMessages('c_amara');
+
+    expect(retry.id).toBe(first.id);
+    expect(page.items.filter(m => m.clientId === clientId)).toHaveLength(1);
+  });
+
+  it('emits conversation-scoped chat events', async () => {
+    const events: string[] = [];
+    const unsubscribe = chatService.subscribeConversation('c_amara', event => {
+      events.push(event.type);
+    });
+
+    await chatService.setTyping('c_amara', 'u_amara', true);
+    const incoming = await chatService.simulateIncomingMessage('c_amara', {
+      senderId: 'u_amara',
+      text: 'Incoming test message',
+    });
+    await chatService.setTyping('c_amara', 'u_amara', false);
+    unsubscribe();
+
+    expect(incoming.senderId).toBe('u_amara');
+    expect(events).toContain('typing.changed');
+    expect(events).toContain('message.upsert');
+    expect(events).toContain('conversation.updated');
+  });
+
   it('rejects empty messages and simulated failures', async () => {
     await expect(chatService.sendMessage('c_amara', {text: '   '})).rejects.toMatchObject({
       code: 'validation',
@@ -126,6 +162,23 @@ describe('chatService', () => {
       const second = await chatService.getMessages('c_group_indexx', first.nextCursor);
       expect(second.items.length).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps pagination stable after newer messages arrive', async () => {
+    const first = await chatService.getMessages('c_group_indexx');
+    if (!first.nextCursor) {
+      return;
+    }
+
+    const clientId = `jest-pagination-${Date.now()}`;
+    await chatService.sendMessage('c_group_indexx', {
+      text: 'Newest message while paging',
+      clientId,
+    });
+    const older = await chatService.getMessages('c_group_indexx', first.nextCursor);
+
+    expect(older.items.some(m => m.clientId === clientId)).toBe(false);
+    expect(older.items[older.items.length - 1]?.id).not.toBe(first.items[0].id);
   });
 
   it('searches messages across conversations', async () => {

@@ -35,6 +35,8 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface Message {
   id: ID;
+  /** Caller-generated idempotency key used to reconcile retries and optimistic sends. */
+  clientId?: ID;
   conversationId: ID;
   senderId: ID;
   kind: MessageKind;

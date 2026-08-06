@@ -13,8 +13,9 @@ Jest 29 (`react-native` preset) + react-test-renderer. Setup in
   onboarded session, sign-up returns non-onboarded session, verification code,
   username rules & availability.
 - Chat: list filtering + pinned-first sort, archived filter, send appends +
-  status, empty/`#fail` failures, reaction toggle on/off, direct-conversation
-  reuse, group creation with owner role, pagination, cross-conversation search.
+  status, retry idempotency via `clientId`, conversation-scoped events,
+  empty/`#fail` failures, reaction toggle on/off, direct-conversation reuse,
+  group creation with owner role, stable pagination, cross-conversation search.
 - Communities: category/query discovery, public join, private join-request,
   invite-only rejection, create-as-admin, single poll vote.
 - AI: start/send simulated reply, credit consumption, provider-unavailable
@@ -48,6 +49,8 @@ App renders within providers.
 
 - No E2E harness yet (Detox/Maestro decision deferred to Milestone 2 when real
   APIs exist; current flows are mock-deterministic).
+- Two-device real-user chat uses `YAYCHAT_USE_BACKEND=true` and the shared
+  `indexx-exchange-backend` API. See `yaychat-real-user-chat-runbook.md`.
 - Screen-level render tests are limited to the kit + services by design —
   navigation-mounted screen tests arrive with the API integration tests.
 - Visual regression testing is a Milestone 10 (hardening) item.
