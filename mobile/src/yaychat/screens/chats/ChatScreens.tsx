@@ -188,6 +188,29 @@ const withDerivedReadReceipts = (messages: Message[]): Message[] => {
 
 const REACTION_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
+const COMPOSER_EMOJIS = [
+  '😀',
+  '😂',
+  '😍',
+  '🥰',
+  '😎',
+  '😭',
+  '🙌',
+  '👏',
+  '👍',
+  '👀',
+  '🔥',
+  '💯',
+  '❤️',
+  '🧡',
+  '✨',
+  '🎉',
+  '🙏',
+  '🤝',
+  '✅',
+  '🚀',
+];
+
 const CANNED_REPLIES = [
   'Sounds good to me! 👍',
   'Haha, nice one.',
@@ -1766,6 +1789,29 @@ export const ConversationScreen = ({
                     <IconButton icon="close" size={17} onPress={() => setReplyTo(null)} label="Cancel reply" />
                   </Row>
                 ) : null}
+                {emojiTarget === 'composer' ? (
+                  <View style={styles.composerEmojiTray}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={styles.composerEmojiRow}>
+                      {COMPOSER_EMOJIS.map(emoji => (
+                        <Pressable
+                          key={emoji}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Insert ${emoji}`}
+                          onPress={() => setText(t => `${t}${emoji}`)}
+                          style={({pressed}) => [
+                            styles.composerEmojiButton,
+                            pressed && styles.composerEmojiButtonPressed,
+                          ]}>
+                          <YayText style={styles.composerEmojiText}>{emoji}</YayText>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
                 <Row gap={spacing.xxs} style={{alignItems: 'flex-end'}}>
                   <IconButton icon="add-circle" size={26} color={colors.brand} label="Attach" onPress={() => setAttachSheet(true)} />
                   <TextInput
@@ -1777,7 +1823,11 @@ export const ConversationScreen = ({
                     style={styles.composerInput}
                     accessibilityLabel="Message input"
                   />
-                  <IconButton icon="happy-outline" label="Emoji" onPress={() => setEmojiTarget('composer')} />
+                  <IconButton
+                    icon={emojiTarget === 'composer' ? 'close-circle' : 'happy-outline'}
+                    label={emojiTarget === 'composer' ? 'Close emoji' : 'Emoji'}
+                    onPress={() => setEmojiTarget(current => (current === 'composer' ? null : 'composer'))}
+                  />
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={editingMsg ? 'Save edit' : 'Send'}
@@ -1850,13 +1900,11 @@ export const ConversationScreen = ({
         }}
       />
       <EmojiPicker
-        visible={emojiTarget != null}
+        visible={emojiTarget != null && emojiTarget !== 'composer'}
         onClose={() => setEmojiTarget(null)}
-        title={emojiTarget === 'composer' ? 'Emoji' : 'React with any emoji'}
+        title="React with any emoji"
         onSelect={emoji => {
-          if (emojiTarget === 'composer') {
-            setText(t => `${t}${emoji}`);
-          } else if (emojiTarget) {
+          if (emojiTarget && emojiTarget !== 'composer') {
             toggleReaction(emojiTarget.message, emoji);
             setEmojiTarget(null);
           }
@@ -2762,6 +2810,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xxs,
     marginBottom: spacing.xs,
+  },
+  composerEmojiTray: {
+    marginBottom: spacing.xs,
+    borderRadius: radius.lg,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    paddingVertical: spacing.xxs,
+  },
+  composerEmojiRow: {
+    paddingHorizontal: spacing.xs,
+    gap: spacing.xxs,
+  },
+  composerEmojiButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  composerEmojiButtonPressed: {
+    backgroundColor: colors.brandSoft,
+  },
+  composerEmojiText: {
+    fontSize: 24,
+    lineHeight: 30,
   },
   composerInput: {
     flex: 1,
