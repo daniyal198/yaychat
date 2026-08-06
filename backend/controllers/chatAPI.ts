@@ -88,6 +88,7 @@ export class ChatController {
     this.getGroupUnreadCount = this.getGroupUnreadCount.bind(this);
     this.markGroupRead = this.markGroupRead.bind(this);
     this.getMessages = this.getMessages.bind(this);
+    this.getMessagesPaged = this.getMessagesPaged.bind(this);
     this.getLatestMessages = this.getLatestMessages.bind(this);
     this.markAsRead = this.markAsRead.bind(this);
     this.getGroupMessageCount = this.getGroupMessageCount.bind(this);
@@ -171,6 +172,7 @@ export class ChatController {
         fileUrl,
         fileType,
         replyToMessageId,
+        clientId,
       } = req.body;
       let { to } = req.body;
 
@@ -233,6 +235,7 @@ export class ChatController {
       const messagePayload: any = {
         email: sender.email,
         messageId: randomUUID(),
+        clientId,
         receiverEmail: receiver.email,    // <-- make sure your model stores this
         userId: senderId,
         firstName: sender.firstName,
@@ -335,6 +338,7 @@ export class ChatController {
         fileUrl,
         fileType,              // "image" | "document" | "video"
         replyToMessageId,
+        clientId,
       } = req.body;
 
       if (!email) return res.status(400).json({ message: "email is required" });
@@ -425,6 +429,7 @@ export class ChatController {
       const message: any = {
         email: user.email,
         messageId: randomUUID(),
+        clientId,
         userId: (user as any).id ?? (user as any)._id,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -1532,6 +1537,33 @@ export class ChatController {
     }
   }
 
+  async getMessagesPaged(req: Request, res: Response) {
+    try {
+      const { email } = req.params;
+      const peer = String(req.query.with || "").trim().toLowerCase();
+      const rawLimit = Number(req.query.limit ?? 50);
+      const limit = Math.max(1, Math.min(rawLimit, 200));
+      const beforeId = (req.query.beforeId as string) || undefined;
+      const afterId = (req.query.afterId as string) || undefined;
+
+      const user = await userService.findOneSelect({ email }, { email: 1 });
+      if (!user) return res.status(400).json({ message: "Email not registered" });
+
+      const blocked = await this.getDirectBlockedList(user.email);
+      const page = await chatService.getDirectMessagesPaged(user.email, {
+        peer,
+        limit,
+        beforeId,
+        afterId,
+        excludeSenderEmails: blocked,
+      });
+      return res.json(page);
+    } catch (error: any) {
+      console.error("Error fetching paged direct messages:", error);
+      return res.status(500).json({ message: error.message || "Failed to fetch messages" });
+    }
+  }
+
   async getLatestMessages(req: Request, res: Response) {
     try {
       const { email } = req.params;
@@ -1551,19 +1583,23 @@ export class ChatController {
 
   async markAsRead(req: Request, res: Response) {
     try {
-      const { messageIds, userId } = req.body || {};
+      const { messageIds, userId, email } = req.body || {};
       if (!Array.isArray(messageIds) || !messageIds.length) {
         return res.status(400).json({ message: "messageIds[] required" });
       }
-      if (!userId) {
-        return res.status(400).json({ message: "userId required" });
+      if (!userId && !email) {
+        return res.status(400).json({ message: "userId or email required" });
       }
 
-      const reader = await userService.findOneSelect({ id: userId }, { email: 1 });
+      const reader = email
+        ? await userService.findOneSelect({ email: String(email).trim().toLowerCase() }, { email: 1 })
+        : await userService.findOneSelect({ id: userId }, { email: 1 });
       if (!reader?.email) {
         return res.status(400).json({ message: "Reader not found" });
       }
-      const { matchedCount, modifiedCount } = await chatService.markMessagesAsRead(messageIds, userId);
+      const { matchedCount, modifiedCount } = email
+        ? await chatService.markDirectMessagesAsReadForEmail(messageIds, reader.email)
+        : await chatService.markMessagesAsRead(messageIds, userId);
       const msgs = await chatService.findWithNotifications(messageIds, userId);
       const notificationIds = msgs
         .filter((m: any) => m.receiverEmail === reader.email && !!m.notificationId)

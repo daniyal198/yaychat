@@ -8,6 +8,7 @@ export interface ChatMessageModel extends IDocumentModel<ChatMessage>, ChatMessa
 const ChatMessageSchema = new Schema({
     email: String,
     messageId: { type: String, default: () => randomUUID(), immutable: true, },
+    clientId: { type: String, index: true },
     receiverEmail: String,
     firstName: String,
     lastName: String,
@@ -76,6 +77,12 @@ const ChatMessageSchema = new Schema({
 ChatMessageSchema.index({ groupId: 1, timestamp: 1 });
 ChatMessageSchema.index({ groupId: 1, email: 1, timestamp: 1 });
 ChatMessageSchema.index({ groupId: 1, _id: -1 });
+ChatMessageSchema.index({ receiverEmail: 1, email: 1, _id: -1 });
+ChatMessageSchema.index({ email: 1, clientId: 1 }, {
+    unique: true,
+    partialFilterExpression: { clientId: { $exists: true, $type: "string" } },
+    name: "uniq_sender_clientId_partial",
+});
 ChatMessageSchema.index({ receiverEmail: 1, email: 1, groupId: 1, isRead: 1, timestamp: -1 });
 ChatMessageSchema.index({ email: 1, receiverEmail: 1, groupId: 1, timestamp: -1 });
 ChatMessageSchema.add({

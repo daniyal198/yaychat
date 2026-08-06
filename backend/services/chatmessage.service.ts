@@ -69,6 +69,16 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
                 message.messageId = randomUUID();
             }
 
+            if (message.clientId) {
+                const existing = await this.findOne({
+                    email: message.email,
+                    clientId: message.clientId,
+                });
+                if (existing) {
+                    return existing;
+                }
+            }
+
             // Ensure timestamp is set
             if (!message.timestamp) {
                 message.timestamp = new Date();
@@ -84,7 +94,21 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
             });
 
             const newMessage = message;
-            const saved = await this.create(newMessage);
+            let saved: ChatMessage | undefined;
+            try {
+                saved = await this.create(newMessage);
+            } catch (error: any) {
+                if (message.clientId && error?.code === 11000) {
+                    const existing = await this.findOne({
+                        email: message.email,
+                        clientId: message.clientId,
+                    });
+                    if (existing) {
+                        return existing;
+                    }
+                }
+                throw error;
+            }
 
             if (!saved) {
                 console.error("[sendMessage] Failed to create message in database");
@@ -205,6 +229,31 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
         };
     }
 
+    async markDirectMessagesAsReadForEmail(messageIds: string[], email: string) {
+        if (!Array.isArray(messageIds) || messageIds.length === 0) return { matchedCount: 0, modifiedCount: 0 };
+        const me = String(email || "").trim().toLowerCase();
+        if (!me) return { matchedCount: 0, modifiedCount: 0 };
+        const objectIds = messageIds
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id));
+        const idFilter: any = objectIds.length
+            ? { $or: [{ _id: { $in: objectIds } }, { messageId: { $in: messageIds } }] }
+            : { messageId: { $in: messageIds } };
+
+        const result = await (this as any).updateMany(
+            {
+                ...idFilter,
+                receiverEmail: me,
+                isRead: false,
+            },
+            { $set: { isRead: true } }
+        );
+        return {
+            matchedCount: result?.matchedCount ?? result?.n ?? 0,
+            modifiedCount: result?.modifiedCount ?? result?.nModified ?? 0,
+        };
+    }
+
     async findWithNotifications(messageIds: string[], readerUserId: string) {
         return this.find(
             {
@@ -314,8 +363,16 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
     ): Promise<ChatMessage[]> {
         const meL = String(email || "").trim().toLowerCase();
         const excludeSenders = this.normalizeLowerList(opts?.excludeSenderEmails);
+        const dmOnly = {
+            $or: [
+                { groupId: { $exists: false } },
+                { groupId: null },
+                { groupId: "" }
+            ]
+        };
 
         const clauses: any[] = [
+            dmOnly,
             {
                 $or: [
                     { email: meL },
@@ -342,7 +399,15 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
             const meL = String(currentUserEmail || "").trim().toLowerCase();
             const limit = Math.min(20, Math.max(1, Number(opts?.limit || 5)));
             const excludeSenders = this.normalizeLowerList(opts?.excludeSenderEmails);
+            const dmOnly = {
+                $or: [
+                    { groupId: { $exists: false } },
+                    { groupId: null },
+                    { groupId: "" }
+                ]
+            };
             const clauses: any[] = [
+                dmOnly,
                 {
                     $or: [
                         { email: meL },
@@ -476,6 +541,78 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
         };
     }
 
+    async getDirectMessagesPaged(
+        me: string,
+        opts: {
+            limit: number;
+            peer?: string;
+            beforeId?: string;
+            afterId?: string;
+            excludeSenderEmails?: string[];
+        }
+    ): Promise<{ messages: ChatMessage[]; nextBeforeId?: string; nextAfterId?: string; hasMoreOlder: boolean; hasMoreNewer: boolean; }> {
+        const { limit, peer, beforeId, afterId, excludeSenderEmails } = opts;
+        const meL = String(me || "").trim().toLowerCase();
+        const peerL = String(peer || "").trim().toLowerCase();
+        const excludeSenders = this.normalizeLowerList(excludeSenderEmails);
+
+        const dmOnly = {
+            $or: [
+                { groupId: { $exists: false } },
+                { groupId: null },
+                { groupId: "" },
+            ],
+        };
+        const participants = peerL
+            ? {
+                $or: [
+                    { email: meL, receiverEmail: peerL },
+                    { email: peerL, receiverEmail: meL },
+                ],
+            }
+            : { $or: [{ email: meL }, { receiverEmail: meL }] };
+
+        const cond: any = { $and: [dmOnly, participants] };
+        const blockFilter = this.buildBlockedIncomingFilter(meL, excludeSenders);
+        if (blockFilter) {
+            cond.$and.push(blockFilter);
+        }
+
+        const toId = (id: string) => {
+            try { return new mongoose.Types.ObjectId(id); } catch { return null; }
+        };
+
+        let sort: any = { _id: -1 };
+        if (beforeId) {
+            const oid = toId(beforeId);
+            if (oid) cond._id = { $lt: oid };
+        } else if (afterId) {
+            const oid = toId(afterId);
+            if (oid) cond._id = { $gt: oid };
+            sort = { _id: 1 };
+        }
+
+        const rows = await this.findPaginated(limit + 1, sort, cond, {});
+        let messages = rows;
+        const fetchedAscending = !!afterId;
+        if (fetchedAscending) messages = [...rows].reverse();
+
+        const over = messages.length > limit;
+        if (over) messages = messages.slice(0, limit);
+
+        const processedMessages = this.processMessagesForResponse(messages);
+        const oldest = messages[messages.length - 1];
+        const newest = messages[0];
+
+        return {
+            messages: processedMessages,
+            nextBeforeId: oldest?._id?.toString(),
+            nextAfterId: newest?._id?.toString(),
+            hasMoreOlder: over,
+            hasMoreNewer: over,
+        };
+    }
+
     async getLatestGroupTimestamp(groupId: string): Promise<Date | null> {
         // 1) newest doc with a timestamp
         const withTs = await this.findPaginated(
@@ -499,7 +636,15 @@ export class ChatMessageService extends ServiceBase<ChatMessage, ChatMessageMode
     ): Promise<{ total: number; perPeer: { peerEmail: string; count: number }[] }> {
         const meL = String(me || "").trim().toLowerCase();
         const excludeSenders = this.normalizeLowerList(opts?.excludeSenderEmails);
-        const match: any = { groupId: { $exists: false }, receiverEmail: meL, isRead: false };
+        const match: any = {
+            receiverEmail: meL,
+            isRead: false,
+            $or: [
+                { groupId: { $exists: false } },
+                { groupId: null },
+                { groupId: "" },
+            ],
+        };
         if (excludeSenders.length) {
             match.email = { $nin: excludeSenders };
         }

@@ -14,6 +14,7 @@ chatRouter.post('/messages/referrals', chatController.sendReferralMessages);
 chatRouter.post('/sendGroupmessage', chatController.sendGroupMessage);
 chatRouter.get('/messages/count', chatController.getMessageCount);
 chatRouter.get('/messages/unread/count', chatController.getMessageUnreadCount);
+chatRouter.get('/messages/:email/paged', chatController.getMessagesPaged);
 chatRouter.get('/messages/:email', chatController.getMessages);
 chatRouter.get('/lastmessages/:email', chatController.getLatestMessages);
 chatRouter.post('/messages/read', chatController.markAsRead);

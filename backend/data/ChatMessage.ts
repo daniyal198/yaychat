@@ -4,7 +4,8 @@ import { Types } from "mongoose";
 export interface ChatMessage {
     _id?: any;
     email: string;
-      messageId?: string;   
+    messageId?: string;
+    clientId?: string;
     receiverEmail?: string;
     userId: string;
     firstName: string;
