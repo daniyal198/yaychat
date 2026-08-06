@@ -284,7 +284,7 @@ export const ChatListScreen = ({
   navigation,
 }: NativeStackScreenProps<ChatsStackParamList, 'ChatList'>) => {
   const toast = useToast();
-  const {getConversationUnread} = useUnread();
+  const {getConversationUnread, syncConversations} = useUnread();
   const {perform} = useAction();
   const [filter, setFilter] = useState<ChatFilter>('All');
   const [sheetConvo, setSheetConvo] = useState<Conversation | null>(null);
@@ -297,7 +297,10 @@ export const ChatListScreen = ({
     () => {
       const merged = (data ?? []).map(conversation => ({
         ...conversation,
-        unreadCount: Math.max(conversation.unreadCount, getConversationUnread(conversation.id)),
+        unreadCount: Math.max(
+          conversation.unreadCount,
+          getConversationUnread(conversation.id, conversation.lastMessage),
+        ),
       }));
       return filter === 'Unread' ? merged.filter(conversation => conversation.unreadCount > 0) : merged;
     },
@@ -309,6 +312,12 @@ export const ChatListScreen = ({
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
+
+  useEffect(() => {
+    if (data?.length) {
+      syncConversations(data);
+    }
+  }, [data, syncConversations]);
 
   useEffect(() => {
     return chatService.subscribe(event => {
@@ -1161,7 +1170,7 @@ export const ConversationScreen = ({
       setMsgs(list);
       setNextCursor(data.nextCursor);
       setActiveConversation(conversationId);
-      clearConversation(conversationId);
+      clearConversation(conversationId, list[list.length - 1]?.id);
       chatService.markRead(conversationId);
     }
   }, [data, conversationId, clearConversation, setActiveConversation]);

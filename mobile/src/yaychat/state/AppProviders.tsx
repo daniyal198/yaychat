@@ -5,7 +5,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
 import {ME_ID, analytics, authService, chatService, onOfflineChange, simulation} from '../services';
-import {Session, User} from '../types/models';
+import {Conversation, Message, Session, User} from '../types/models';
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -58,9 +58,10 @@ export const useNetwork = () => useContext(NetworkContext);
 interface UnreadState {
   total: number;
   refresh: () => void;
-  getConversationUnread: (conversationId: string) => number;
+  getConversationUnread: (conversationId: string, lastMessage?: Message) => number;
   recordIncoming: (conversationId: string, count?: number) => void;
-  clearConversation: (conversationId: string) => void;
+  clearConversation: (conversationId: string, lastMessageId?: string) => void;
+  syncConversations: (conversations: Conversation[]) => void;
   setActiveConversation: (conversationId: string | null) => void;
 }
 
@@ -70,6 +71,7 @@ const UnreadContext = createContext<UnreadState>({
   getConversationUnread: () => 0,
   recordIncoming: () => {},
   clearConversation: () => {},
+  syncConversations: () => {},
   setActiveConversation: () => {},
 });
 export const useUnread = () => useContext(UnreadContext);
@@ -94,6 +96,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
   const [backendUnreadTotal, setBackendUnreadTotal] = useState(0);
   const [localUnreadByConversation, setLocalUnreadByConversation] = useState<Record<string, number>>({});
+  const [clearedLastMessageByConversation, setClearedLastMessageByConversation] = useState<Record<string, string>>({});
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageByConversation = useRef<Record<string, string | undefined>>({});
@@ -116,8 +119,21 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   }, []);
 
   const getConversationUnread = useCallback(
-    (conversationId: string) => localUnreadByConversation[conversationId] ?? 0,
-    [localUnreadByConversation],
+    (conversationId: string, lastMessage?: Message) => {
+      const localCount = localUnreadByConversation[conversationId] ?? 0;
+      if (localCount > 0) {
+        return localCount;
+      }
+      if (
+        lastMessage &&
+        lastMessage.senderId !== ME_ID &&
+        clearedLastMessageByConversation[conversationId] !== lastMessage.id
+      ) {
+        return 1;
+      }
+      return 0;
+    },
+    [clearedLastMessageByConversation, localUnreadByConversation],
   );
 
   const recordIncoming = useCallback((conversationId: string, count?: number) => {
@@ -131,7 +147,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     });
   }, []);
 
-  const clearConversation = useCallback((conversationId: string) => {
+  const clearConversation = useCallback((conversationId: string, lastMessageId?: string) => {
     setLocalUnreadByConversation(prev => {
       if (!prev[conversationId]) {
         return prev;
@@ -140,8 +156,35 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       delete next[conversationId];
       return next;
     });
+    if (lastMessageId) {
+      setClearedLastMessageByConversation(prev => ({...prev, [conversationId]: lastMessageId}));
+    }
     refreshUnread();
   }, [refreshUnread]);
+
+  const syncConversations = useCallback((conversations: Conversation[]) => {
+    setLocalUnreadByConversation(prev => {
+      let changed = false;
+      const next = {...prev};
+      conversations.forEach(conversation => {
+        const lastMessage = conversation.lastMessage;
+        if (
+          !lastMessage ||
+          lastMessage.senderId === ME_ID ||
+          activeConversationId.current === conversation.id ||
+          clearedLastMessageByConversation[conversation.id] === lastMessage.id
+        ) {
+          return;
+        }
+        const inferredCount = Math.max(conversation.unreadCount, 1);
+        if ((next[conversation.id] ?? 0) < inferredCount) {
+          next[conversation.id] = inferredCount;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [clearedLastMessageByConversation]);
 
   const setActiveConversation = useCallback((conversationId: string | null) => {
     activeConversationId.current = conversationId;
@@ -156,6 +199,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     if (!session) {
       setBackendUnreadTotal(0);
       setLocalUnreadByConversation({});
+      setClearedLastMessageByConversation({});
       return;
     }
     refreshUnread();
@@ -276,6 +320,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
             getConversationUnread,
             recordIncoming,
             clearConversation,
+            syncConversations,
             setActiveConversation,
           }}>
         <ToastContext.Provider value={{show}}>
