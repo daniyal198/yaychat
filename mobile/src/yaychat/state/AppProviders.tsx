@@ -85,6 +85,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageByConversation = useRef<Record<string, string | undefined>>({});
+  const chatNotificationsReady = useRef(false);
 
   useEffect(() => {
     authService
@@ -136,10 +137,12 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   useEffect(() => {
     if (!session) {
       lastMessageByConversation.current = {};
+      chatNotificationsReady.current = false;
       return;
     }
 
     let mounted = true;
+    chatNotificationsReady.current = false;
     chatService
       .listConversations('all')
       .then(conversations => {
@@ -151,8 +154,11 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
           snapshot[conversation.id] = conversation.lastMessage?.id;
         });
         lastMessageByConversation.current = snapshot;
+        chatNotificationsReady.current = true;
       })
-      .catch(() => {});
+      .catch(() => {
+        chatNotificationsReady.current = true;
+      });
 
     const unsubscribe = chatService.subscribe(event => {
       if (event.type !== 'conversation.updated') {
@@ -161,14 +167,14 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       const {conversation} = event;
       const lastMessage = conversation.lastMessage;
       const previousLastId = lastMessageByConversation.current[conversation.id];
+      const ready = chatNotificationsReady.current;
       lastMessageByConversation.current[conversation.id] = lastMessage?.id;
 
       if (
         !lastMessage ||
-        !previousLastId ||
+        !ready ||
         previousLastId === lastMessage.id ||
         lastMessage.senderId === ME_ID ||
-        conversation.unreadCount <= 0 ||
         conversation.muted
       ) {
         return;

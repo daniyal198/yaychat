@@ -898,7 +898,7 @@ export const chatService = {
         try {
           const list = await backendChat.listConversations('all');
           const version = list
-            .map(c => `${c.id}:${c.lastMessage?.id}:${c.lastMessage?.text}:${c.unreadCount}`)
+            .map(c => `${c.id}:${c.lastMessage?.id}:${c.lastMessage?.status}:${c.lastMessage?.text}:${c.unreadCount}`)
             .join('|');
           if (lastVersion && lastVersion !== version) {
             list.forEach(conversation =>

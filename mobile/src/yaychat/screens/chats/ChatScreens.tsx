@@ -1118,7 +1118,16 @@ export const ConversationScreen = ({
         }
         const isNewIncoming = !seenMessageIds.current.has(event.message.id);
         seenMessageIds.current.add(event.message.id);
-        setMsgs(prev => mergeMessages(prev, [event.message]).filter(m => !m.deleted));
+        setMsgs(prev => {
+          const withReadReceipts = isNewIncoming
+            ? prev.map(m =>
+                m.senderId === ME_ID && m.status !== 'failed' && m.status !== 'sending'
+                  ? {...m, status: 'read' as const}
+                  : m,
+              )
+            : prev;
+          return mergeMessages(withReadReceipts, [event.message]).filter(m => !m.deleted);
+        });
         if (isNewIncoming && !event.message.deleted) {
           showToast(event.message.text.trim() || 'New message', 'info');
         }
