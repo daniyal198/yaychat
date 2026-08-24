@@ -1,14 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  SafeAreaView,
-  TouchableOpacity,
-  Alert,
-  Image,
-  ScrollView,
-} from 'react-native';
+import {StyleSheet, View, Text, SafeAreaView, Alert, Image, ScrollView} from 'react-native';
 import { colors } from '../../theme/colors';
 import { useNavigation } from '@react-navigation/native';
 import { SubscriptionNavigationProp } from '../../navigation/types';

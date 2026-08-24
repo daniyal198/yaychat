@@ -7,6 +7,7 @@ import {
   ScrollView,
   LayoutAnimation,
   Platform,
+  Share,
   UIManager,
   ActivityIndicator,
 } from 'react-native';
@@ -80,6 +81,9 @@ const ViewMiningDetailScreen = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timerInterval, setTimerInterval] = useState(null);
+  // Referral code for the share sheet; read from the same token the mining
+  // calls are keyed on so the link always belongs to the signed-in miner.
+  const [userData, setUserData] = useState(null);
 
   // Format time to HH:MM:SS
   const formatTime = seconds => {
@@ -128,6 +132,7 @@ const ViewMiningDetailScreen = () => {
       if (token) {
         const userObj = decodeJWT(token);
         const userEmail = userObj?.email;
+        setUserData(userObj);
 
         const [statusResponse, rewardsResponse] = await Promise.all([
           getMiningStatus(userEmail),
@@ -179,6 +184,9 @@ const ViewMiningDetailScreen = () => {
     return () => {
       if (timerInterval) clearInterval(timerInterval);
     };
+    // Mount-once fetch. Adding `timerInterval` would tear down and restart the
+    // 1s mining timer on every tick, because the effect sets it itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleSection = section => {

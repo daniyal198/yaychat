@@ -15,6 +15,10 @@ const visibleText = (tree: ReactTestRenderer.ReactTestRenderer): string[] =>
       React.Children.toArray(node.props.children).filter((child): child is string => typeof child === 'string'),
     );
 
+// Rendering the whole provider tree takes ~1s alone but can exceed Jest's 5s
+// default when the other suites are running on parallel workers.
+const SHELL_RENDER_TIMEOUT_MS = 30_000;
+
 test('renders the YaysApp shell', async () => {
   jest.useFakeTimers();
   let tree: ReactTestRenderer.ReactTestRenderer | null = null;
@@ -34,11 +38,12 @@ test('renders the YaysApp shell', async () => {
 
     expect(visibleText(tree!)).toEqual(expect.arrayContaining(['YaysApp', 'Chat. Learn. Earn. Together.']));
   } finally {
-    if (tree) {
+    const rendered = tree as ReactTestRenderer.ReactTestRenderer | null;
+    if (rendered) {
       await ReactTestRenderer.act(async () => {
-        tree.unmount();
+        rendered.unmount();
       });
     }
     jest.useRealTimers();
   }
-});
+}, SHELL_RENDER_TIMEOUT_MS);

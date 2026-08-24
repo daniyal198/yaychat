@@ -1,4 +1,3 @@
-import { Alert, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type MessageHandler = (data: any) => void;

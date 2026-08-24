@@ -32,11 +32,13 @@ import {formatUnreadBadge, useAuth, useToast, useUnread} from '../../state/AppPr
 import type {EcosystemProduct, SocialAccount} from '../../types/models';
 import type {ExploreStackParamList} from '../../types/navigation';
 
+const HOME_OVAL_ORANGE = '#E2842D';
+
 const QUICK_ACTIONS: {icon: string; label: string; route: string; tone: string}[] = [
   {icon: 'chatbubbles', label: 'Chats', route: 'ChatsTab', tone: colors.brand},
   {icon: 'sparkles', label: 'aiainai', route: 'AiTab', tone: palette.aiainaiRed},
-  {icon: 'gift', label: 'Earn', route: 'EarnTab', tone: '#7b5cb8'},
-  {icon: 'wallet', label: 'Wallet', route: 'WalletOverview', tone: colors.success},
+  {icon: 'gift', label: 'Earn', route: 'EarnTab', tone: HOME_OVAL_ORANGE},
+  {icon: 'wallet', label: 'Wallet', route: 'WalletOverview', tone: HOME_OVAL_ORANGE},
 ];
 
 /** Products with an in-app hub dashboard (see screens/btcy, emmm, shoperpal). */
@@ -62,7 +64,6 @@ export const ExploreHomeScreen = ({
   navigation,
 }: NativeStackScreenProps<ExploreStackParamList, 'ExploreHome'>) => {
   const insets = useSafeAreaInsets();
-  const toast = useToast();
   const {session} = useAuth();
   const {total: unreadTotal} = useUnread();
   const firstName = (session?.user.name ?? 'there').split(' ')[0];
@@ -101,7 +102,12 @@ export const ExploreHomeScreen = ({
           </YayText>
           <YayText variant="title">Hi {firstName} 👋</YayText>
         </View>
-        <Avatar name={session?.user.name ?? 'You'} size={44} />
+        <Avatar
+          name={session?.user.name ?? 'You'}
+          size={44}
+          color={HOME_OVAL_ORANGE}
+          imageUri={session?.user.profilePic}
+        />
       </Row>
 
       <Spacer size={spacing.md} />
@@ -327,7 +333,7 @@ export const ProductDetailScreen = ({
                   <View style={{flex: 1}}>
                     <YayText variant="bodyStrong">{p.earnAction}</YayText>
                     <YayText variant="caption" color={colors.textMuted}>
-                      Activity in {p.name} can earn YayPoints once rewards go live (Milestone 6).
+                      Activity in {p.name} can earn IndexxPoints once rewards go live (Milestone 6).
                     </YayText>
                   </View>
                 </Row>

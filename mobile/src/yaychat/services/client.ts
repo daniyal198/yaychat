@@ -6,6 +6,7 @@
  * a real HTTP/WebSocket client while keeping the same signatures.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {telemetry} from './telemetry';
 
 export class ApiError extends Error {
   constructor(
@@ -16,7 +17,9 @@ export class ApiError extends Error {
       | 'server'
       | 'offline'
       | 'not_found'
-      | 'rate_limited',
+      | 'rate_limited'
+      /** AI needs an explicit content-sharing opt-in before it can run. */
+      | 'consent_required',
   ) {
     super(message);
   }
@@ -93,7 +96,11 @@ export const secureTokenStore = {
 };
 
 // ---------------------------------------------------------------------------
-// Analytics interface (console-backed until Milestone 2)
+// Analytics (Module 6)
+//
+// The same façade screens have always called, now backed by the batching
+// telemetry queue instead of `console.log`. Both calls stay synchronous and
+// never throw: an analytics failure must not be able to break a screen.
 // ---------------------------------------------------------------------------
 
 export const analytics = {
@@ -101,9 +108,21 @@ export const analytics = {
     if (__DEV__) {
       console.log(`[analytics] ${event}`, props ?? {});
     }
+    try {
+      telemetry.track(event, props);
+    } catch {
+      // Telemetry is best-effort by contract.
+    }
   },
   screen(name: string) {
-    this.track('screen_view', {name});
+    if (__DEV__) {
+      console.log('[analytics] screen_view', {name});
+    }
+    try {
+      telemetry.screen(name);
+    } catch {
+      // As above.
+    }
   },
 };
 
@@ -116,6 +135,9 @@ const flags: Record<string, boolean> = {
   btcy_preview: true,
   earn_center: true,
   ai_assistant: true,
+  ai_in_chat: true,
+  ai_in_communities: true,
+  ai_support_desk: true,
   communities: true,
   ecosystem_discovery: true,
   stickers: false,

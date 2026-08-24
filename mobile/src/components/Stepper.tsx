@@ -1,8 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {View, Text, StyleSheet, TouchableOpacity, Image} from 'react-native';
 import {Svg, Line} from 'react-native-svg';
-import Tick from '../../assets/splash/tick.svg';
-import GreyStep from '../../assets/splash/grey.svg';
 import {colors} from '../theme/colors';
 
 import ActiveStep from '../../assets/img/active_step.png';
@@ -49,16 +47,16 @@ type StepperProps = {
 };
 
 const Stepper = ({orderId, paymentType, amount, currency}: StepperProps) => {
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, _setActiveStep] = useState(0);
 
-  const handleStepPress = (index: number) => {
-    //setActiveStep(index);
+  const handleStepPress = (_index: number) => {
+    //_setActiveStep(index);
   };
 
   useEffect(() => {
     console.log('Order Info:', {orderId, paymentType, amount, currency});
-    // Optionally, use orderId to fetch status and setActiveStep accordingly
-  }, [orderId]);
+    // Optionally, use orderId to fetch status and _setActiveStep accordingly
+  }, [orderId, paymentType, amount, currency]);
 
   return (
     <View style={styles.container}>

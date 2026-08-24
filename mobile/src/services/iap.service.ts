@@ -1,82 +1,33 @@
-// import { Platform } from 'react-native';
-// import * as RNIap from 'react-native-iap';
+/**
+ * In-app purchase adapter (legacy Bitcoin Yay subscription flow).
+ *
+ * `react-native-iap` is not installed in this app, so the store-purchase path
+ * is unavailable. These wrappers keep the call sites type-safe and fail with a
+ * message a user can act on, instead of throwing `undefined is not a function`
+ * deep inside the checkout flow. Reinstate the real implementation by adding
+ * `react-native-iap` and delegating to it here — no call site has to change.
+ */
 
-// /*import { getSubscriptions } from 'react-native-iap';
+export class IapUnavailableError extends Error {
+  constructor() {
+    super('In-app purchases are not available in this build. Please use another payment method.');
+    this.name = 'IapUnavailableError';
+  }
+}
 
-// const products = [
-//   'btcy.electric',
-//   'btcy.turbo',
-//   'btcy.nuclear',
-// ]; */
+export const isIapAvailable = (): boolean => false;
 
-// export const initIAPConnection = async () => {
-//   try {
-//     const result = await RNIap.initConnection();
-//     console.log('IAP Connection', result);
-//     await RNIap.flushFailedPurchasesCachedAsPendingAndroid();
-//     return result;
-//   } catch (err) {
-//     console.error('IAP init error', err);
-//     return null;
-//   }
-// };
+export const initIAPConnection = async (): Promise<null> => null;
 
-// /*
-// export async function fetchSubscriptions() {
-//   try {
-//     const subs = await getSubscriptions({ skus: products });
-//     return subs;
-//   } catch (err) {
-//     console.error('Failed to fetch subscriptions:', err);
-//     return [];
-//   }
-// }*/
+export const getSubscriptions = async (_options: {skus: string[]}): Promise<never[]> => {
+  throw new IapUnavailableError();
+};
 
-// export const requestSubscription = async (sku: string, offerToken?: string, basePlanId?: string, pricingPhases?: any) => {
-//   try {
-//     console.log('Attempting purchase with:', { sku, offerToken });
-
-//     if (Platform.OS === 'android') {
-//       // Android requires more detailed parameters
-//       const purchase = await RNIap.requestSubscription({
-//         sku,
-//         ...(offerToken ? {
-//           subscriptionOffers: [{
-//             sku,
-//             offerToken,
-//             basePlanId: basePlanId, 
-//             pricingPhases: pricingPhases || [
-//               {
-//                 price: '10000.00', // Match your product price
-//                 priceCurrencyCode: 'INR',
-//                 billingPeriod: 'P1M',
-//                 recurrenceMode: 1 // RECURRING
-//               }
-//             ]
-//           }]
-//         } : {})
-//       });
-//       return purchase;
-//     } else {
-//       // iOS implementation remains simpler
-//       const purchase = await RNIap.requestSubscription({ sku });
-//       return purchase;
-//     }
-//   } catch (err:any) {
-//     console.error('Full purchase error:', {
-//       message: err.message,
-//       code: err.code,
-//       debugMessage: err.debugMessage,
-//       responseCode: err.responseCode
-//     });
-//     throw err;
-//   }
-// };
-
-// export const endIAPConnection = async () => {
-//   try {
-//     await RNIap.endConnection();
-//   } catch (err) {
-//     console.error('endConnection error', err);
-//   }
-// };
+export const requestSubscription = async (
+  _sku: string,
+  _offerToken?: string,
+  _basePlanId?: string,
+  _pricingPhases?: unknown,
+): Promise<never> => {
+  throw new IapUnavailableError();
+};

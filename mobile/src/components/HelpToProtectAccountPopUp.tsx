@@ -1,18 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import {Modal, View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { colors } from '../theme/colors';
 import MultiInputField from './MultiInputField';
-import { useAuth } from '../context/AuthContext';
 import { decodeJWT } from '../utils/jwt';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { reportCompromisedAccount } from '../services/auth.service';
@@ -25,7 +15,7 @@ interface HelpToProtectAccountPopUpProps {
 
 const HelpToProtectAccountPopUp: React.FC<HelpToProtectAccountPopUpProps> = ({ visible, onClose }) => {
   const [lastName, setLastName] = useState('');
-  const [additionalDetails, setAdditionalDetails] = useState('');
+  const [additionalDetails, _setAdditionalDetails] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleReport = async () => {

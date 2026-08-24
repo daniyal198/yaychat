@@ -19,7 +19,10 @@ import {
   OnboardingStackParamList,
   ProfileStackParamList,
   RootStackParamList,
+  linkingConfig,
 } from '../types/navigation';
+import {flushPendingDeepLink, navigationRef} from './navigationRef';
+import {analytics} from '../services';
 import {ExploreHomeScreen, ProductDetailScreen, SocialConnectScreen} from '../screens/explore/ExploreScreens';
 import {Wordmark} from '../design/components';
 import {
@@ -56,8 +59,15 @@ import {
   CommunitySearchScreen,
   CreateCommunityScreen,
   EditCommunityScreen,
+  JoinByInviteScreen,
 } from '../screens/communities/CommunityScreens';
-import {AiChatScreen, AiHistoryScreen, AiHomeScreen} from '../screens/ai/AiScreens';
+import {
+  AiChatScreen,
+  AiHistoryScreen,
+  AiHomeScreen,
+  AiSupportScreen,
+  AiSupportThreadScreen,
+} from '../screens/ai/AiScreens';
 import {
   CampaignDetailScreen,
   EarnHomeScreen,
@@ -75,6 +85,11 @@ import {
   WalletTransactionsScreen,
 } from '../screens/wallet/WalletScreens';
 import {EcosystemScreen, ProductPreviewScreen} from '../screens/ecosystem/EcosystemScreens';
+import {
+  ActiveCallScreen,
+  CallHistoryScreen,
+  IncomingCallScreen,
+} from '../screens/calls/CallScreens';
 import {BtcyHubScreen} from '../screens/btcy/BtcyScreens';
 import {EmmmHubScreen} from '../screens/emmm/EmmmScreens';
 import {ShoperpalHubScreen} from '../screens/shoperpal/ShoperpalScreens';
@@ -117,6 +132,8 @@ const navTheme = {
 
 const stackOptions = {
   headerShadowVisible: false,
+  // Header titles keep their designed size regardless of OS "Larger Text".
+  headerTitleAllowFontScaling: false,
   headerStyle: {backgroundColor: colors.background},
   headerTintColor: colors.textPrimary,
   headerTitleStyle: {
@@ -194,6 +211,7 @@ const CommunitiesNavigator = () => (
     <CommunitiesStack.Screen name="CommunityMembers" component={CommunityMembersScreen} options={{title: 'Members'}} />
     <CommunitiesStack.Screen name="CreateCommunity" component={CreateCommunityScreen} options={{title: 'Create community', presentation: 'modal'}} />
     <CommunitiesStack.Screen name="EditCommunity" component={EditCommunityScreen} options={{title: 'Edit community'}} />
+    <CommunitiesStack.Screen name="JoinByInvite" component={JoinByInviteScreen} options={{title: 'Join with an invite', presentation: 'modal'}} />
     {sharedUtilityScreens(CommunitiesStack)}
   </CommunitiesStack.Navigator>
 );
@@ -204,6 +222,12 @@ const AiNavigator = () => (
     <AiStack.Screen name="AiHome" component={AiHomeScreen} options={{title: 'aiainai'}} />
     <AiStack.Screen name="AiChat" component={AiChatScreen} options={{title: 'aiainai'}} />
     <AiStack.Screen name="AiHistory" component={AiHistoryScreen} options={{title: 'History'}} />
+    <AiStack.Screen name="AiSupport" component={AiSupportScreen} options={{title: 'Support desk'}} />
+    <AiStack.Screen
+      name="AiSupportThread"
+      component={AiSupportThreadScreen}
+      options={{title: 'Support'}}
+    />
     {sharedUtilityScreens(AiStack)}
   </AiStack.Navigator>
 );
@@ -271,6 +295,19 @@ const sharedUtilityScreens = (Stack: any) => (
     <Stack.Screen name="InviteFriends" component={ReferralScreen} options={{title: 'Invite friends'}} />
     <Stack.Screen name="Ecosystem" component={EcosystemScreen} options={{title: 'Indexx ecosystem'}} />
     <Stack.Screen name="ProductPreview" component={ProductPreviewScreen} options={{title: ''}} />
+    <Stack.Screen name="CallHistory" component={CallHistoryScreen} options={{title: 'Calls'}} />
+    {/* Full-screen and un-dismissable by a header back button: a ringing or
+        live call owns the screen until it is answered, declined, or ended. */}
+    <Stack.Screen
+      name="IncomingCall"
+      component={IncomingCallScreen}
+      options={{headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false}}
+    />
+    <Stack.Screen
+      name="ActiveCall"
+      component={ActiveCallScreen}
+      options={{headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false}}
+    />
     <Stack.Screen name="ComingSoon" component={ComingSoonScreen} options={{title: ''}} />
   </>
 );
@@ -303,6 +340,7 @@ const MainTabs = () => {
       tabBarHideOnKeyboard: true,
       tabBarActiveTintColor: colors.brand,
       tabBarInactiveTintColor: colors.tabInactive,
+      tabBarAllowFontScaling: false,
       tabBarLabelStyle: {fontFamily: typography.titleFamily, fontSize: 11, fontWeight: '700'},
       tabBarStyle: {
         backgroundColor: colors.surface,
@@ -367,7 +405,20 @@ export const YayChatNavigation = () => {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navTheme}
+      linking={linkingConfig}
+      // A notification tapped from cold start resolves before the navigator
+      // mounts; replaying it here is what makes that tap land on the right
+      // screen instead of the default tab.
+      onReady={flushPendingDeepLink}
+      onStateChange={() => {
+        const route = navigationRef.getCurrentRoute?.();
+        if (route?.name) {
+          analytics.screen(route.name);
+        }
+      }}>
       <RootStack.Navigator screenOptions={stackOptions}>
         {!session ? (
           <RootStack.Screen name="Auth" component={AuthNavigator} options={{headerShown: false}} />

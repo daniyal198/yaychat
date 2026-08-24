@@ -1,11 +1,13 @@
 /** Centralized route definitions. See docs/yaychat-navigation-map.md. */
-import type {NavigatorScreenParams} from '@react-navigation/native';
+import type {LinkingOptions, NavigatorScreenParams} from '@react-navigation/native';
 
 export type AuthStackParamList = {
   Welcome: undefined;
   SignIn: undefined;
   SignUp: undefined;
-  VerifyEmail: {email: string};
+  /** `phone` is carried through only when the signup supplied one, so the
+   *  email step knows whether a phone step follows. */
+  VerifyEmail: {email: string; phone?: string};
   VerifyPhone: {phone: string};
   ForgotPassword: undefined;
   ResetPassword: {email: string};
@@ -46,19 +48,25 @@ export type CommunitiesStackParamList = {
   CommunityMembers: {communityId: string};
   CreateCommunity: undefined;
   EditCommunity: {communityId: string};
+  /** Redeem an invite link; `code` is prefilled when the app was deep-linked. */
+  JoinByInvite: {code?: string} | undefined;
 };
 
 export type AiStackParamList = {
   AiHome: undefined;
   AiChat: {conversationId?: string; toolId?: string; initialPrompt?: string};
   AiHistory: undefined;
+  /** Support desk: AI first line with escalation to a human queue. */
+  AiSupport: undefined;
+  AiSupportThread: {ticketId: string};
 };
 
 export type EarnStackParamList = {
   EarnHome: undefined;
   RewardHistory: undefined;
   RewardDetail: {rewardId: string};
-  Referral: undefined;
+  /** `code` is pre-filled from an invite deep link (`invite/:code`). */
+  Referral: {code?: string} | undefined;
   CampaignDetail: {campaignId: string};
 };
 
@@ -118,19 +126,72 @@ export type RootStackParamList = {
   RehumanHub: undefined;
   /** Referral screen pushed at root level so flows like the BTCY dashboard keep their back stack. */
   InviteFriends: undefined;
+  /**
+   * Call screens sit at the root so a call can be answered from anywhere in the
+   * app without unwinding the user's place in a tab stack.
+   */
+  IncomingCall: {callId?: string} | undefined;
+  ActiveCall: undefined;
+  CallHistory: undefined;
   ComingSoon: {title: string; message?: string};
 };
 
-/** Deep-link config (documented; wired in Milestone 2). */
-export const linkingConfig = {
+/**
+ * Deep-link config (Module 6).
+ *
+ * Mirrors the server's notification route registry
+ * (`backend/services/notifications/deepLinks.ts`) so a link opens the same
+ * screen whether it arrives as a push payload, a Universal Link, or a pasted
+ * URL. Notification taps route imperatively through `navigation/navigationRef`
+ * — this config covers links that enter through the OS.
+ */
+export const linkingConfig: LinkingOptions<RootStackParamList> = {
   prefixes: ['yaychat://', 'https://yay.chat'],
-  screens: {
-    Main: {
-      screens: {
-        ChatsTab: {screens: {Conversation: 'chat/:conversationId'}},
-        CommunitiesTab: {screens: {CommunityDetail: 'c/:communityId'}},
-        EarnTab: {screens: {Referral: 'invite/:code?'}},
+  // Two things this shape gets right, both of which fail silently otherwise:
+  //
+  //  - React Navigation reads the route table from `config.screens`. A
+  //    top-level `screens` key is ignored without error — the app opens, but on
+  //    whatever tab it would have shown anyway, indistinguishable from a link
+  //    that never arrived.
+  //  - `initialRouteName` per nested stack is valid at runtime and is the
+  //    documented way to give a deep link a back stack, but the PathConfig
+  //    types lose the nested param list two levels down and narrow the field to
+  //    `undefined`. Hence the one cast below — dropping the option instead
+  //    would ship conversations with no way back to the list.
+  config: {
+    screens: {
+      Main: {
+        screens: {
+          // `initialRouteName` is what puts the list *underneath* the screen a
+          // link opens. Without it React Navigation builds the stack with only
+          // the target in it, so a link into a conversation arrives with no
+          // back button and no way back to the chat list.
+          ChatsTab: {
+            initialRouteName: 'ChatList',
+            screens: {ChatList: 'chat', Conversation: 'chat/:conversationId'},
+          },
+          CommunitiesTab: {
+            initialRouteName: 'CommunitiesHome',
+            screens: {
+              CommunitiesHome: 'c',
+              CommunityDetail: 'c/:communityId',
+              CommunityChat: 'c/:communityId/chat',
+            },
+          },
+          AiTab: {
+            initialRouteName: 'AiHome',
+            screens: {AiSupportThread: 'support/:ticketId'},
+          },
+          EarnTab: {
+            initialRouteName: 'EarnHome',
+            screens: {EarnHome: 'earn', Referral: 'invite/:code?'},
+          },
+          ProfileTab: {
+            initialRouteName: 'ProfileHome',
+            screens: {Notifications: 'notifications'},
+          },
+        },
       },
     },
-  },
+  } as LinkingOptions<RootStackParamList>['config'],
 };

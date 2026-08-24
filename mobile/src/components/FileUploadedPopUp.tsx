@@ -4,7 +4,9 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import {colors} from '../theme/colors';
 import Success from '../../assets/splash/success.svg';
 
-const FileUploadedPopUp = ({visible, onClose}) => {
+type FileUploadedPopUpProps = {visible: boolean; onClose: () => void};
+
+const FileUploadedPopUp = ({visible, onClose}: FileUploadedPopUpProps) => {
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View style={styles.modalContainer}>

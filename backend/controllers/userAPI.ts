@@ -400,7 +400,6 @@ export class UserController {
         res.send({ status: 400, data: "Bad Request" });
         return;
       }
-      console.log(req.body);
       const userOps = new UserOperations(req, res);
       let dataResults = await userOps.registerUser(
         req,
@@ -435,7 +434,6 @@ export class UserController {
         res.send({ status: 400, data: "Bad Request" });
         return;
       }
-      console.log(req.body);
       const userOps = new UserOperations(req, res);
       let dataResults = await userOps.registerUserFromApp(
         req,
@@ -475,7 +473,6 @@ export class UserController {
         res.send({ status: 400, data: "Bad Request" });
         return;
       }
-      console.log(req.body);
       const userOps = new UserOperations(req, res);
       let dataResults = await userOps.registerUserFromApp(
         req,
@@ -512,7 +509,6 @@ export class UserController {
         res.send({ status: 400, data: "Bad Request" });
         return;
       }
-      console.log(req.body);
       const userOps = new UserOperations(req, res);
       let dataResults = await userOps.registerUser0(
         req,
@@ -6766,13 +6762,13 @@ export class UserController {
 
   async registerUserWithPhone(req: any, res: any) {
     try {
-      const { phone, password, username, referralCode, email } = req.body;
+      const { phone, password } = req.body;
 
-      if (!phone || !password || !email) {
+      if (!phone || !password) {
         res.statusCode = 400;
         res.send({
           status: 400,
-          message: "Phone number, email, and password are required"
+          message: "Phone number and password are required"
         });
         return;
       }

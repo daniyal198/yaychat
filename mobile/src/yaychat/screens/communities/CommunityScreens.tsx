@@ -1,11 +1,18 @@
 /**
- * Communities feature screens.
- * Home / search / detail / chat / members / create / edit — all data comes
- * from communityService (mock layer) with userService.contacts() providing a
- * fake member sample.
+ * Communities feature screens (Module 3).
+ *
+ * Home / search / detail / chat / members / create / edit / join-by-invite.
+ * All data comes from `communityService`, which serves the M3 backend when it
+ * is live and an equivalent local engine when it is not — screens never branch
+ * on which. Permission-shaped UI (publish, moderate, manage roles) is driven by
+ * the flags the payload carries, not by re-deriving the rules here.
+ *
+ * Community chat is an ordinary M2 group conversation, so it uses `chatService`
+ * with the community's `chatGroupId`; the seeded preview only appears when the
+ * community has no backing group (a locally-served session).
  */
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, View} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Pressable, ScrollView, Share, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
@@ -31,11 +38,19 @@ import {
   YayText,
 } from '../../design/components';
 import {colors, radius, spacing} from '../../design/tokens';
-import {communityService, userService} from '../../services';
+import {chatService, communityService, errorMessage, featureFlags} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
-import {useToast} from '../../state/AppProviders';
-import type {Community, User} from '../../types/models';
+import {useAuth, useToast} from '../../state/AppProviders';
+import type {
+  Community,
+  CommunityAnnouncement,
+  CommunityInvite,
+  CommunityMember,
+  ImpersonationFlag,
+  Message,
+} from '../../types/models';
 import type {CommunitiesStackParamList} from '../../types/navigation';
+import {useAiAssist} from '../shared/AiAssist';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,6 +105,34 @@ const roleBadge = (role?: Community['role']): React.ReactNode => {
   return null;
 };
 
+const announcementStatusBadge = (
+  status?: CommunityAnnouncement['status'],
+): React.ReactNode => {
+  if (status === 'scheduled') {
+    return <Badge label="Scheduled" tone="warning" />;
+  }
+  if (status === 'pending_approval') {
+    return <Badge label="Awaiting approval" tone="info" />;
+  }
+  if (status === 'rejected') {
+    return <Badge label="Rejected" tone="danger" />;
+  }
+  return <Badge label="Published" tone="success" />;
+};
+
+/** One line explaining why a name was flagged as a possible impersonation. */
+const impersonationLine = (flag: ImpersonationFlag): string => {
+  const how =
+    flag.reason === 'exact'
+      ? 'is identical to'
+      : flag.reason === 'confusable'
+      ? 'uses lookalike characters from'
+      : flag.reason === 'official_term'
+      ? 'claims to be an official channel of'
+      : 'closely resembles';
+  return `This name ${how} the verified community “${flag.matchedName}”. A moderator will review it.`;
+};
+
 // ---------------------------------------------------------------------------
 // CommunitiesHomeScreen
 // ---------------------------------------------------------------------------
@@ -99,10 +142,15 @@ type HomeProps = NativeStackScreenProps<CommunitiesStackParamList, 'CommunitiesH
 export const CommunitiesHomeScreen = ({navigation}: HomeProps) => {
   const toast = useToast();
   const {busy, perform} = useAction();
-  const categories = useMemo(() => communityService.categories(), []);
+  const [categories, setCategories] = useState<string[]>(() =>
+    communityService.categories(),
+  );
   const [category, setCategory] = useState('All');
   const load = useAsync(
     async () => {
+      // Resolving the backend first keeps the category chips in step with
+      // whichever side is actually serving this session.
+      setCategories(await communityService.loadCatalog());
       const [mine, discover] = await Promise.all([
         communityService.myCommunities(),
         communityService.discover(category === 'All' ? undefined : category),
@@ -119,7 +167,7 @@ export const CommunitiesHomeScreen = ({navigation}: HomeProps) => {
     );
     if (updated) {
       if (updated.joined) {
-        toast.show(`Joined ${updated.name} — +15 YayPoints preview`, 'success');
+        toast.show(`Joined ${updated.name}`, 'success');
       } else if (updated.joinRequested) {
         toast.show('Join request sent', 'info');
       }
@@ -131,12 +179,21 @@ export const CommunitiesHomeScreen = ({navigation}: HomeProps) => {
     <Screen refreshing={load.refreshing} onRefresh={load.refresh}>
       <Row style={{justifyContent: 'space-between'}}>
         <YayText variant="title">Communities</YayText>
-        <Button
-          label="+ Create"
-          kind="ghost"
-          style={styles.smallButton}
-          onPress={() => navigation.navigate('CreateCommunity')}
-        />
+        <Row gap={spacing.xxs}>
+          <Button
+            label="Invite"
+            kind="ghost"
+            icon="link-outline"
+            style={styles.smallButton}
+            onPress={() => navigation.navigate('JoinByInvite')}
+          />
+          <Button
+            label="+ Create"
+            kind="ghost"
+            style={styles.smallButton}
+            onPress={() => navigation.navigate('CreateCommunity')}
+          />
+        </Row>
       </Row>
       <Spacer size={spacing.sm} />
       <Pressable onPress={() => navigation.navigate('CommunitySearch')}>
@@ -218,7 +275,9 @@ export const CommunitiesHomeScreen = ({navigation}: HomeProps) => {
                   right={
                     <Row gap={spacing.xs}>
                       {privacyBadge(c)}
-                      {c.joined ? (
+                      {c.banned ? (
+                        <Badge label="Banned" tone="danger" />
+                      ) : c.joined ? (
                         <Badge label="Joined" tone="success" />
                       ) : c.joinRequested ? (
                         <Badge label="Requested" tone="neutral" />
@@ -316,47 +375,59 @@ export const CommunitySearchScreen = ({navigation}: SearchProps) => {
 
 type DetailProps = NativeStackScreenProps<CommunitiesStackParamList, 'CommunityDetail'>;
 
-interface ReportedItem {
-  id: string;
-  author: string;
-  excerpt: string;
-  reason: string;
-  resolved?: 'approved' | 'removed';
-}
-
-const INITIAL_QUEUE: ReportedItem[] = [
-  {id: 'rep1', author: 'Casey Nguyen', excerpt: 'Check out this deal, DM me for the link…', reason: 'Possible spam'},
-  {id: 'rep2', author: 'Sam Ortiz', excerpt: 'That take was honestly terrible and so are you.', reason: 'Harassment'},
-];
-
-const REPORT_REASONS = ['Spam', 'Harassment', 'Misinformation', 'Inappropriate content', 'Other'];
-
 export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
   const {communityId} = route.params;
   const toast = useToast();
+  const {session} = useAuth();
   const {busy, perform} = useAction();
   const load = useAsync(() => communityService.get(communityId), [communityId]);
+  const reportReasons = useMemo(() => communityService.reportReasons(), []);
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invites, setInvites] = useState<CommunityInvite[]>([]);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [goingEventIds, setGoingEventIds] = useState<string[]>([]);
-  const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
+  const [reportTarget, setReportTarget] = useState<{
+    targetType: 'community' | 'post';
+    targetId?: string;
+    label: string;
+  }>({targetType: 'community', label: 'this community'});
+  const [announcementOpen, setAnnouncementOpen] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementBody, setAnnouncementBody] = useState('');
+  const [announcementActionLabel, setAnnouncementActionLabel] = useState('');
+  const [announcementActionUrl, setAnnouncementActionUrl] = useState('');
+  const [announcementAudience, setAnnouncementAudience] = useState<'all' | 'members' | 'region'>('members');
+  const [announcementRegion, setAnnouncementRegion] = useState('United States');
+  const [announcementScheduledFor, setAnnouncementScheduledFor] = useState('');
+  const [pollOpen, setPollOpen] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [eventOpen, setEventOpen] = useState(false);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventStartsAt, setEventStartsAt] = useState('');
+  const [eventLocation, setEventLocation] = useState('');
   const [composer, setComposer] = useState('');
-  const [queue, setQueue] = useState<ReportedItem[]>(INITIAL_QUEUE);
 
-  const join = async (c: Community) => {
-    const updated = await perform(
-      () => communityService.join(c.id),
-      message => toast.show(message, 'error'),
-    );
+  /** Push a mutation's returned community straight into the loaded view. */
+  const apply = (updated: Community | null | undefined) => {
     if (updated) {
       load.setData({...updated});
-      if (updated.joined) {
-        toast.show('Joined! +15 YayPoints preview', 'success');
-      } else if (updated.joinRequested) {
-        toast.show('Join request sent to admins', 'info');
-      }
+    }
+    return updated;
+  };
+
+  const join = async (c: Community) => {
+    const updated = apply(
+      await perform(
+        () => communityService.join(c.id),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated?.joined) {
+      toast.show('Joined!', 'success');
+    } else if (updated?.joinRequested) {
+      toast.show('Join request sent to admins', 'info');
     }
   };
 
@@ -375,45 +446,264 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
   };
 
   const vote = async (pollId: string, optionIndex: number) => {
-    const updated = await perform(
-      () => communityService.vote(communityId, pollId, optionIndex),
-      message => toast.show(message, 'error'),
+    const updated = apply(
+      await perform(
+        () => communityService.vote(communityId, pollId, optionIndex),
+        message => toast.show(message, 'error'),
+      ),
     );
     if (updated) {
-      load.setData({...updated});
       toast.show('Vote recorded', 'success');
     }
   };
 
   const post = async () => {
-    const updated = await perform(
-      () => communityService.postToFeed(communityId, composer),
-      message => toast.show(message, 'error'),
+    const updated = apply(
+      await perform(
+        () => communityService.postToFeed(communityId, composer),
+        message => toast.show(message, 'error'),
+      ),
     );
     if (updated) {
-      load.setData({...updated});
       setComposer('');
       toast.show('Posted to the community feed', 'success');
     }
   };
 
+  const toggleLike = async (postId: string) => {
+    const result = await perform(
+      () => communityService.likePost(communityId, postId),
+      message => toast.show(message, 'error'),
+    );
+    if (result && load.data) {
+      load.setData({
+        ...load.data,
+        feed: load.data.feed.map(item =>
+          item.id === postId ? {...item, liked: result.liked, likes: result.likes} : item,
+        ),
+      });
+    }
+  };
+
+  const removePost = async (postId: string) => {
+    const updated = apply(
+      await perform(
+        () => communityService.removePost(communityId, postId),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show('Post removed', 'info');
+    }
+  };
+
+  const rsvp = async (eventId: string, attending: boolean) => {
+    const updated = apply(
+      await perform(
+        () => communityService.rsvp(communityId, eventId, attending),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show(attending ? "You're going" : 'RSVP removed', 'success');
+    }
+  };
+
   const sendReport = async (reason: string) => {
     setReportOpen(false);
+    const updated = apply(
+      await perform(
+        () =>
+          communityService.report(communityId, reason, {
+            targetType: reportTarget.targetType,
+            targetId: reportTarget.targetId,
+          }),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show('Report submitted. Thanks for keeping YaysApp safe.', 'success');
+    }
+  };
+
+  const resolveQueueItem = async (
+    id: string,
+    resolution: 'approved' | 'removed' | 'dismissed',
+  ) => {
+    const updated = apply(
+      await perform(
+        () => communityService.resolveReport(communityId, id, resolution),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show(
+        resolution === 'approved'
+          ? 'Content approved'
+          : resolution === 'removed'
+          ? 'Content removed'
+          : 'Report dismissed',
+        'success',
+      );
+    }
+  };
+
+  const approveJoinRequest = async (requestId: string, approve: boolean) => {
+    const updated = apply(
+      await perform(
+        () => communityService.approveJoinRequest(communityId, requestId, approve),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show(approve ? 'Join request approved' : 'Join request rejected', 'success');
+    }
+  };
+
+  const publishAnnouncement = async () => {
+    const updated = apply(
+      await perform(
+        () =>
+          communityService.publishAnnouncement(communityId, {
+            title: announcementTitle,
+            body: announcementBody,
+            audience: announcementAudience,
+            region: announcementAudience === 'region' ? announcementRegion : undefined,
+            scheduledFor: announcementScheduledFor,
+            actionLabel: announcementActionLabel,
+            actionUrl: announcementActionUrl,
+          }),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      setAnnouncementOpen(false);
+      setAnnouncementTitle('');
+      setAnnouncementBody('');
+      setAnnouncementActionLabel('');
+      setAnnouncementActionUrl('');
+      setAnnouncementScheduledFor('');
+      const latest = updated.announcements[0];
+      toast.show(
+        latest?.status === 'pending_approval'
+          ? 'Sent to an admin for approval'
+          : latest?.status === 'scheduled'
+          ? 'Announcement scheduled'
+          : 'Announcement published',
+        'success',
+      );
+    }
+  };
+
+  const decideAnnouncement = async (announcementId: string, approve: boolean) => {
+    const updated = apply(
+      await perform(
+        () =>
+          communityService.approveAnnouncement(
+            communityId,
+            announcementId,
+            approve,
+            approve ? undefined : 'Rejected by an admin',
+          ),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      toast.show(approve ? 'Announcement approved' : 'Announcement rejected', 'success');
+    }
+  };
+
+  const markAnnouncementRead = async (announcementId: string, actioned = false) => {
+    apply(
+      await perform(
+        () => communityService.readAnnouncement(communityId, announcementId, actioned),
+        message => toast.show(message, 'error'),
+      ),
+    );
+  };
+
+  const createPoll = async () => {
+    const updated = apply(
+      await perform(
+        () =>
+          communityService.createPoll(communityId, {
+            question: pollQuestion,
+            options: pollOptions,
+          }),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      setPollOpen(false);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      toast.show('Poll created', 'success');
+    }
+  };
+
+  const createEvent = async () => {
+    const updated = apply(
+      await perform(
+        () =>
+          communityService.createEvent(communityId, {
+            title: eventTitle,
+            startsAt: eventStartsAt,
+            location: eventLocation,
+          }),
+        message => toast.show(message, 'error'),
+      ),
+    );
+    if (updated) {
+      setEventOpen(false);
+      setEventTitle('');
+      setEventStartsAt('');
+      setEventLocation('');
+      toast.show('Event created', 'success');
+    }
+  };
+
+  const openInvites = async (community: Community) => {
+    setInviteOpen(true);
+    const list = await perform(
+      () => communityService.listInvites(community.id),
+      () => undefined,
+    );
+    setInvites(list ?? []);
+  };
+
+  const mintInvite = async () => {
+    const invite = await perform(
+      () => communityService.createInvite(communityId, {}),
+      message => toast.show(message, 'error'),
+    );
+    if (invite) {
+      setInvites(prev => [invite, ...prev]);
+      toast.show('Invite link created', 'success');
+    }
+  };
+
+  const shareInvite = async (invite: CommunityInvite, communityName: string) => {
+    try {
+      await Share.share({message: `Join ${communityName} on YaysApp: ${invite.url}`});
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    }
+  };
+
+  const revokeInvite = async (code: string) => {
     const done = await perform(
       async () => {
-        await communityService.report(communityId, reason);
+        await communityService.revokeInvite(communityId, code);
         return true;
       },
       message => toast.show(message, 'error'),
     );
     if (done) {
-      toast.show('Report submitted. Thanks for keeping YaysApp safe.', 'success');
+      setInvites(prev =>
+        prev.map(invite => (invite.code === code ? {...invite, revoked: true} : invite)),
+      );
+      toast.show('Invite revoked', 'info');
     }
-  };
-
-  const resolveQueueItem = (id: string, resolution: 'approved' | 'removed') => {
-    setQueue(prev => prev.map(item => (item.id === id ? {...item, resolved: resolution} : item)));
-    toast.show(resolution === 'approved' ? 'Post approved' : 'Post removed', 'success');
   };
 
   return (
@@ -425,7 +715,14 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
         onRetry={load.reload}
         data={load.data}>
         {c => {
-          const isStaff = c.role === 'admin' || c.role === 'moderator';
+          const isStaff = c.canModerate ?? (c.role === 'admin' || c.role === 'moderator');
+          const canPublish =
+            c.canPublishAnnouncement ??
+            (c.role === 'admin' ||
+              (c.approvedPublisherIds ?? []).includes(session?.user.id ?? ''));
+          const canApprove = c.role === 'admin';
+          const flags = c.impersonationFlags ?? [];
+
           return (
             <>
               <Card style={{alignItems: 'center'}}>
@@ -443,6 +740,12 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 <YayText variant="caption" color={colors.textMuted}>
                   {c.category} · {memberLabel(c.memberCount)}
                 </YayText>
+                {c.verified ? (
+                  <Badge
+                    label={c.officialProduct ? `${c.officialProduct} official` : 'Verified official'}
+                    tone="success"
+                  />
+                ) : null}
                 <Spacer size={spacing.xs} />
                 {privacyBadge(c)}
                 {c.description ? (
@@ -454,8 +757,14 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                   </YayText>
                 ) : null}
                 <Spacer size={spacing.md} />
-                {c.joined ? (
-                  <Row gap={spacing.md} style={{justifyContent: 'center'}}>
+                {c.banned ? (
+                  <Banner
+                    tone="danger"
+                    icon="ban"
+                    text="You are banned from this community. Contact an admin if you think this is a mistake."
+                  />
+                ) : c.joined ? (
+                  <Row gap={spacing.md} style={{justifyContent: 'center', flexWrap: 'wrap'}}>
                     <QuickAction
                       icon="chatbubbles-outline"
                       label="Chat"
@@ -469,8 +778,15 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                     <QuickAction
                       icon="person-add-outline"
                       label="Invite"
-                      onPress={() => setInviteOpen(true)}
+                      onPress={() => openInvites(c)}
                     />
+                    {canPublish ? (
+                      <QuickAction
+                        icon="megaphone-outline"
+                        label="Post"
+                        onPress={() => setAnnouncementOpen(true)}
+                      />
+                    ) : null}
                     <QuickAction
                       icon="exit-outline"
                       label="Leave"
@@ -485,7 +801,12 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                       icon="lock-closed"
                       text="This community is invite-only. Ask a member to send you an invite link."
                     />
-                    <Button label="Invite-only" disabled style={{alignSelf: 'stretch'}} />
+                    <Button
+                      label="I have an invite link"
+                      kind="secondary"
+                      onPress={() => navigation.navigate('JoinByInvite')}
+                      style={{alignSelf: 'stretch'}}
+                    />
                   </>
                 ) : c.joinRequested ? (
                   <Badge label="Request pending" tone="warning" />
@@ -499,6 +820,24 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 )}
               </Card>
 
+              {c.restricted ? (
+                <>
+                  <Spacer size={spacing.sm} />
+                  <Banner
+                    tone="info"
+                    icon="lock-closed-outline"
+                    text="This is a private community. Posts, members, and announcements appear once your request is approved."
+                  />
+                </>
+              ) : null}
+
+              {isStaff && flags.length > 0 ? (
+                <>
+                  <Spacer size={spacing.sm} />
+                  <Banner tone="warning" icon="warning-outline" text={impersonationLine(flags[0])} />
+                </>
+              ) : null}
+
               {isStaff ? (
                 <>
                   <SectionHeader title="Manage" />
@@ -506,31 +845,104 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                     <ListRow
                       icon="create-outline"
                       title="Edit community"
-                      subtitle="Name, description, and rules"
+                      subtitle="Name, description, privacy, and rules"
                       onPress={() => navigation.navigate('EditCommunity', {communityId: c.id})}
+                    />
+                    {/* Moderators manage the community but do not speak for it,
+                        so the row is hidden rather than shown and refused. */}
+                    {canPublish ? (
+                      <ListRow
+                        icon="megaphone-outline"
+                        title="Publish announcement"
+                        subtitle="Schedule, target, and track official updates"
+                        onPress={() => setAnnouncementOpen(true)}
+                      />
+                    ) : null}
+                    <ListRow
+                      icon="stats-chart-outline"
+                      title="New poll"
+                      subtitle="Ask members a question"
+                      onPress={() => setPollOpen(true)}
+                    />
+                    <ListRow
+                      icon="calendar-outline"
+                      title="New event"
+                      subtitle="Schedule a meetup or call"
+                      onPress={() => setEventOpen(true)}
                     />
                   </Card>
                   <Spacer size={spacing.sm} />
+                  {(c.joinRequests ?? []).filter(item => item.status === 'pending').length > 0 ? (
+                    <Card style={{marginBottom: spacing.sm}}>
+                      <YayText variant="heading">Join requests</YayText>
+                      <YayText variant="caption" color={colors.textMuted}>
+                        Private community access is reviewed by admins and moderators.
+                      </YayText>
+                      {(c.joinRequests ?? [])
+                        .filter(item => item.status === 'pending')
+                        .map(item => (
+                          <View key={item.id}>
+                            <Divider />
+                            <Row style={{justifyContent: 'space-between'}}>
+                              <View style={{flex: 1}}>
+                                <YayText variant="bodyStrong">{item.userName}</YayText>
+                                <YayText variant="micro" color={colors.textMuted}>
+                                  {item.userEmail} · {timeAgo(item.requestedAt)}
+                                </YayText>
+                              </View>
+                              <Row gap={spacing.xs}>
+                                <Button
+                                  label="Approve"
+                                  kind="secondary"
+                                  style={styles.smallButton}
+                                  onPress={() => approveJoinRequest(item.id, true)}
+                                />
+                                <Button
+                                  label="Reject"
+                                  kind="ghost"
+                                  style={styles.smallButton}
+                                  onPress={() => approveJoinRequest(item.id, false)}
+                                />
+                              </Row>
+                            </Row>
+                          </View>
+                        ))}
+                    </Card>
+                  ) : null}
                   <Card>
                     <YayText variant="heading">Moderation queue</YayText>
                     <YayText variant="caption" color={colors.textMuted}>
                       Reported content awaiting review
                     </YayText>
-                    {queue.map(item => (
+                    {(c.moderationReports ?? []).length === 0 ? (
+                      <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.sm}}>
+                        No active reports.
+                      </YayText>
+                    ) : null}
+                    {(c.moderationReports ?? []).map(item => (
                       <View key={item.id}>
                         <Divider />
                         <Row style={{justifyContent: 'space-between'}}>
-                          <YayText variant="bodyStrong">{item.author}</YayText>
+                          <YayText variant="bodyStrong">{item.reporterName}</YayText>
                           <Badge label={item.reason} tone="danger" />
                         </Row>
+                        <YayText variant="micro" color={colors.textFaint}>
+                          {item.targetType} · {timeAgo(item.createdAt)}
+                        </YayText>
                         <YayText variant="caption" color={colors.textSecondary}>
-                          “{item.excerpt}”
+                          "{item.excerpt}"
                         </YayText>
                         <Spacer size={spacing.xs} />
-                        {item.resolved ? (
+                        {item.status !== 'open' ? (
                           <Badge
-                            label={item.resolved === 'approved' ? 'Approved' : 'Removed'}
-                            tone={item.resolved === 'approved' ? 'success' : 'neutral'}
+                            label={
+                              item.status === 'approved'
+                                ? 'Approved'
+                                : item.status === 'removed'
+                                ? 'Removed'
+                                : 'Dismissed'
+                            }
+                            tone={item.status === 'approved' ? 'success' : 'neutral'}
                           />
                         ) : (
                           <Row gap={spacing.xs}>
@@ -546,6 +958,12 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                               style={styles.smallButton}
                               onPress={() => resolveQueueItem(item.id, 'removed')}
                             />
+                            <Button
+                              label="Dismiss"
+                              kind="ghost"
+                              style={styles.smallButton}
+                              onPress={() => resolveQueueItem(item.id, 'dismissed')}
+                            />
                           </Row>
                         )}
                       </View>
@@ -558,19 +976,77 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 <>
                   <SectionHeader title="Announcements" />
                   {c.announcements.map(a => (
-                    <Card key={a.id} style={{marginBottom: spacing.sm}}>
-                      <Row style={{justifyContent: 'space-between'}}>
-                        <YayText variant="bodyStrong" style={{flex: 1}}>
-                          {a.title}
+                    <Pressable
+                      key={a.id}
+                      onPress={() => markAnnouncementRead(a.id)}
+                      style={({pressed}) => pressed && {opacity: 0.8}}>
+                      <Card style={{marginBottom: spacing.sm}}>
+                        <Row style={{justifyContent: 'space-between'}}>
+                          <YayText variant="bodyStrong" style={{flex: 1}}>
+                            {a.title}
+                          </YayText>
+                          {announcementStatusBadge(a.status)}
+                        </Row>
+                        <Row gap={spacing.xs} style={styles.announcementMeta}>
+                          {a.publisherVerified ? <Badge label="Official" tone="success" /> : null}
+                          <YayText variant="micro" color={colors.textFaint}>
+                            {a.status === 'scheduled' && a.scheduledFor
+                              ? `For ${formatEventDate(a.scheduledFor)}`
+                              : timeAgo(a.postedAt)}
+                            {a.publisherName ? ` · ${a.publisherName}` : ''}
+                          </YayText>
+                        </Row>
+                        <YayText variant="caption" color={colors.textSecondary}>
+                          {a.body}
                         </YayText>
-                        <YayText variant="micro" color={colors.textFaint}>
-                          {timeAgo(a.postedAt)}
+                        <Spacer size={spacing.xs} />
+                        <YayText variant="micro" color={colors.textMuted}>
+                          Audience: {a.audience === 'region' ? a.region : a.audience ?? 'all'} ·
+                          Reads: {(a.readCount ?? 0).toLocaleString()}
+                          {a.deliveredCount
+                            ? ` of ${a.deliveredCount.toLocaleString()} delivered (${Math.round(
+                                Math.min(1, (a.readCount ?? 0) / a.deliveredCount) * 100,
+                              )}%)`
+                            : ''}
                         </YayText>
-                      </Row>
-                      <YayText variant="caption" color={colors.textSecondary}>
-                        {a.body}
-                      </YayText>
-                    </Card>
+                        {a.status === 'rejected' && a.rejectedReason ? (
+                          <YayText variant="micro" color={colors.danger}>
+                            {a.rejectedReason}
+                          </YayText>
+                        ) : null}
+                        {a.status === 'pending_approval' && canApprove ? (
+                          <>
+                            <Spacer size={spacing.xs} />
+                            <Row gap={spacing.xs}>
+                              <Button
+                                label="Approve"
+                                kind="secondary"
+                                style={styles.smallButton}
+                                onPress={() => decideAnnouncement(a.id, true)}
+                              />
+                              <Button
+                                label="Reject"
+                                kind="ghost"
+                                style={styles.smallButton}
+                                onPress={() => decideAnnouncement(a.id, false)}
+                              />
+                            </Row>
+                          </>
+                        ) : null}
+                        {a.actionLabel ? (
+                          <>
+                            <Spacer size={spacing.xs} />
+                            <Button
+                              label={a.actionLabel}
+                              kind="secondary"
+                              icon="link-outline"
+                              style={styles.smallButton}
+                              onPress={() => markAnnouncementRead(a.id, true)}
+                            />
+                          </>
+                        ) : null}
+                      </Card>
+                    </Pressable>
                   ))}
                 </>
               ) : null}
@@ -578,46 +1054,47 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
               {c.events.length > 0 ? (
                 <>
                   <SectionHeader title="Events" />
-                  {c.events.map(e => {
-                    const going = goingEventIds.includes(e.id);
-                    return (
-                      <Card key={e.id} style={{marginBottom: spacing.sm}}>
-                        <Row>
-                          <View style={styles.eventIcon}>
-                            <Ionicons name="calendar-outline" size={20} color={colors.brand} />
-                          </View>
-                          <View style={{flex: 1}}>
-                            <YayText variant="bodyStrong">{e.title}</YayText>
-                            <YayText variant="caption" color={colors.textMuted}>
-                              {formatEventDate(e.date)} · {e.attending + (going ? 1 : 0)} attending
-                            </YayText>
-                          </View>
-                          {going ? (
-                            <Badge label="Going" tone="success" />
-                          ) : (
-                            <Button
-                              label="I'm going"
-                              kind="secondary"
-                              style={styles.smallButton}
-                              onPress={() => {
-                                setGoingEventIds(prev => [...prev, e.id]);
-                                toast.show(`You're going to ${e.title}`, 'success');
-                              }}
-                            />
-                          )}
-                        </Row>
-                      </Card>
-                    );
-                  })}
+                  {c.events.map(e => (
+                    <Card key={e.id} style={{marginBottom: spacing.sm}}>
+                      <Row>
+                        <View style={styles.eventIcon}>
+                          <Ionicons name="calendar-outline" size={20} color={colors.brand} />
+                        </View>
+                        <View style={{flex: 1}}>
+                          <YayText variant="bodyStrong">{e.title}</YayText>
+                          <YayText variant="caption" color={colors.textMuted}>
+                            {formatEventDate(e.date)} · {e.attending} attending
+                            {e.location ? ` · ${e.location}` : ''}
+                          </YayText>
+                        </View>
+                        {e.going ? (
+                          <Button
+                            label="Going"
+                            kind="ghost"
+                            style={styles.smallButton}
+                            onPress={() => rsvp(e.id, false)}
+                          />
+                        ) : (
+                          <Button
+                            label="I'm going"
+                            kind="secondary"
+                            style={styles.smallButton}
+                            onPress={() => rsvp(e.id, true)}
+                          />
+                        )}
+                      </Row>
+                    </Card>
+                  ))}
                 </>
               ) : null}
 
               {c.polls.length > 0 ? (
                 <>
-                  <SectionHeader title="Poll" />
+                  <SectionHeader title="Polls" />
                   {c.polls.map(poll => {
                     const total = poll.options.reduce((sum, o) => sum + o.votes, 0);
                     const voted = poll.votedIndex !== undefined;
+                    const closed = new Date(poll.closesAt).getTime() <= Date.now();
                     return (
                       <Card key={poll.id} style={{marginBottom: spacing.sm}}>
                         <YayText variant="bodyStrong">{poll.question}</YayText>
@@ -628,7 +1105,7 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                           return (
                             <Pressable
                               key={opt.label}
-                              disabled={voted || busy}
+                              disabled={voted || closed || busy}
                               onPress={() => vote(poll.id, i)}
                               style={({pressed}) => [
                                 styles.pollOption,
@@ -668,7 +1145,12 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                           );
                         })}
                         <YayText variant="micro" color={colors.textFaint}>
-                          {voted ? 'You voted.' : 'Tap an option to vote.'} Closes {timeAgo(poll.closesAt)}
+                          {closed
+                            ? 'This poll has closed.'
+                            : voted
+                            ? 'You voted.'
+                            : 'Tap an option to vote.'}{' '}
+                          {closed ? '' : `Closes ${timeAgo(poll.closesAt)}`}
                         </YayText>
                       </Card>
                     );
@@ -676,68 +1158,98 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 </>
               ) : null}
 
-              <SectionHeader title="Feed" />
-              {c.joined ? (
-                <Card style={{marginBottom: spacing.sm}}>
-                  <TextField
-                    placeholder="Share something with the community…"
-                    value={composer}
-                    onChangeText={setComposer}
-                    multiline
-                    style={{marginBottom: spacing.xs}}
-                  />
-                  <Button
-                    label="Post"
-                    disabled={composer.trim().length === 0}
-                    loading={busy}
-                    onPress={post}
-                  />
-                </Card>
-              ) : null}
-              {c.feed.length === 0 ? (
-                <EmptyState
-                  icon="newspaper-outline"
-                  title="No posts yet"
-                  message={c.joined ? 'Be the first to post something.' : 'Join to see and share posts.'}
-                />
-              ) : (
-                c.feed.map(p => {
-                  const liked = likedPostIds.includes(p.id);
-                  return (
-                    <Card key={p.id} style={{marginBottom: spacing.sm}}>
-                      <Row>
-                        <Avatar name={p.authorName} size={34} />
-                        <View style={{flex: 1}}>
-                          <YayText variant="bodyStrong">{p.authorName}</YayText>
-                          <YayText variant="micro" color={colors.textFaint}>
-                            {timeAgo(p.postedAt)}
-                          </YayText>
-                        </View>
-                      </Row>
-                      <YayText style={{marginTop: spacing.xs}}>{p.body}</YayText>
-                      <Spacer size={spacing.xs} />
-                      <Pressable
-                        onPress={() =>
-                          setLikedPostIds(prev =>
-                            liked ? prev.filter(id => id !== p.id) : [...prev, p.id],
-                          )
-                        }
-                        hitSlop={8}
-                        style={{alignSelf: 'flex-start'}}>
-                        <Row gap={spacing.xxs}>
-                          <Ionicons
-                            name={liked ? 'heart' : 'heart-outline'}
-                            size={18}
-                            color={liked ? colors.accent : colors.textMuted}
-                          />
-                          <YayText variant="caption" color={colors.textMuted}>
-                            {p.likes + (liked ? 1 : 0)}
-                          </YayText>
-                        </Row>
-                      </Pressable>
+              {c.restricted ? null : (
+                <>
+                  <SectionHeader title="Feed" />
+                  {c.joined ? (
+                    <Card style={{marginBottom: spacing.sm}}>
+                      <TextField
+                        placeholder="Share something with the community…"
+                        value={composer}
+                        onChangeText={setComposer}
+                        multiline
+                        style={{marginBottom: spacing.xs}}
+                      />
+                      <Button
+                        label="Post"
+                        disabled={composer.trim().length === 0}
+                        loading={busy}
+                        onPress={post}
+                      />
                     </Card>
-                  );
-                })
+                  ) : null}
+                  {c.feed.length === 0 ? (
+                    <EmptyState
+                      icon="newspaper-outline"
+                      title="No posts yet"
+                      message={c.joined ? 'Be the first to post something.' : 'Join to see and share posts.'}
+                    />
+                  ) : (
+                    c.feed.map(p => (
+                      <Card key={p.id} style={{marginBottom: spacing.sm}}>
+                        <Row>
+                          <Avatar name={p.authorName} size={34} />
+                          <View style={{flex: 1}}>
+                            <YayText variant="bodyStrong">{p.authorName}</YayText>
+                            <YayText variant="micro" color={colors.textFaint}>
+                              {timeAgo(p.postedAt)}
+                            </YayText>
+                          </View>
+                          {p.mine || isStaff ? (
+                            <Pressable
+                              onPress={() => removePost(p.id)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Remove post">
+                              <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                            </Pressable>
+                          ) : null}
+                        </Row>
+                        <YayText style={{marginTop: spacing.xs}}>{p.body}</YayText>
+                        <Spacer size={spacing.xs} />
+                        <Row gap={spacing.md}>
+                          <Pressable
+                            onPress={() => toggleLike(p.id)}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Like post">
+                            <Row gap={spacing.xxs}>
+                              <Ionicons
+                                name={p.liked ? 'heart' : 'heart-outline'}
+                                size={18}
+                                color={p.liked ? colors.accent : colors.textMuted}
+                              />
+                              <YayText variant="caption" color={colors.textMuted}>
+                                {p.likes}
+                              </YayText>
+                            </Row>
+                          </Pressable>
+                          {p.mine ? null : (
+                            <Pressable
+                              onPress={() => {
+                                setReportTarget({
+                                  targetType: 'post',
+                                  targetId: p.id,
+                                  label: `this post by ${p.authorName}`,
+                                });
+                                setReportOpen(true);
+                              }}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Report post">
+                              <Row gap={spacing.xxs}>
+                                <Ionicons name="flag-outline" size={16} color={colors.textMuted} />
+                                <YayText variant="caption" color={colors.textMuted}>
+                                  Report
+                                </YayText>
+                              </Row>
+                            </Pressable>
+                          )}
+                        </Row>
+                      </Card>
+                    ))
+                  )}
+                </>
               )}
 
               {c.rules.length > 0 ? (
@@ -763,7 +1275,10 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 label="Report community"
                 kind="ghost"
                 icon="flag-outline"
-                onPress={() => setReportOpen(true)}
+                onPress={() => {
+                  setReportTarget({targetType: 'community', label: `this community`});
+                  setReportOpen(true);
+                }}
               />
 
               <BottomSheet
@@ -771,23 +1286,56 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
                 onClose={() => setInviteOpen(false)}
                 title="Invite friends">
                 <YayText variant="caption" color={colors.textMuted}>
-                  Share this link so friends can join {c.name}.
+                  Anyone with an invite link can join {c.name}, even while it is private or
+                  invite-only. Revoke a link to cut off access.
                 </YayText>
                 <Spacer size={spacing.sm} />
-                <View style={styles.inviteLinkBox}>
-                  <YayText variant="caption" color={colors.textSecondary} numberOfLines={1} style={{flex: 1}}>
-                    {c.inviteLink}
-                  </YayText>
-                </View>
+                <Button label="Create invite link" icon="add" loading={busy} onPress={mintInvite} />
                 <Spacer size={spacing.sm} />
-                <Button
-                  label="Copy link"
-                  icon="copy-outline"
-                  onPress={() => {
-                    setInviteOpen(false);
-                    toast.show('Invite link copied', 'success');
-                  }}
-                />
+                {invites.length === 0 ? (
+                  <YayText variant="caption" color={colors.textFaint}>
+                    No invite links yet.
+                  </YayText>
+                ) : (
+                  invites.map(invite => (
+                    <View key={invite.code} style={{marginBottom: spacing.sm}}>
+                      <View style={styles.inviteLinkBox}>
+                        <YayText
+                          variant="caption"
+                          color={invite.revoked ? colors.textFaint : colors.textSecondary}
+                          numberOfLines={1}
+                          style={{flex: 1}}>
+                          {invite.url}
+                        </YayText>
+                      </View>
+                      <Row gap={spacing.xs} style={{marginTop: spacing.xxs}}>
+                        {invite.revoked ? (
+                          <Badge label="Revoked" tone="neutral" />
+                        ) : (
+                          <>
+                            <Button
+                              label="Share"
+                              kind="secondary"
+                              icon="share-outline"
+                              style={styles.smallButton}
+                              onPress={() => shareInvite(invite, c.name)}
+                            />
+                            <Button
+                              label="Revoke"
+                              kind="ghost"
+                              style={styles.smallButton}
+                              onPress={() => revokeInvite(invite.code)}
+                            />
+                          </>
+                        )}
+                        <YayText variant="micro" color={colors.textFaint}>
+                          {invite.uses} use{invite.uses === 1 ? '' : 's'}
+                          {invite.maxUses ? ` of ${invite.maxUses}` : ''}
+                        </YayText>
+                      </Row>
+                    </View>
+                  ))
+                )}
               </BottomSheet>
 
               <ConfirmSheet
@@ -803,16 +1351,145 @@ export const CommunityDetailScreen = ({navigation, route}: DetailProps) => {
               <BottomSheet
                 visible={reportOpen}
                 onClose={() => setReportOpen(false)}
-                title="Report community">
+                title="Report to moderators">
                 <YayText variant="caption" color={colors.textMuted}>
-                  Why are you reporting {c.name}?
+                  Why are you reporting {reportTarget.label}?
                 </YayText>
                 <Spacer size={spacing.sm} />
                 <View style={styles.chipWrap}>
-                  {REPORT_REASONS.map(reason => (
+                  {reportReasons.map(reason => (
                     <Chip key={reason} label={reason} onPress={() => sendReport(reason)} />
                   ))}
                 </View>
+              </BottomSheet>
+
+              <BottomSheet
+                visible={announcementOpen}
+                onClose={() => setAnnouncementOpen(false)}
+                title="Publish announcement">
+                {c.verified && !canApprove ? (
+                  <Banner
+                    tone="info"
+                    icon="shield-checkmark-outline"
+                    text="This is an official account, so your announcement goes to an admin for approval before it is sent."
+                  />
+                ) : null}
+                <TextField
+                  label="Title"
+                  placeholder="Announcement title"
+                  value={announcementTitle}
+                  onChangeText={setAnnouncementTitle}
+                />
+                <TextField
+                  label="Message"
+                  placeholder="What should members know?"
+                  value={announcementBody}
+                  onChangeText={setAnnouncementBody}
+                  multiline
+                />
+                <YayText variant="caption" color={colors.textSecondary}>
+                  Audience
+                </YayText>
+                <Spacer size={spacing.xs} />
+                <View style={styles.chipWrap}>
+                  {(['all', 'members', 'region'] as const).map(audience => (
+                    <Chip
+                      key={audience}
+                      label={audience === 'all' ? 'Everyone' : audience === 'members' ? 'Members' : 'Region'}
+                      active={announcementAudience === audience}
+                      onPress={() => setAnnouncementAudience(audience)}
+                    />
+                  ))}
+                </View>
+                <Spacer size={spacing.sm} />
+                {announcementAudience === 'region' ? (
+                  <TextField
+                    label="Region"
+                    hint="Members whose account region matches are notified; others are not."
+                    placeholder="United States"
+                    value={announcementRegion}
+                    onChangeText={setAnnouncementRegion}
+                  />
+                ) : null}
+                <TextField
+                  label="Schedule for"
+                  hint="Optional. Use a future date/time, for example 2026-08-20T09:00:00."
+                  placeholder="Publish now"
+                  value={announcementScheduledFor}
+                  onChangeText={setAnnouncementScheduledFor}
+                  autoCapitalize="none"
+                />
+                <TextField
+                  label="Primary action"
+                  placeholder="Button label"
+                  value={announcementActionLabel}
+                  onChangeText={setAnnouncementActionLabel}
+                />
+                <TextField
+                  label="Action link"
+                  placeholder="mock-link://product/action"
+                  value={announcementActionUrl}
+                  onChangeText={setAnnouncementActionUrl}
+                  autoCapitalize="none"
+                />
+                <Button
+                  label="Save announcement"
+                  icon="megaphone-outline"
+                  loading={busy}
+                  onPress={publishAnnouncement}
+                />
+              </BottomSheet>
+
+              <BottomSheet visible={pollOpen} onClose={() => setPollOpen(false)} title="New poll">
+                <TextField
+                  label="Question"
+                  placeholder="What should we do next?"
+                  value={pollQuestion}
+                  onChangeText={setPollQuestion}
+                />
+                {pollOptions.map((option, index) => (
+                  <TextField
+                    key={index}
+                    label={`Option ${index + 1}`}
+                    placeholder="Option text"
+                    value={option}
+                    onChangeText={text =>
+                      setPollOptions(prev => prev.map((o, i) => (i === index ? text : o)))
+                    }
+                  />
+                ))}
+                <Button
+                  label="Add option"
+                  kind="secondary"
+                  icon="add"
+                  onPress={() => setPollOptions(prev => [...prev, ''])}
+                />
+                <Spacer size={spacing.sm} />
+                <Button label="Create poll" loading={busy} onPress={createPoll} />
+              </BottomSheet>
+
+              <BottomSheet visible={eventOpen} onClose={() => setEventOpen(false)} title="New event">
+                <TextField
+                  label="Title"
+                  placeholder="Community call"
+                  value={eventTitle}
+                  onChangeText={setEventTitle}
+                />
+                <TextField
+                  label="Starts at"
+                  hint="For example 2026-08-20T18:00:00."
+                  placeholder="2026-08-20T18:00:00"
+                  value={eventStartsAt}
+                  onChangeText={setEventStartsAt}
+                  autoCapitalize="none"
+                />
+                <TextField
+                  label="Location"
+                  placeholder="Online, or a place"
+                  value={eventLocation}
+                  onChangeText={setEventLocation}
+                />
+                <Button label="Create event" loading={busy} onPress={createEvent} />
               </BottomSheet>
             </>
           );
@@ -845,86 +1522,162 @@ const QuickAction = ({
 
 // ---------------------------------------------------------------------------
 // CommunityChatScreen
+//
+// A community's chat is a real M2 group conversation. When the community has a
+// backing chat group the screen renders that conversation — same transport,
+// history, and push as any other group. Communities served by the local engine
+// have no group, so a clearly-labelled seeded preview stands in.
 // ---------------------------------------------------------------------------
 
 type ChatProps = NativeStackScreenProps<CommunitiesStackParamList, 'CommunityChat'>;
 
-interface LocalChatMessage {
+const SEED_MESSAGES = [
+  {id: 'cm1', author: 'Priya Shah', text: 'Welcome everyone who joined this week!', mine: false},
+  {id: 'cm2', author: 'Leo Martins', text: 'Glad to be here — this community is exactly what I was looking for.', mine: false},
+  {id: 'cm3', author: 'Priya Shah', text: 'Reminder: the meetup poll closes tonight, cast your vote!', mine: false},
+  {id: 'cm4', author: 'Amara Diallo', text: 'Just voted. Saturday works best for me.', mine: false},
+];
+
+interface ChatRow {
   id: string;
   author: string;
   text: string;
   mine: boolean;
 }
 
-const SEED_MESSAGES: LocalChatMessage[] = [
-  {id: 'cm1', author: 'Priya Shah', text: 'Welcome everyone who joined this week!', mine: false},
-  {id: 'cm2', author: 'Leo Martins', text: 'Glad to be here — this community is exactly what I was looking for.', mine: false},
-  {id: 'cm3', author: 'Priya Shah', text: 'Reminder: the meetup poll closes tonight, cast your vote!', mine: false},
-  {id: 'cm4', author: 'Amara Diallo', text: 'Just voted. Saturday works best for me.', mine: false},
-  {id: 'cm5', author: 'Leo Martins', text: 'Same here. Also sharing some resources in the feed later today.', mine: false},
-  {id: 'cm6', author: 'Amara Diallo', text: 'Nice, looking forward to it!', mine: false},
-];
-
-const AUTO_REPLIES = [
-  'Totally agree!',
-  'Good point — anyone else have thoughts on this?',
-  'Thanks for sharing!',
-  'Let’s bring this up at the next meetup.',
-];
-
 export const CommunityChatScreen = ({route}: ChatProps) => {
   const {communityId} = route.params;
+  const toast = useToast();
+  const {session} = useAuth();
   const load = useAsync(() => communityService.get(communityId), [communityId]);
-  const [messages, setMessages] = useState<LocalChatMessage[]>(SEED_MESSAGES);
+  const community = load.data;
+  const conversationId = community ? communityService.chatConversationId(community) : null;
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [preview, setPreview] = useState<ChatRow[]>(SEED_MESSAGES);
   const [draft, setDraft] = useState('');
-  const idRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sending, setSending] = useState(false);
+  const localIdRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
+  // AI-in-community. Gated by its own consent switch, separate from chat.
+  const {run: runAiAssist, sheet: aiAssistSheet} = useAiAssist();
+  const aiInCommunitiesEnabled = featureFlags.isEnabled('ai_in_communities');
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
+  const rows: ChatRow[] = useMemo(() => {
+    if (!conversationId) {
+      return preview;
+    }
+    const meId = session?.user.id;
+    return messages.map(message => ({
+      id: message.id,
+      author: message.senderId === meId ? 'You' : message.senderId,
+      text: message.text,
+      mine: message.senderId === meId,
+    }));
+  }, [conversationId, messages, preview, session?.user.id]);
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId) {
+      return;
+    }
+    try {
+      const page = await chatService.getMessages(conversationId);
+      setMessages(page.items);
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    }
+  }, [conversationId, toast]);
+
+  useEffect(() => {
+    loadMessages();
+  }, [loadMessages]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
+    return chatService.subscribeConversation(conversationId, event => {
+      if (event.type === 'message.upsert') {
+        setMessages(prev => {
+          const next = prev.filter(
+            message =>
+              message.id !== event.message.id &&
+              (!event.message.clientId || message.clientId !== event.message.clientId),
+          );
+          return [...next, event.message];
+        });
       }
-    },
-    [],
-  );
+      if (event.type === 'message.deleted') {
+        setMessages(prev => prev.filter(message => message.id !== event.messageId));
+      }
+    });
+  }, [conversationId]);
 
-  const send = () => {
+  const summarizeCommunityWithAi = () => {
+    const transcript = rows
+      .slice(-30)
+      .map(row => `${row.author}: ${row.text}`)
+      .join('\n');
+    runAiAssist({
+      kind: 'summarize_conversation',
+      scope: 'community',
+      title: 'Summarize this community',
+      describes: 'The last 30 messages in this community chat',
+      content: transcript,
+    });
+  };
+
+  const send = async () => {
     const text = draft.trim();
     if (!text) {
       return;
     }
-    idRef.current += 1;
-    const mineId = `local-${idRef.current}`;
-    setMessages(prev => [...prev, {id: mineId, author: 'You', text, mine: true}]);
     setDraft('');
-    timerRef.current = setTimeout(() => {
-      idRef.current += 1;
-      setMessages(prev => [
+    if (!conversationId) {
+      localIdRef.current += 1;
+      setPreview(prev => [
         ...prev,
-        {
-          id: `local-${idRef.current}`,
-          author: 'Priya Shah',
-          text: AUTO_REPLIES[idRef.current % AUTO_REPLIES.length],
-          mine: false,
-        },
+        {id: `local-${localIdRef.current}`, author: 'You', text, mine: true},
       ]);
-    }, 2000);
+      return;
+    }
+    setSending(true);
+    try {
+      const message = await chatService.sendMessage(conversationId, {text});
+      setMessages(prev =>
+        prev.some(item => item.id === message.id) ? prev : [...prev, message],
+      );
+    } catch (e) {
+      setDraft(text);
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
     <Screen scroll={false} padded={false}>
       <View style={{padding: spacing.md, paddingBottom: 0}}>
-        <Banner
-          tone="info"
-          icon="flask"
-          text="Community chat preview — real-time arrives in Milestone 3/4."
-        />
-        {load.data ? (
+        {conversationId ? null : (
+          <Banner
+            tone="info"
+            icon="flask"
+            text="Community chat preview — this community has no live chat group in offline mode."
+          />
+        )}
+        {community ? (
           <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.xs}}>
-            {load.data.name} · {memberLabel(load.data.memberCount)}
+            {community.name} · {memberLabel(community.memberCount)}
           </YayText>
+        ) : null}
+        {aiInCommunitiesEnabled ? (
+          <Button
+            label="Summarize with AI"
+            kind="secondary"
+            icon="sparkles"
+            style={{marginBottom: spacing.xs}}
+            onPress={summarizeCommunityWithAi}
+          />
         ) : null}
       </View>
       <ScrollView
@@ -932,25 +1685,33 @@ export const CommunityChatScreen = ({route}: ChatProps) => {
         style={{flex: 1}}
         contentContainerStyle={{padding: spacing.md, gap: spacing.xs}}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({animated: true})}>
-        {messages.map(m => (
-          <View
-            key={m.id}
-            style={[styles.bubbleRow, m.mine ? {justifyContent: 'flex-end'} : null]}>
-            {!m.mine ? <Avatar name={m.author} size={28} /> : null}
-            <View style={[styles.bubble, m.mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-              {!m.mine ? (
-                <YayText variant="micro" color={colors.brandStrong}>
-                  {m.author}
+        {rows.length === 0 ? (
+          <EmptyState
+            icon="chatbubbles-outline"
+            title="No messages yet"
+            message="Say hello to get the conversation started."
+          />
+        ) : (
+          rows.map(m => (
+            <View
+              key={m.id}
+              style={[styles.bubbleRow, m.mine ? {justifyContent: 'flex-end'} : null]}>
+              {!m.mine ? <Avatar name={m.author} size={28} /> : null}
+              <View style={[styles.bubble, m.mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                {!m.mine ? (
+                  <YayText variant="micro" color={colors.brandStrong}>
+                    {m.author}
+                  </YayText>
+                ) : null}
+                <YayText
+                  variant="caption"
+                  color={m.mine ? colors.textOnBrand : colors.textPrimary}>
+                  {m.text}
                 </YayText>
-              ) : null}
-              <YayText
-                variant="caption"
-                color={m.mine ? colors.textOnBrand : colors.textPrimary}>
-                {m.text}
-              </YayText>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
       <View style={styles.composerRow}>
         <View style={{flex: 1}}>
@@ -964,10 +1725,12 @@ export const CommunityChatScreen = ({route}: ChatProps) => {
         <Button
           label="Send"
           disabled={draft.trim().length === 0}
+          loading={sending}
           onPress={send}
           style={styles.smallButton}
         />
       </View>
+      {aiAssistSheet}
     </Screen>
   );
 };
@@ -978,30 +1741,44 @@ export const CommunityChatScreen = ({route}: ChatProps) => {
 
 type MembersProps = NativeStackScreenProps<CommunitiesStackParamList, 'CommunityMembers'>;
 
-type MemberRole = 'admin' | 'moderator' | 'member';
-
 export const CommunityMembersScreen = ({route}: MembersProps) => {
   const {communityId} = route.params;
   const toast = useToast();
+  const {perform} = useAction();
   const [query, setQuery] = useState('');
-  const [roleOverrides, setRoleOverrides] = useState<Record<string, MemberRole>>({});
-  const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const [bannedIds, setBannedIds] = useState<string[]>([]);
-  const [selected, setSelected] = useState<User | null>(null);
+  const [debounced, setDebounced] = useState('');
+  const [selected, setSelected] = useState<CommunityMember | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const load = useAsync(
     async () => {
-      const [community, contacts] = await Promise.all([
+      const [community, members] = await Promise.all([
         communityService.get(communityId),
-        userService.contacts(),
+        communityService.members(communityId, debounced),
       ]);
-      return {community, contacts};
+      return {community, members};
     },
-    [communityId],
+    [communityId, debounced],
   );
 
-  const roleFor = (user: User, index: number): MemberRole =>
-    roleOverrides[user.id] ?? (index === 0 ? 'admin' : index === 1 ? 'moderator' : 'member');
+  const act = async (run: () => Promise<unknown>, success: string) => {
+    setSelected(null);
+    const done = await perform(
+      async () => {
+        await run();
+        return true;
+      },
+      message => toast.show(message, 'error'),
+    );
+    if (done) {
+      toast.show(success, 'success');
+      load.reload();
+    }
+  };
 
   return (
     <Screen refreshing={load.refreshing} onRefresh={load.refresh}>
@@ -1011,46 +1788,38 @@ export const CommunityMembersScreen = ({route}: MembersProps) => {
         offline={load.offline}
         onRetry={load.reload}
         data={load.data}>
-        {({community, contacts}) => {
-          const iModerate = community.role === 'admin' || community.role === 'moderator';
-          const q = query.trim().toLowerCase();
-          const members = contacts
-            .filter(u => !removedIds.includes(u.id) && !bannedIds.includes(u.id))
-            .filter(u => (q ? u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q) : true));
-          const withRoles = members.map(u => ({
-            user: u,
-            role: roleFor(u, contacts.findIndex(x => x.id === u.id)),
-          }));
-          const staff = withRoles.filter(m => m.role !== 'member');
-          const regular = withRoles.filter(m => m.role === 'member');
+        {({community, members}) => {
+          const iModerate =
+            community.canModerate ?? (community.role === 'admin' || community.role === 'moderator');
+          const iAdmin = community.role === 'admin';
+          const active = members.filter(member => member.status === 'active');
+          const banned = members.filter(member => member.status === 'banned');
+          const staff = active.filter(member => member.role !== 'member');
+          const regular = active.filter(member => member.role === 'member');
 
-          const memberRow = ({user, role}: {user: User; role: MemberRole}) => (
+          const memberRow = (member: CommunityMember) => (
             <Pressable
-              key={user.id}
-              onLongPress={iModerate ? () => setSelected(user) : undefined}
+              key={member.id}
+              onLongPress={iModerate ? () => setSelected(member) : undefined}
               style={({pressed}) => [styles.memberRow, pressed && {backgroundColor: colors.surfaceSunken}]}>
-              <Avatar name={user.name} online={user.online} />
+              <Avatar name={member.name} imageUri={member.profilePic} />
               <View style={{flex: 1}}>
                 <YayText variant="bodyStrong" numberOfLines={1}>
-                  {user.name}
+                  {member.name}
                 </YayText>
                 <YayText variant="caption" color={colors.textMuted} numberOfLines={1}>
-                  @{user.username}
+                  @{member.username}
                 </YayText>
               </View>
-              {role !== 'member' ? roleBadge(role) : null}
+              {member.role !== 'member' ? roleBadge(member.role) : null}
             </Pressable>
           );
-
-          const selectedRole = selected
-            ? roleFor(selected, contacts.findIndex(x => x.id === selected.id))
-            : 'member';
 
           return (
             <>
               <YayText variant="title">Members</YayText>
               <YayText variant="caption" color={colors.textMuted}>
-                {community.name} · {memberLabel(community.memberCount)} (sample shown)
+                {community.name} · {memberLabel(community.memberCount)}
               </YayText>
               <Spacer size={spacing.sm} />
               <SearchBar value={query} onChangeText={setQuery} placeholder="Search members" />
@@ -1061,11 +1830,13 @@ export const CommunityMembersScreen = ({route}: MembersProps) => {
                 </>
               ) : null}
 
-              {withRoles.length === 0 ? (
+              {active.length === 0 ? (
                 <EmptyState
                   icon="people-outline"
                   title="No members found"
-                  message={q ? `No one matches “${query}”.` : 'This community has no visible members yet.'}
+                  message={
+                    debounced ? `No one matches “${debounced}”.` : 'This community has no visible members yet.'
+                  }
                 />
               ) : (
                 <>
@@ -1084,51 +1855,92 @@ export const CommunityMembersScreen = ({route}: MembersProps) => {
                 </>
               )}
 
+              {iModerate && banned.length > 0 ? (
+                <>
+                  <SectionHeader title="Banned" />
+                  {banned.map(member => (
+                    <Row key={member.id} style={styles.memberRow}>
+                      <Avatar name={member.name} imageUri={member.profilePic} />
+                      <View style={{flex: 1}}>
+                        <YayText variant="bodyStrong" numberOfLines={1}>
+                          {member.name}
+                        </YayText>
+                        <YayText variant="micro" color={colors.textMuted} numberOfLines={1}>
+                          {member.banReason || 'Banned by a moderator'}
+                        </YayText>
+                      </View>
+                      <Button
+                        label="Unban"
+                        kind="ghost"
+                        style={styles.smallButton}
+                        onPress={() =>
+                          act(
+                            () => communityService.unbanMember(communityId, member.email),
+                            `${member.name} was unbanned`,
+                          )
+                        }
+                      />
+                    </Row>
+                  ))}
+                </>
+              ) : null}
+
               <BottomSheet
                 visible={selected !== null}
                 onClose={() => setSelected(null)}
                 title={selected ? selected.name : undefined}>
                 {selected ? (
                   <>
-                    <ListRow
-                      icon="ribbon-outline"
-                      chevron={false}
-                      title={selectedRole === 'moderator' ? 'Remove moderator' : 'Make moderator'}
-                      onPress={() => {
-                        setRoleOverrides(prev => ({
-                          ...prev,
-                          [selected.id]: selectedRole === 'moderator' ? 'member' : 'moderator',
-                        }));
-                        toast.show(
-                          selectedRole === 'moderator'
-                            ? `${selected.name} is no longer a moderator`
-                            : `${selected.name} is now a moderator`,
-                          'success',
-                        );
-                        setSelected(null);
-                      }}
-                    />
+                    {iAdmin ? (
+                      <ListRow
+                        icon="ribbon-outline"
+                        chevron={false}
+                        title={
+                          selected.role === 'moderator' ? 'Remove moderator' : 'Make moderator'
+                        }
+                        onPress={() =>
+                          act(
+                            () =>
+                              communityService.setRole(
+                                communityId,
+                                selected.email,
+                                selected.role === 'moderator' ? 'member' : 'moderator',
+                              ),
+                            selected.role === 'moderator'
+                              ? `${selected.name} is no longer a moderator`
+                              : `${selected.name} is now a moderator`,
+                          )
+                        }
+                      />
+                    ) : null}
                     <ListRow
                       icon="person-remove-outline"
                       iconTone={colors.danger}
                       chevron={false}
                       title="Remove from community"
-                      onPress={() => {
-                        setRemovedIds(prev => [...prev, selected.id]);
-                        toast.show(`${selected.name} was removed`, 'info');
-                        setSelected(null);
-                      }}
+                      onPress={() =>
+                        act(
+                          () => communityService.removeMember(communityId, selected.email),
+                          `${selected.name} was removed`,
+                        )
+                      }
                     />
                     <ListRow
                       icon="ban-outline"
                       iconTone={colors.danger}
                       chevron={false}
                       title="Ban member"
-                      onPress={() => {
-                        setBannedIds(prev => [...prev, selected.id]);
-                        toast.show(`${selected.name} was banned`, 'info');
-                        setSelected(null);
-                      }}
+                      subtitle="Removes them and blocks them from re-joining, including by invite."
+                      onPress={() =>
+                        act(
+                          () =>
+                            communityService.removeMember(communityId, selected.email, {
+                              ban: true,
+                              reason: 'Banned by a moderator',
+                            }),
+                          `${selected.name} was banned`,
+                        )
+                      }
                     />
                   </>
                 ) : null}
@@ -1159,19 +1971,24 @@ export const CreateCommunityScreen = ({navigation}: CreateProps) => {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState(categories[0] ?? 'Other');
   const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
+  const [inviteOnly, setInviteOnly] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
   const create = async () => {
     setNameError(null);
     const created = await perform(
-      () => communityService.create({name, description, category, privacy}),
+      () => communityService.create({name, description, category, privacy, inviteOnly}),
       message => {
         setNameError(message);
         toast.show(message, 'error');
       },
     );
     if (created) {
-      toast.show(`${created.name} is live!`, 'success');
+      const flag = created.impersonationFlags?.[0];
+      toast.show(
+        flag ? 'Created — a moderator will review the name' : `${created.name} is live!`,
+        flag ? 'info' : 'success',
+      );
       navigation.replace('CommunityDetail', {communityId: created.id});
     }
   };
@@ -1186,6 +2003,7 @@ export const CreateCommunityScreen = ({navigation}: CreateProps) => {
       <TextField
         label="Name"
         placeholder="e.g. Weekend Trail Runners"
+        hint="Names that imitate an official product account are reviewed by moderators."
         value={name}
         onChangeText={t => {
           setName(t);
@@ -1223,6 +2041,13 @@ export const CreateCommunityScreen = ({navigation}: CreateProps) => {
         caption="Visible in discovery, but joining requires admin approval."
         checked={privacy === 'private'}
         onToggle={() => setPrivacy('private')}
+      />
+      <Spacer size={spacing.sm} />
+      <CheckRowWithCaption
+        label="Invite-only"
+        caption="Nobody can join or request to join — only an invite link gets someone in."
+        checked={inviteOnly}
+        onToggle={() => setInviteOnly(prev => !prev)}
       />
       <Spacer size={spacing.lg} />
       <Button label="Create community" loading={busy} onPress={create} />
@@ -1267,9 +2092,16 @@ export const EditCommunityScreen = ({navigation, route}: EditProps) => {
   const toast = useToast();
   const {busy, perform} = useAction();
   const load = useAsync(() => communityService.get(communityId), [communityId]);
+  const categories = useMemo(
+    () => communityService.categories().filter(c => c !== 'All'),
+    [],
+  );
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('Other');
+  const [privacy, setPrivacy] = useState<'public' | 'private'>('public');
+  const [inviteOnly, setInviteOnly] = useState(false);
   const [rules, setRules] = useState<string[]>([]);
   const seeded = useRef(false);
 
@@ -1278,6 +2110,9 @@ export const EditCommunityScreen = ({navigation, route}: EditProps) => {
       seeded.current = true;
       setName(load.data.name);
       setDescription(load.data.description);
+      setCategory(load.data.category);
+      setPrivacy(load.data.privacy);
+      setInviteOnly(!!load.data.inviteOnly);
       setRules(load.data.rules);
     }
   }, [load.data]);
@@ -1288,12 +2123,19 @@ export const EditCommunityScreen = ({navigation, route}: EditProps) => {
         communityService.update(communityId, {
           name: name.trim(),
           description: description.trim(),
+          category,
+          privacy,
+          inviteOnly,
           rules: rules.map(r => r.trim()).filter(Boolean),
         }),
       message => toast.show(message, 'error'),
     );
     if (updated) {
-      toast.show('Community updated', 'success');
+      const flag = updated.impersonationFlags?.[0];
+      toast.show(
+        flag ? 'Saved — a moderator will review the new name' : 'Community updated',
+        flag ? 'info' : 'success',
+      );
       navigation.goBack();
     }
   };
@@ -1317,6 +2159,37 @@ export const EditCommunityScreen = ({navigation, route}: EditProps) => {
               value={description}
               onChangeText={setDescription}
               multiline
+            />
+            <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
+              Category
+            </YayText>
+            <View style={styles.chipWrap}>
+              {categories.map(cat => (
+                <Chip key={cat} label={cat} active={cat === category} onPress={() => setCategory(cat)} />
+              ))}
+            </View>
+            <Spacer size={spacing.md} />
+            <YayText variant="caption" color={colors.textSecondary}>
+              Privacy
+            </YayText>
+            <CheckRowWithCaption
+              label="Public"
+              caption="Anyone can find and join instantly."
+              checked={privacy === 'public'}
+              onToggle={() => setPrivacy('public')}
+            />
+            <CheckRowWithCaption
+              label="Private"
+              caption="Visible in discovery, but joining requires admin approval."
+              checked={privacy === 'private'}
+              onToggle={() => setPrivacy('private')}
+            />
+            <Spacer size={spacing.sm} />
+            <CheckRowWithCaption
+              label="Invite-only"
+              caption="Only an invite link gets someone in."
+              checked={inviteOnly}
+              onToggle={() => setInviteOnly(prev => !prev)}
             />
             <SectionHeader title="Rules" />
             {rules.length === 0 ? (
@@ -1362,6 +2235,119 @@ export const EditCommunityScreen = ({navigation, route}: EditProps) => {
 };
 
 // ---------------------------------------------------------------------------
+// JoinByInviteScreen
+//
+// Redeeming a link is a two-step flow on purpose: preview first, so a person
+// sees which community they are about to join (and any reason the link is
+// dead) before their membership is created.
+// ---------------------------------------------------------------------------
+
+type InviteProps = NativeStackScreenProps<CommunitiesStackParamList, 'JoinByInvite'>;
+
+export const JoinByInviteScreen = ({navigation, route}: InviteProps) => {
+  const toast = useToast();
+  const {busy, perform} = useAction();
+  const [code, setCode] = useState(route.params?.code ?? '');
+  const [preview, setPreview] = useState<{
+    community: Community;
+    valid: boolean;
+    reason?: string;
+  } | null>(null);
+
+  const check = async () => {
+    const result = await perform(
+      () => communityService.previewInvite(code),
+      message => {
+        setPreview(null);
+        toast.show(message, 'error');
+      },
+    );
+    if (result) {
+      setPreview(result);
+    }
+  };
+
+  const accept = async () => {
+    const joined = await perform(
+      () => communityService.acceptInvite(code),
+      message => toast.show(message, 'error'),
+    );
+    if (joined) {
+      toast.show(`Joined ${joined.name}`, 'success');
+      navigation.replace('CommunityDetail', {communityId: joined.id});
+    }
+  };
+
+  return (
+    <Screen>
+      <YayText variant="title">Join with an invite</YayText>
+      <YayText variant="caption" color={colors.textMuted}>
+        Paste an invite link or code. An invite works even for private and invite-only
+        communities.
+      </YayText>
+      <Spacer size={spacing.lg} />
+      <TextField
+        label="Invite link or code"
+        placeholder="https://yay.chat/c/trail-runners?i=…"
+        value={code}
+        onChangeText={t => {
+          setCode(t);
+          setPreview(null);
+        }}
+        autoCapitalize="none"
+      />
+      <Button
+        label="Check invite"
+        kind="secondary"
+        loading={busy}
+        disabled={code.trim().length === 0}
+        onPress={check}
+      />
+
+      {preview ? (
+        <>
+          <Spacer size={spacing.lg} />
+          <Card style={{alignItems: 'center'}}>
+            <Avatar name={preview.community.name} size={64} />
+            <Spacer size={spacing.sm} />
+            <YayText variant="heading">{preview.community.name}</YayText>
+            <YayText variant="caption" color={colors.textMuted}>
+              {preview.community.category} · {memberLabel(preview.community.memberCount)}
+            </YayText>
+            {preview.community.description ? (
+              <YayText
+                variant="caption"
+                color={colors.textSecondary}
+                style={{textAlign: 'center', marginTop: spacing.sm}}>
+                {preview.community.description}
+              </YayText>
+            ) : null}
+            <Spacer size={spacing.md} />
+            {preview.valid ? (
+              <Button
+                label={preview.community.joined ? 'Open community' : 'Join community'}
+                loading={busy}
+                style={{alignSelf: 'stretch'}}
+                onPress={
+                  preview.community.joined
+                    ? () =>
+                        navigation.replace('CommunityDetail', {
+                          communityId: preview.community.id,
+                        })
+                    : accept
+                }
+              />
+            ) : (
+              <Banner tone="warning" icon="alert-circle-outline" text={preview.reason ?? 'This invite cannot be used.'} />
+            )}
+          </Card>
+        </>
+      ) : null}
+    </Screen>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
@@ -1394,6 +2380,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  announcementMeta: {
+    flexWrap: 'wrap',
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
   },
   pollOption: {
     paddingVertical: spacing.xs,

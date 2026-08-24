@@ -39,3 +39,6 @@ backend/*.zip
 backend/*Users*.txt
 backend/Investment_Report*
 backend/*.postman_collection.json
+
+# Local iOS build output (DerivedData, .xcarchive, export logs)
+/build/

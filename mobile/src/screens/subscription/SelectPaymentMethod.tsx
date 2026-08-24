@@ -1,13 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  Linking,
-} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, Alert} from 'react-native';
 import { colors } from '../../theme/colors';
 import Config from 'react-native-config';
 import { SubscriptionNavigationProp } from '../../navigation/types';
@@ -69,7 +61,7 @@ const planImages: Record<string, React.FC<any>> = {
 const SelectPaymentMethod = () => {
   const navigation = useNavigation<SubscriptionNavigationProp>();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(paymentMethods[0]);
+  const [selectedMethod, _setSelectedMethod] = useState<PaymentMethod | null>(paymentMethods[0]);
   const route =
     useRoute<RouteProp<{ params: SelectPaymentRouteParams }, 'params'>>();
   const { planName } = route.params;
@@ -81,11 +73,6 @@ const SelectPaymentMethod = () => {
 
   const toggleDropdown = () => {
     setIsDropdownOpen(!isDropdownOpen);
-  };
-
-  const handleSelectMethod = (method: PaymentMethod) => {
-    setSelectedMethod(method);
-    setIsDropdownOpen(false);
   };
 
   useEffect(() => {
@@ -123,123 +110,6 @@ const SelectPaymentMethod = () => {
 
     fetchPlansAndSetAmount();
   }, [planName]);
-
-  const handleContinue0 = async () => {
-    if (!selectedMethod || isProcessing) return;
-
-    setIsProcessing(true); // Start loading
-
-    try {
-      const token = await AsyncStorage.getItem('userToken');
-      if (!token) {
-        Alert.alert('Error', 'User not logged in');
-        return;
-      }
-
-      const userObj = decodeJWT(token);
-      const email = userObj.email;
-      let receiptData = '';
-      let platformData = {};
-
-      console.log(
-        'User Email:',
-        email,
-        planName,
-        numericAmount,
-        selectedMethod.name,
-        false,
-      ); // or true if honeybee")
-      const response = await createMiningSubscriptionPlanOrder(
-        email,
-        planName + ' Power',
-        numericAmount,
-        Platform.OS === 'ios' ? 'App Store IAP' : 'Play Store IAP',
-        false, // or true if honeybee
-        receiptData,
-        platformData,
-      );
-
-      const { status, data } = response;
-
-      if (status !== 200) {
-        Alert.alert('Error', 'Failed to create order');
-        return;
-      }
-
-      const paymentType = selectedMethod.name.toLowerCase();
-
-      // ✅ PAYPAL
-      if (paymentType === 'paypal' || paymentType === 'credit-card') {
-        const approveLink = data.links?.find(
-          (link: any) => link.rel === 'approve',
-        );
-
-        if (approveLink?.href) {
-          // SAFE URL PARSING FOR REACT NATIVE
-          let baToken = '';
-          const tokenMatch = approveLink.href.match(/ba_token=([^&]+)/);
-          if (tokenMatch && tokenMatch[1]) {
-            baToken = tokenMatch[1];
-          }
-
-          // Platform-specific deep links
-          const deepLink = baToken
-            ? Platform.select({
-              ios: `paypal://billing/subscriptions?ba_token=${baToken}`,
-              android: `intent://billing/subscriptions?ba_token=${baToken}#Intent;package=com.paypal.android.p2pmobile;scheme=https;end`,
-            })
-            : approveLink.href;
-
-          // Try to open PayPal app
-          try {
-            const supported = await Linking.canOpenURL(deepLink);
-            if (supported) {
-              await Linking.openURL(deepLink);
-            } else {
-              await Linking.openURL(approveLink.href); // Fallback to web
-            }
-          } catch (e) {
-            await Linking.openURL(approveLink.href); // Fallback on error
-          }
-        } else {
-          Alert.alert('PayPal Error', 'Approval link not found');
-        }
-
-        // ✅ TYGAPAY
-      } else if (paymentType === 'tygapay') {
-        console.log(response)
-        const deepLink = data.data?.paymentUrl;
-        if (deepLink) {
-          Linking.openURL(deepLink);
-        } else {
-          Alert.alert('TygaPay Error', 'Deep link not available');
-        }
-
-        // ✅ VENMO, ZELLE, WIRE, ACH (use detail screens)
-      } else if (paymentType === 'venmo') {
-        navigation.navigate('VenmoDetail', { order: data });
-      } else if (paymentType === 'zelle') {
-        navigation.navigate('ZelleDetail', { order: data });
-      } else if (paymentType === 'wire transfer') {
-        navigation.navigate('WireDetail', { order: data });
-      } else if (paymentType === 'ach') {
-        navigation.navigate('AchDetail', { order: data });
-
-        // ✅ FALLBACK (just go to success screen)
-      } else {
-        navigation.navigate('PaymentSuccessful', {
-          amount,
-          planName,
-          paymentMethod: selectedMethod.name,
-        });
-      }
-    } catch (err: any) {
-      console.error('Order error:', err);
-      Alert.alert('Payment Error', err.message || 'Something went wrong');
-    } finally {
-      setIsProcessing(false); // Stop loading in any case
-    }
-  };
 
   const handleContinue = async () => {
     try {

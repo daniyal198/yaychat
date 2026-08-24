@@ -1,16 +1,7 @@
-import {useNavigation} from '@react-navigation/native';
-import {StackNavigationProp} from '@react-navigation/stack';
 import React from 'react';
 import {View, Text, StyleSheet, Image} from 'react-native';
-import {RootStackParamsList} from '../../RootNavigator';
-
-type StartScreenNavigationProp = StackNavigationProp<
-  RootStackParamsList,
-  'Home'
->;
 
 const StartScreen: React.FC = () => {
-  const navigation = useNavigation<StartScreenNavigationProp>();
   return (
     <View style={styles.container}>
       <Image

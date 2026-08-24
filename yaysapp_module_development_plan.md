@@ -108,6 +108,28 @@ is reusable vs must be rebuilt cleanly.
 reconnects; duplicate sends prevented; offline sync works; media/voice upload securely; a push
 opens the right conversation; block/report work; critical flows have automated tests.
 
+### M2.5 — Contact Discovery & Sync  ·  *MVP-adjacent · ships right after the MVP*
+**Objective.** Close the WhatsApp gap: a new user opens YaysApp and can immediately message the
+people from their address book who are already here, instead of facing an empty chat list.
+**Why it is its own module.** M2 makes messaging work between users who have *already found each
+other*; discovery is a separate problem with its own data model (a phone-hash index), its own
+privacy/consent surface, and its own store-review obligations. Bolting it onto M2 would put a
+GDPR-scoped data flow inside the MVP checkpoint.
+**Scope.** Phone as a verified, matchable identity (reusing the existing Twilio + `usersOtps`
+`phoneVerified` flow from M1); **E.164 normalisation** on device via `libphonenumber-js` — replacing
+today's `normalizePhone() = .trim()`; contacts permission with a Prominent Disclosure screen ahead of
+the OS prompt; salted, truncated SHA-256 hashing so raw numbers never leave the device; a
+`phone_hash` index and rate-limited match endpoint; local join so the UI shows *your* contact name;
+a discoverability opt-out; a `DELETE /contacts/sync` erase path; delta re-sync plus the reverse
+"X just joined YaysApp" notification; and an SMS invite deep link for unmatched contacts.
+**Dependencies.** M1 (verified phone), M2 (conversations to open), M6-thin (the join notification).
+**Risks.** Normalisation is where contact sync silently fails. The consent/disclosure and erase paths
+are not optional polish — address-book upload processes data about people who never signed up, which
+is exactly what got contact sync fined in the EU and suspended in Germany.
+**Acceptance.** A user grants contacts access, sees real contacts matched with their own names for
+them, opens a chat with one, invites an unmatched one; raw numbers are never transmitted; opting out
+of discoverability removes the user from others' match results; the erase endpoint wipes all hashes.
+
 ### M6 — Notifications, Analytics & Admin  ·  *thin slice MVP-core, rest Deferred*
 **Objective.** The cross-cutting plumbing chat needs to be trustworthy, plus operational visibility.
 **Scope (MVP slice).** Push notification service (register tokens, deliver, deep-link into a chat),

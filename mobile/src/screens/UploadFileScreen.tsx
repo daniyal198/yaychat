@@ -1,11 +1,18 @@
 import React, {useState} from 'react';
 import {View, Text, StyleSheet, TouchableOpacity, Alert} from 'react-native';
-import {pick} from '@react-native-documents/picker';
+import {pick, errorCodes, isErrorWithCode} from '@react-native-documents/picker';
 import {colors} from '../theme/colors';
 import UploadIcon from '../../assets/splash/solar_upload-broken.svg';
 
+type PickedFile = {
+  name: string;
+  size: number | null;
+  type: string | null;
+  uri: string;
+};
+
 const UploadFileScreen = () => {
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFile, setSelectedFile] = useState<PickedFile | null>(null);
 
   const pickDocument = async () => {
     console.log('clicked');
@@ -16,13 +23,13 @@ const UploadFileScreen = () => {
       // The response structure is slightly different in this package
       const file = response[0];
       setSelectedFile({
-        name: file.name || file.fileName,
+        name: file.name ?? 'document',
         size: file.size,
         type: file.type,
-        uri: file.uri || file.fileCopyUri,
+        uri: file.uri,
       });
     } catch (err) {
-      if (DocumentPicker.isCancel(err)) {
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
         console.log('User cancelled document picker');
       } else {
         console.log('DocumentPicker Error:', err);
@@ -95,7 +102,7 @@ const UploadFileScreen = () => {
                 {selectedFile.name}
               </Text>
               <Text style={styles.fileSize}>
-                {Math.round(selectedFile.size / 1024)} KB
+                {Math.round((selectedFile.size ?? 0) / 1024)} KB
               </Text>
             </View>
           )}

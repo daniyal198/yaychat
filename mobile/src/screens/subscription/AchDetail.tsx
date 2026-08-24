@@ -1,13 +1,5 @@
 import React, {useState} from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  Alert,
-} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TextInput, Alert} from 'react-native';
 import {colors} from '../../theme/colors';
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import {

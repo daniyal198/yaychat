@@ -1,20 +1,9 @@
 import React, {useState} from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  Image,
-} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput} from 'react-native';
 import {colors} from '../../theme/colors';
-import Ionicons from 'react-native-vector-icons/Ionicons';
-import {useNavigation} from '@react-navigation/native';
 import Gopher from '../../../assets/splash/Mask group.svg';
 
 const AddAdditionalEmail = () => {
-  const navigation = useNavigation();
   const [email, setEmail] = useState('');
   const [confirmEmail, setConfirmEmail] = useState('');
 

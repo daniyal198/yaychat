@@ -1,16 +1,6 @@
 import {useNavigation} from '@react-navigation/native';
 import React, {useState} from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  TextInput,
-} from 'react-native';
+import {View, Text, StyleSheet, Image, ScrollView, KeyboardAvoidingView, Platform, TextInput} from 'react-native';
 import CountryPicker, {DARK_THEME} from 'react-native-country-picker-modal';
 import {RootStackParamsList} from '../../RootNavigator';
 import {StackNavigationProp} from '@react-navigation/stack';
@@ -85,12 +75,20 @@ const LoginWithPhoneNumber: React.FC = () => {
           {/* Submit Button */}
           {/* <TouchableOpacity
             style={styles.button}
-            onPress={() => navigation.navigate('LoginWithPassword')}>
+            onPress={() =>
+              navigation.navigate('LoginWithPhonePassword', {
+                phone: `+${callingCode}${phoneNumber}`,
+              })
+            }>
             <Text style={styles.buttonText}>Submit</Text>
           </TouchableOpacity> */}
           <OvalButton
             textInsideOval="Submit"
-            onPress={() => navigation.navigate('LoginWithPassword')}
+            onPress={() =>
+              navigation.navigate('LoginWithPhonePassword', {
+                phone: `+${callingCode}${phoneNumber}`,
+              })
+            }
           />
 
           <Text style={styles.footer}>Terms of Service • Privacy Policy</Text>

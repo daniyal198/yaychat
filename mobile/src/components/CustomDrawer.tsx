@@ -11,12 +11,10 @@ import Roles from '../../assets/img/roles_v2.svg';
 
 import Mainnet from '../../assets/img/rocket_icon.svg';
 import Faq from '../../assets/img/faqIcon.svg';
-import Billing from '../../assets/img/billingIcon.svg';
 import Inst from '../../assets/img/insta icon.svg';
 import Facebook from '../../assets/img/fb icon.svg';
 import Twitter from '../../assets/img/twitter icon.svg';
 import Telegram from '../../assets/img/telegram icon 1.svg';
-import Youtube from '../../assets/img/youtube icon 1.svg';
 import BitcoinYayLogo from '../../assets/img/yay_03.svg';
 import type {DrawerContentComponentProps} from '@react-navigation/drawer';
 

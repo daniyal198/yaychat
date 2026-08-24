@@ -4,8 +4,19 @@ import {Animated, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {colors, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
-import {ME_ID, analytics, authService, chatService, onOfflineChange, simulation} from '../services';
+import {
+  ME_ID,
+  analytics,
+  authService,
+  chatService,
+  onOfflineChange,
+  simulation,
+  telemetryTransport,
+} from '../services';
 import {pushNotificationService} from '../services/pushNotifications';
+import {telemetry} from '../services/telemetry';
+import {callService} from '../services/calls/callService';
+import {navigateToCall, navigateToDeepLink} from '../navigation/navigationRef';
 import {Conversation, Session, User} from '../types/models';
 
 // ---------------------------------------------------------------------------
@@ -77,13 +88,23 @@ const UnreadContext = createContext<UnreadState>({
 });
 export const useUnread = () => useContext(UnreadContext);
 
-/** Format an unread count for a compact badge: 1–8 exact, then "9+". */
-export const formatUnreadBadge = (n: number): string => (n > 8 ? '9+' : String(n));
+/** Format the exact unread count shown on app and tab badges. */
+export const formatUnreadBadge = (n: number): string => String(Math.max(0, Math.floor(n)));
 
 const chatNotificationPreview = (text: string): string => {
   const trimmed = text.trim();
   return trimmed.length > 0 ? trimmed : 'New message';
 };
+
+const SESSION_RESTORE_TIMEOUT_MS = 2500;
+
+const restoreSessionWithTimeout = (): Promise<Session | null> =>
+  Promise.race([
+    authService.restoreSession(),
+    new Promise<null>(resolve => {
+      setTimeout(() => resolve(null), SESSION_RESTORE_TIMEOUT_MS);
+    }),
+  ]);
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -97,48 +118,95 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
   const [backendUnreadByConversation, setBackendUnreadByConversation] = useState<Record<string, number>>({});
   const [localUnreadByConversation, setLocalUnreadByConversation] = useState<Record<string, number>>({});
+  const [serverUnreadTotal, setServerUnreadTotal] = useState(0);
   const [clearedLastMessageByConversation, setClearedLastMessageByConversation] = useState<Record<string, string>>({});
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageByConversation = useRef<Record<string, string | undefined>>({});
   const chatNotificationsReady = useRef(false);
   const activeConversationId = useRef<string | null>(null);
+  const backendUnreadRef = useRef(backendUnreadByConversation);
+  const localUnreadRef = useRef(localUnreadByConversation);
+  const clearedLastMessageRef = useRef(clearedLastMessageByConversation);
+  backendUnreadRef.current = backendUnreadByConversation;
+  localUnreadRef.current = localUnreadByConversation;
+  clearedLastMessageRef.current = clearedLastMessageByConversation;
+
+  // Telemetry starts before anything else so a crash during session restore —
+  // the launch path most likely to fail on a bad build — is still reported.
+  useEffect(() => {
+    telemetry.installGlobalHandler();
+    telemetry
+      .start(telemetryTransport)
+      .then(() => telemetry.track('app_open', {cold: true}))
+      .catch(() => {});
+    return () => telemetry.stop();
+  }, []);
+
+  // Notification taps, from background and from cold start.
+  useEffect(
+    () => pushNotificationService.subscribeNotificationOpens(navigateToDeepLink),
+    [],
+  );
 
   useEffect(() => {
-    authService
-      .restoreSession()
-      .then(restored => setSession(restored))
-      .finally(() => setBooting(false));
-    return onOfflineChange(setOffline);
+    let mounted = true;
+    const unsubscribeOffline = onOfflineChange(setOffline);
+
+    restoreSessionWithTimeout()
+      .then(restored => {
+        if (mounted) {
+          setSession(restored);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setSession(null);
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setBooting(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+      unsubscribeOffline();
+    };
   }, []);
 
   const syncConversations = useCallback((conversations: Conversation[]) => {
     setBackendUnreadByConversation(prev => {
-      let changed = false;
-      const next = {...prev};
+      const next: Record<string, number> = {};
       conversations.forEach(conversation => {
         const lastMessageId = conversation.lastMessage?.id;
         const wasClearedLocally =
-          Boolean(lastMessageId) && clearedLastMessageByConversation[conversation.id] === lastMessageId;
+          Boolean(lastMessageId) && clearedLastMessageRef.current[conversation.id] === lastMessageId;
         const count =
           activeConversationId.current === conversation.id || wasClearedLocally
             ? 0
             : Math.max(conversation.unreadCount, 0);
 
-        if ((next[conversation.id] ?? 0) !== count) {
-          if (count > 0) {
-            next[conversation.id] = count;
-          } else {
-            delete next[conversation.id];
-          }
-          changed = true;
+        if (count > 0) {
+          next[conversation.id] = count;
         }
       });
-      return changed ? next : prev;
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(next);
+      const unchanged =
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every(conversationId => prev[conversationId] === next[conversationId]);
+      return unchanged ? prev : next;
     });
-  }, [clearedLastMessageByConversation]);
+    setLocalUnreadByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
+  }, []);
 
   const refreshUnread = useCallback(() => {
+    chatService
+      .getUnreadTotal()
+      .then(total => setServerUnreadTotal(Math.max(0, total)))
+      .catch(() => {});
     chatService
       .listConversations('all')
       .then(syncConversations)
@@ -155,14 +223,30 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     if (activeConversationId.current === conversationId) {
       return;
     }
+    const currentLocal = localUnreadRef.current[conversationId] ?? 0;
+    const currentCombined = Math.max(
+      currentLocal,
+      backendUnreadRef.current[conversationId] ?? 0,
+    );
+    const nextCount = Math.max(currentLocal + 1, count ?? 0);
+    const increase = Math.max(0, nextCount - currentCombined);
     setLocalUnreadByConversation(prev => {
       const current = prev[conversationId] ?? 0;
-      const nextCount = Math.max(current + 1, count ?? 0);
-      return {...prev, [conversationId]: nextCount};
+      return {...prev, [conversationId]: Math.max(current + 1, count ?? 0)};
     });
+    if (increase > 0) {
+      setServerUnreadTotal(prev => prev + increase);
+    }
   }, []);
 
   const clearConversation = useCallback((conversationId: string, lastMessageId?: string) => {
+    const clearedCount = Math.max(
+      localUnreadRef.current[conversationId] ?? 0,
+      backendUnreadRef.current[conversationId] ?? 0,
+    );
+    if (clearedCount > 0) {
+      setServerUnreadTotal(prev => Math.max(0, prev - clearedCount));
+    }
     setLocalUnreadByConversation(prev => {
       if (!prev[conversationId]) {
         return prev;
@@ -188,7 +272,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     activeConversationId.current = conversationId;
   }, []);
 
-  const unreadTotal = Array.from(
+  const conversationUnreadTotal = Array.from(
     new Set([...Object.keys(localUnreadByConversation), ...Object.keys(backendUnreadByConversation)]),
   ).reduce(
     (sum, conversationId) =>
@@ -196,14 +280,16 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       Math.max(localUnreadByConversation[conversationId] ?? 0, backendUnreadByConversation[conversationId] ?? 0),
     0,
   );
+  const unreadTotal = Math.max(serverUnreadTotal, conversationUnreadTotal);
 
   // Keep the badge in sync while signed in. Polling also picks up read state
   // changes (opening a chat clears its unread count in the store).
   useEffect(() => {
     if (!session) {
-      setBackendUnreadByConversation({});
-      setLocalUnreadByConversation({});
-      setClearedLastMessageByConversation({});
+      setBackendUnreadByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
+      setLocalUnreadByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
+      setServerUnreadTotal(prev => (prev === 0 ? prev : 0));
+      setClearedLastMessageByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
       return;
     }
     let mounted = true;
@@ -226,6 +312,37 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       unsubscribePushTokenRefresh?.();
     };
   }, [session, refreshUnread]);
+
+  /**
+   * Listen for incoming calls for as long as the user is signed in.
+   *
+   * Bound at the session level, not on a call screen: a call can arrive while
+   * the user is anywhere in the app, and a listener that only exists on the
+   * call screen would mean the phone never rings. The screen is pushed
+   * imperatively because the ring has to interrupt whatever is on top.
+   */
+  useEffect(() => {
+    if (!session) {
+      callService.unbind();
+      callService.clear();
+      return;
+    }
+    let mounted = true;
+    callService.bind().catch(() => {});
+    const unsubscribe = callService.subscribe(state => {
+      if (!mounted) {
+        return;
+      }
+      if (state.phase === 'ringing' && state.direction === 'incoming') {
+        navigateToCall('IncomingCall', {callId: state.callId ?? undefined});
+      }
+    });
+    return () => {
+      mounted = false;
+      unsubscribe();
+      callService.unbind();
+    };
+  }, [session]);
 
   const show = useCallback(
     (message: string, tone: ToastTone = 'info') => {
@@ -308,7 +425,6 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       }
 
       show(`${conversation.title}: ${chatNotificationPreview(lastMessage.text)}`, 'info');
-      syncConversations([conversation]);
       recordIncoming(conversation.id, conversation.unreadCount);
     });
 
@@ -330,8 +446,12 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     updateUser: user => setSession(prev => (prev ? {...prev, user} : prev)),
     completeOnboarding: s => setSession(s),
     signOut: async () => {
+      // Stop pushing to this device before the token is forgotten, and flush
+      // the queue while the session that authorises it is still valid.
+      await pushNotificationService.unregisterDevice();
+      analytics.track('signout');
+      await telemetry.flush().catch(() => {});
       await authService.signOut();
-      analytics.track('auth_signed_out');
       setSession(null);
       setSessionExpired(false);
     },

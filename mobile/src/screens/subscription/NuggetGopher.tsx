@@ -1,8 +1,5 @@
 import React, {useState} from 'react';
 import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
-import Swiper from 'react-native-swiper';
-import Ionicons from 'react-native-vector-icons/Ionicons';
-import {useNavigation} from '@react-navigation/native';
 import GopherNine from '../../../assets/splash/NineGopher.svg';
 import RightArrow from '../../../assets/splash/arrow-right.svg';
 
@@ -16,9 +13,7 @@ const plans = [
 ];
 
 const NuggetGopher = () => {
-  const [index, setIndex] = useState(0);
-  const navigation = useNavigation();
-
+  const [index, _setIndex] = useState(0);
   return (
     <View style={styles.container}>
       {plans.map((plan, i) => (

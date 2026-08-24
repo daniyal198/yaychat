@@ -1,9 +1,9 @@
 /**
- * Earn tab screens: YayPoints home, reward history/detail, referrals, and
+ * Earn tab screens: IndexxPoints home, reward history/detail, referrals, and
  * campaign details. All data is simulated (preview build).
  */
 import React, {useMemo, useState} from 'react';
-import {Pressable, Share, StyleSheet, View} from 'react-native';
+import {Clipboard, Pressable, Share, StyleSheet, View} from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
@@ -24,10 +24,12 @@ import {
   SectionHeader,
   Spacer,
   StatTile,
+  TextField,
   YayText,
 } from '../../design/components';
 import {colors, radius, spacing} from '../../design/tokens';
-import {earnService} from '../../services';
+import {earnService, referralService} from '../../services';
+import type {ReferralSummary} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import type {EarnActivity, EarnSummary, RewardEntry, RewardStatus} from '../../types/models';
@@ -119,7 +121,7 @@ export const EarnHomeScreen = ({
             }
           : prev,
       );
-      toast.show('+20 YayPoints', 'success');
+      toast.show('+20 IndexxPoints', 'success');
     }
   };
 
@@ -142,7 +144,7 @@ export const EarnHomeScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview rewards — YayPoints here are simulated and have no monetary value." />
+      <MockNotice module="rewards" text="Preview rewards — IndexxPoints here are simulated and have no monetary value." />
       <AsyncView
         loading={loading}
         error={error}
@@ -161,7 +163,7 @@ export const EarnHomeScreen = ({
                   {summary.balance.toLocaleString()}
                 </YayText>
                 <YayText variant="bodyStrong" color={colors.textMuted} style={{marginBottom: 4}}>
-                  YayPoints
+                  IndexxPoints
                 </YayText>
               </Row>
               <Spacer size={spacing.sm} />
@@ -202,7 +204,7 @@ export const EarnHomeScreen = ({
               )}
               <Spacer size={spacing.md} />
               <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
-                Daily limit: {summary.earnedToday} / {summary.dailyLimit} YayPoints
+                Daily limit: {summary.earnedToday} / {summary.dailyLimit} IndexxPoints
               </YayText>
               <ProgressBar
                 value={summary.dailyLimit > 0 ? summary.earnedToday / summary.dailyLimit : 0}
@@ -218,7 +220,7 @@ export const EarnHomeScreen = ({
             <SectionHeader title="From points to BTCY" />
             <Card>
               <Row gap={spacing.xxs} style={{alignItems: 'center', flexWrap: 'wrap'}}>
-                {['YayPoints', 'Nuggets', 'Alchemy', 'BTCY tokens'].map((stage, i) => (
+                {['IndexxPoints', 'Nuggets', 'Alchemy', 'BTCY tokens'].map((stage, i) => (
                   <Row key={stage} gap={spacing.xxs} style={{alignItems: 'center'}}>
                     {i > 0 ? (
                       <Ionicons name="arrow-forward" size={12} color={colors.textFaint} />
@@ -232,7 +234,7 @@ export const EarnHomeScreen = ({
                 ))}
               </Row>
               <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                When rewards go live, YayPoints convert to BTCY nuggets, and nuggets refine into
+                When rewards go live, IndexxPoints convert to BTCY nuggets, and nuggets refine into
                 BTCY tokens through Bitcoin Yay's Alchemy tiers.
               </YayText>
             </Card>
@@ -326,7 +328,7 @@ export const EarnHomeScreen = ({
             <Card style={{paddingVertical: spacing.xxs}}>
               <ListRow
                 title="Reward history"
-                subtitle="Every YayPoint you earned"
+                subtitle="Every IndexxPoint you earned"
                 icon="time"
                 onPress={() => navigation.navigate('RewardHistory')}
               />
@@ -380,7 +382,7 @@ export const RewardHistoryScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview rewards — YayPoints here are simulated and have no monetary value." />
+      <MockNotice module="rewards" text="Preview rewards — IndexxPoints here are simulated and have no monetary value." />
       <Row gap={spacing.xs} style={{marginBottom: spacing.sm}}>
         {HISTORY_FILTERS.map(f => (
           <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
@@ -394,7 +396,7 @@ export const RewardHistoryScreen = ({
         data={data}
         isEmpty={data?.length === 0}
         emptyTitle="No rewards yet"
-        emptyMessage="Check in daily and complete activities to start earning YayPoints.">
+        emptyMessage="Check in daily and complete activities to start earning IndexxPoints.">
         {() => (
           <>
             {hasReversed ? (
@@ -468,7 +470,7 @@ export const RewardDetailScreen = ({
 
   return (
     <Screen>
-      <MockNotice text="Preview rewards — YayPoints here are simulated and have no monetary value." />
+      <MockNotice module="rewards" text="Preview rewards — IndexxPoints here are simulated and have no monetary value." />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {reward => (
           <>
@@ -529,17 +531,26 @@ export const RewardDetailScreen = ({
 // ReferralScreen
 // ---------------------------------------------------------------------------
 
-const REFERRAL_STEPS = [
+/** Steps quote the live reward amounts so the screen never promises a stale figure. */
+const referralSteps = (summary: ReferralSummary): string[] => [
   'Share your invite code with a friend.',
-  'They sign up and verify their account.',
-  'You both earn YayPoints once they send their first message.',
+  'They sign up with your code and verify their account.',
+  `They get ${summary.welcomeBonus} IndexxPoints, and you get ${summary.rewardPerReferral} once they send their first message.`,
 ];
 
-export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'Referral'>) => {
+export const ReferralScreen = ({
+  route,
+}: NativeStackScreenProps<EarnStackParamList, 'Referral'>) => {
   const toast = useToast();
-  const {data, loading, refreshing, error, offline, reload, refresh} = useAsync<EarnSummary>(
-    () => earnService.summary(),
-  );
+  const {data, loading, refreshing, error, offline, reload, refresh} =
+    useAsync<ReferralSummary>(() => referralService.summary());
+
+  // A code can arrive from an invite deep link (`yaysapp://invite/ABC123`)
+  // before there is a session to attach it to, so the screen pre-fills it and
+  // the member confirms rather than it being applied silently.
+  const [enteredCode, setEnteredCode] = useState(route.params?.code ?? '');
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+  const redeem = useAction();
 
   const handleShare = async (code: string) => {
     try {
@@ -551,9 +562,22 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
     }
   };
 
+  const handleRedeem = async () => {
+    setRedeemError(null);
+    const result = await redeem.perform(
+      () => referralService.redeem(enteredCode, 'referral_screen'),
+      setRedeemError,
+    );
+    if (result) {
+      setEnteredCode('');
+      toast.show(`Invite applied — +${result.welcomeBonus} IndexxPoints`, 'success');
+      reload();
+    }
+  };
+
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview rewards — YayPoints here are simulated and have no monetary value." />
+      <MockNotice module="rewards" text="Preview rewards — IndexxPoints here are simulated and have no monetary value." />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {summary => (
           <>
@@ -562,7 +586,7 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
                 Your invite code
               </YayText>
               <YayText variant="display" color={colors.brandStrong} style={{letterSpacing: 2}}>
-                {summary.referralCode}
+                {summary.code}
               </YayText>
               <Spacer size={spacing.md} />
               <Row gap={spacing.xs}>
@@ -570,19 +594,28 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
                   label="Copy"
                   kind="secondary"
                   icon="copy"
-                  onPress={() => toast.show('Code copied', 'success')}
+                  onPress={() => {
+                    Clipboard.setString(summary.code);
+                    toast.show('Code copied', 'success');
+                  }}
                 />
                 <Button
                   label="Share"
                   icon="share-social"
-                  onPress={() => handleShare(summary.referralCode)}
+                  onPress={() => handleShare(summary.code)}
                 />
               </Row>
             </Card>
 
+            <Row gap={spacing.xs} style={{marginBottom: spacing.sm}}>
+              <StatTile label="Joined" value={String(summary.stats.active)} />
+              <StatTile label="Pending" value={String(summary.stats.pending)} />
+              <StatTile label="Points earned" value={String(summary.stats.pointsEarned)} />
+            </Row>
+
             <SectionHeader title="How it works" />
             <Card>
-              {REFERRAL_STEPS.map((step, i) => (
+              {referralSteps(summary).map((step, i) => (
                 <Row key={step} gap={spacing.sm} style={{paddingVertical: spacing.xs, alignItems: 'flex-start'}}>
                   <Oval size={22} style={styles.stepBubble}>
                     <YayText variant="micro" color={colors.textOnBrand}>
@@ -596,8 +629,35 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
               ))}
             </Card>
 
-            <SectionHeader title={`Your referrals (${summary.referrals.length})`} />
-            {summary.referrals.length === 0 ? (
+            <SectionHeader title="Were you invited?" />
+            <Card>
+              <YayText variant="caption" color={colors.textSecondary}>
+                {`Enter a friend's code to claim your ${summary.welcomeBonus} IndexxPoints welcome bonus. You can only do this once.`}
+              </YayText>
+              <Spacer size={spacing.sm} />
+              <TextField
+                label="Invite code"
+                value={enteredCode}
+                onChangeText={text => {
+                  setEnteredCode(text.toUpperCase());
+                  setRedeemError(null);
+                }}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                error={redeemError ?? undefined}
+                placeholder="ABCD1234"
+              />
+              <Button
+                label="Apply code"
+                icon="gift"
+                loading={redeem.busy}
+                disabled={enteredCode.trim().length === 0}
+                onPress={handleRedeem}
+              />
+            </Card>
+
+            <SectionHeader title={`Your referrals (${summary.items.length})`} />
+            {summary.items.length === 0 ? (
               <EmptyState
                 title="No referrals yet"
                 message="Share your code — you both earn when a friend joins."
@@ -605,7 +665,7 @@ export const ReferralScreen = ({}: NativeStackScreenProps<EarnStackParamList, 'R
               />
             ) : (
               <Card style={{paddingVertical: spacing.xxs}}>
-                {summary.referrals.map((ref, i) => (
+                {summary.items.map((ref, i) => (
                   <View key={`${ref.name}-${i}`}>
                     {i > 0 ? <Divider /> : null}
                     <ListRow
@@ -661,7 +721,7 @@ export const CampaignDetailScreen = ({
 
   return (
     <Screen>
-      <MockNotice text="Preview rewards — YayPoints here are simulated and have no monetary value." />
+      <MockNotice module="rewards" text="Preview rewards — IndexxPoints here are simulated and have no monetary value." />
       <AsyncView
         loading={loading}
         error={error}

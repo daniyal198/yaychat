@@ -12,8 +12,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {useRoute, RouteProp} from '@react-navigation/native';
 import { getMessages, sendMessage } from '../../services/auth.service';
 import { decodeJWT } from '../../utils/jwt';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,11 +28,6 @@ type RootStackParamList = {
 };
 
 type ChatMessageRouteProp = RouteProp<RootStackParamList, 'ChatMessage'>;
-type NavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  'ChatMessage'
->;
-
 interface Message {
   id: string;
   text: string;
@@ -47,12 +41,11 @@ interface Message {
 
 const ChatMessage = () => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [_loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [myEmail, setMyEmail] = useState<string>('');
 
   const route = useRoute<ChatMessageRouteProp>();
-  const navigation = useNavigation<NavigationProp>();
   const contactName = route.params.name;
   const contactEmail = route.params.email;
   const contactAvatar = route.params.avatar;
@@ -68,7 +61,7 @@ const ChatMessage = () => {
         flatListRef.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages]);
+  }, [messages, flatListRef]);
   useEffect(() => {
     const fetchUserEmail = async () => {
       try {
@@ -92,6 +85,9 @@ const ChatMessage = () => {
     if (myEmail) {
       fetchMessages();
     }
+    // `fetchMessages` is redefined on every render; listing it here would
+    // refetch the thread on each one. The email is the only real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myEmail]);
 
   const fetchMessages = async () => {
@@ -117,7 +113,7 @@ const ChatMessage = () => {
 
       setMessages(formatted);
     } catch (err) {
-      console.error('Error loading messages', err);
+      console.error('Error _loading messages', err);
     } finally {
       setLoading(false);
     }

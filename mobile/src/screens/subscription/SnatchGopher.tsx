@@ -1,23 +1,26 @@
 import React, {useState} from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Image,
-  Dimensions,
-} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions} from 'react-native';
 import Swiper from 'react-native-swiper';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Button from '../../components/Button';
 import {useNavigation} from '@react-navigation/native';
+import {SubscriptionNavigationProp} from '../../navigation/types';
 import GopherOne from '../../../assets/splash/one-gopher.svg';
 import GopherNine from '../../../assets/splash/NineGopher.svg';
 import LeftArrow from '../../../assets/splash/arrow-left.svg';
 import RightArrow from '../../../assets/splash/arrow-right.svg';
 
-const plans = [
+type MiningPlan = {
+  title: string;
+  subTitle: string;
+  description?: string;
+  image: React.ComponentType<{height?: number}>;
+  offText?: string;
+  data?: string[];
+  plans?: {name: string; price: string}[];
+};
+
+const plans: MiningPlan[] = [
   {
     title: 'Snatch Gopher',
     subTitle: 'Free mining Plan',
@@ -76,7 +79,7 @@ const {height} = Dimensions.get('window');
 
 const CarouselComponent = () => {
   const [index, setIndex] = useState(0);
-  const navigation = useNavigation();
+  const navigation = useNavigation<SubscriptionNavigationProp>();
 
   const handlePrev = () => {
     if (index > 0) {
@@ -116,7 +119,12 @@ const CarouselComponent = () => {
             <View style={styles.fixedButtonContainer}>
               <Button
                 title="Subscribe"
-                onPress={() => navigation.navigate('SelectPaymentMethod')}
+                onPress={() =>
+                  navigation.navigate('SelectPaymentMethod', {
+                    planName: plan.title,
+                    amount: plan.plans?.[0]?.price ?? '',
+                  })
+                }
               />
             </View>
           </View>
@@ -125,7 +133,7 @@ const CarouselComponent = () => {
     );
   };
 
-  const renderOtherPlans = plan => {
+  const renderOtherPlans = (plan: MiningPlan) => {
     return (
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.slide}>
@@ -156,7 +164,7 @@ const CarouselComponent = () => {
           </View>
 
           <View style={styles.listContainer}>
-            {plan.data.map((item: any, idx:any) => (
+            {(plan.data ?? []).map((item: string, idx: number) => (
               <View key={idx} style={styles.listItem}>
                 <Ionicons
                   name="ellipse"
@@ -170,7 +178,12 @@ const CarouselComponent = () => {
             <View style={styles.fixedButtonContainer}>
               <Button
                 title="Subscribe"
-                onPress={() => navigation.navigate('SelectPaymentMethod')}
+                onPress={() =>
+                  navigation.navigate('SelectPaymentMethod', {
+                    planName: plan.title,
+                    amount: plan.offText ?? '',
+                  })
+                }
               />
             </View>
           </View>

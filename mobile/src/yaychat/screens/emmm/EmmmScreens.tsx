@@ -12,6 +12,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
   AsyncView,
+  Banner,
   Badge,
   Card,
   HubCta,
@@ -27,7 +28,7 @@ import {
 } from '../../design/components';
 import {colors, radius, shadows, spacing} from '../../design/tokens';
 import {emmmService} from '../../services';
-import {useAsync} from '../../state/hooks';
+import {useAsync, useLiveData} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import type {RootStackParamList} from '../../types/navigation';
 
@@ -54,10 +55,24 @@ export const EmmmHubScreen = ({
     () => emmmService.dashboard(),
     [],
   );
+  const live = useLiveData('ecosystem');
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview — figures are simulated. Live data comes from your EMMM account." />
+      {/* EMMM is only partly readable from here: this backend knows the
+          member's nugget eligibility, but the slate, jackpot, ticket, and
+          accuracy live in the EMMM product. Clearing the banner outright once
+          the ecosystem probe succeeds would imply every figure is live, so the
+          live case gets its own, narrower statement. */}
+      {live ? (
+        <Banner
+          tone="info"
+          icon="information-circle"
+          text="Your nugget balance and eligibility are live. Slate, ticket, and accuracy figures need the EMMM account API and show as —."
+        />
+      ) : (
+        <MockNotice text="Preview — figures are simulated. Live data comes from your EMMM account." />
+      )}
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {d => (
           <>

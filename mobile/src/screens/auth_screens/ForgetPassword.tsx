@@ -5,13 +5,7 @@ import {View, Text, StyleSheet, Image} from 'react-native';
 import {RootStackParamsList} from '../../RootNavigator';
 import {StackNavigationProp} from '@react-navigation/stack';
 import TextField from '../../components/TextField';
-import Button from '../../components/Button';
-import {
-  sendForgotPasswordOtp,
-  sendForgotPasswordOtpToPhone,
-  sendOtp,
-  sendPhoneOtp,
-} from '../../services/auth.service';
+import {sendOtp, sendPhoneOtp} from '../../services/auth.service';
 import {Alert} from 'react-native';
 import OvalButton from '../../components/OvalButton';
 

@@ -7,12 +7,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import {colors} from '../../../theme/colors';
 import TextField from '../../../components/TextField';
-import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
+import {useNavigation} from '@react-navigation/native';
 import {AuthNavigationProp} from '../../../navigation/types';
-import Button from '../../../components/Button';
-import {RootStackParamsList} from '../../../RootNavigator';
 import {useUserRegistration} from '../../../context/UserRegistrationContext';
 import {checkEmail} from '../../../services/auth.service';
 import OvalButton from '../../../components/OvalButton';

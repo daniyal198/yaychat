@@ -8,6 +8,7 @@ import {
   communityService,
   aiService,
   earnService,
+  userService,
   walletService,
   simulation,
   setSimulatedOffline,
@@ -43,19 +44,82 @@ describe('authService', () => {
     expect(session.user.id).toBe(ME_ID);
   });
 
+  it('signs in with a phone number and returns an onboarded session', async () => {
+    const session = await authService.signInWithPhone('+1 415 555 0117', 'password123');
+    expect(session.token).toBeTruthy();
+    expect(session.onboarded).toBe(true);
+    // Canonicalised to E.164 before it reaches the backend: spacing must not
+    // make one number look like two accounts.
+    expect(session.user.phone).toBe('+14155550117');
+  });
+
+  it('normalises every spelling of a number to the same E.164 identity', async () => {
+    // The bug this guards: a member registers as +14155550117, later types the
+    // number with spaces or brackets, and the phone lookup reports it as
+    // unregistered because the two strings differ.
+    const spellings = ['+1 415 555 0117', '+1 (415) 555-0117', '+14155550117'];
+    const phones = await Promise.all(
+      spellings.map(async spelling => {
+        const session = await authService.signInWithPhone(spelling, 'password123');
+        return session.user.phone;
+      }),
+    );
+    expect(new Set(phones).size).toBe(1);
+    expect(phones[0]).toBe('+14155550117');
+  });
+
   it('sign up returns a non-onboarded session', async () => {
     const session = await authService.signUp({
+      method: 'email',
       name: 'Test User',
       email: 'test@example.com',
+      profilePic: 'file:///profile.jpg',
       password: 'password123',
     });
     expect(session.onboarded).toBe(false);
     expect(session.user.name).toBe('Test User');
+    expect(session.user.email).toBe('test@example.com');
+    expect(session.user.profilePic).toBe('file:///profile.jpg');
+  });
+
+  it('allows sign up with a phone number instead of an email', async () => {
+    const session = await authService.signUp({
+      method: 'phone',
+      name: 'Test User',
+      phone: '+1 555 010 0199',
+      password: 'password123',
+    });
+    expect(session.onboarded).toBe(false);
+    expect(session.user.name).toBe('Test User');
+    expect(session.user.phone).toBe('+1 555 010 0199');
+  });
+
+  it('rejects an invalid phone number during phone sign up', async () => {
+    await expect(
+      authService.signUp({
+        method: 'phone',
+        name: 'Test User',
+        phone: '123',
+        password: 'password123',
+      }),
+    ).rejects.toMatchObject({code: 'validation'});
   });
 
   it('verifies only the preview code 123456', async () => {
     await expect(authService.verifyCode('000000')).rejects.toBeInstanceOf(ApiError);
     await expect(authService.verifyCode('123456')).resolves.toBeUndefined();
+  });
+
+  it('validates the password reset code and new password', async () => {
+    await expect(
+      authService.resetPassword('a@b.com', '000000', 'newpassword123'),
+    ).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      authService.resetPassword('a@b.com', '123456', 'short'),
+    ).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      authService.resetPassword('a@b.com', '123456', 'newpassword123'),
+    ).resolves.toBeUndefined();
   });
 
   it('validates usernames', async () => {
@@ -206,6 +270,7 @@ describe('communityService', () => {
     const requested = await communityService.join('co_traders');
     expect(requested.joined).toBe(false);
     expect(requested.joinRequested).toBe(true);
+    expect(requested.joinRequests?.some(r => r.status === 'pending')).toBe(true);
   });
 
   it('rejects joining invite-only communities', async () => {
@@ -225,15 +290,104 @@ describe('communityService', () => {
     expect(c.joined).toBe(true);
   });
 
-  it('records a poll vote exactly once', async () => {
+  // M3: the author of a post comes from the session, never from the caller —
+  // a client that could name itself could sign a post as "BTCY Official".
+  it('attributes a new feed post to the signed-in account', async () => {
+    const me = await userService.me();
+    const community = await communityService.postToFeed(
+      'co_btcy',
+      'Post from registered profile',
+    );
+    expect(community.feed[0].authorName).toBe(me.name);
+    expect(community.feed[0].mine).toBe(true);
+  });
+
+  // M3: a second vote is refused rather than silently ignored, so the UI can
+  // say why nothing happened.
+  it('records a poll vote exactly once and refuses the second', async () => {
     const community = await communityService.get('co_btcy');
     const poll = community.polls[0];
     const votesBefore = poll.options[0].votes;
     await communityService.vote('co_btcy', poll.id, 0);
-    await communityService.vote('co_btcy', poll.id, 0);
+    await expect(communityService.vote('co_btcy', poll.id, 0)).rejects.toMatchObject({
+      code: 'validation',
+    });
     const after = await communityService.get('co_btcy');
     expect(after.polls[0].options[0].votes).toBe(votesBefore + 1);
     expect(after.polls[0].votedIndex).toBe(0);
+  });
+
+  it('lets staff approve private community join requests', async () => {
+    const c = await communityService.create({
+      name: 'Private Review Room',
+      category: 'Business',
+      description: 'Private access test',
+      privacy: 'private',
+    });
+    c.joinRequests = [
+      {
+        id: 'jr_test',
+        userName: 'Applicant One',
+        userEmail: 'applicant@example.com',
+        requestedAt: new Date().toISOString(),
+        status: 'pending',
+      },
+    ];
+    const before = c.memberCount;
+    const updated = await communityService.approveJoinRequest(c.id, 'jr_test', true);
+    expect(updated.joinRequests?.[0].status).toBe('approved');
+    expect(updated.memberCount).toBe(before + 1);
+  });
+
+  it('restricts official announcements to approved publishers', async () => {
+    await expect(
+      communityService.publishAnnouncement('co_design', {
+        title: 'Unapproved update',
+        body: 'This should not publish from a regular member.',
+      }),
+    ).rejects.toMatchObject({code: 'unauthorized'});
+  });
+
+  it('schedules targeted announcements and tracks reads', async () => {
+    const c = await communityService.create({
+      name: 'Announcement Ops',
+      category: 'Business',
+      description: 'Official update testing',
+      privacy: 'public',
+    });
+    const scheduled = await communityService.publishAnnouncement(c.id, {
+      title: 'Regional launch',
+      body: 'Launch starts tomorrow morning.',
+      scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
+      audience: 'region',
+      region: 'United States',
+      actionLabel: 'Open details',
+      actionUrl: 'mock-link://launch-details',
+    });
+    const announcement = scheduled.announcements[0];
+    expect(announcement.status).toBe('scheduled');
+    expect(announcement.region).toBe('United States');
+    expect(announcement.actionUrl).toBe('mock-link://launch-details');
+    const read = await communityService.readAnnouncement(c.id, announcement.id);
+    expect(read.announcements[0].readCount).toBe(1);
+  });
+
+  it('stores moderation reports and lets staff resolve them', async () => {
+    const c = await communityService.create({
+      name: 'Moderation Ops',
+      category: 'Learning',
+      description: 'Report workflow testing',
+      privacy: 'public',
+    });
+    const reported = await communityService.report(c.id, 'Spam');
+    expect(reported.moderationReports?.[0].status).toBe('open');
+    const resolved = await communityService.resolveReport(
+      c.id,
+      reported.moderationReports![0].id,
+      'removed',
+    );
+    expect(resolved.moderationReports?.[0].status).toBe('removed');
+    expect(resolved.moderationReports?.[0].assignedTo).toBeTruthy();
   });
 });
 
@@ -245,19 +399,33 @@ describe('aiService', () => {
     expect(updated.messages[1].role).toBe('assistant');
   });
 
-  it('consumes credits per send', async () => {
-    const before = (await aiService.usage()).usedCredits;
+  it('uses the profile name in generated email signatures', async () => {
+    const convo = await aiService.start('email', 'Draft a follow-up email');
+    const updated = await aiService.send(
+      convo.id,
+      'Draft a follow-up email',
+      'email',
+      'Registered Tester',
+    );
+    expect(updated.messages[1].text).toContain('Best,\nRegistered Tester');
+    expect(updated.messages[1].text).not.toContain('Best,\nJordan');
+  });
+
+  it('counts one request against the daily quota per send', async () => {
+    const before = (await aiService.usage()).usedRequests;
     const convo = await aiService.start('ask');
     await aiService.send(convo.id, 'hello');
-    const after = (await aiService.usage()).usedCredits;
+    const after = (await aiService.usage()).usedRequests;
     expect(after).toBe(before + 1);
   });
 
-  it('simulates provider unavailability', async () => {
+  // A provider outage must degrade rather than fail the request — the answer
+  // still arrives, flagged so the UI can say it came from the offline path.
+  it('marks answers produced without a live provider as degraded', async () => {
     const convo = await aiService.start('ask');
-    await expect(aiService.send(convo.id, 'test #unavailable')).rejects.toMatchObject({
-      code: 'server',
-    });
+    const updated = await aiService.send(convo.id, 'hello');
+    expect(updated.messages[1].degraded).toBe(true);
+    expect(aiService.providerStatus().live).toBe(false);
   });
 });
 

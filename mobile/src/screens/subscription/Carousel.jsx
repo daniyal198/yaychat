@@ -33,8 +33,7 @@ import BellIcon from '../../../assets/img/BellIcon.svg';
 import ChoosePlanIcon from '../../../assets/img/choosePlanIcon.svg';
 import Config from 'react-native-config';
 import { getAllMiningPlans, createMiningSubscriptionPlanOrder } from '../../services/auth.service';
-import { requestSubscription } from '../../services/iap.service';
-// import { getSubscriptions } from 'react-native-iap';
+import { getSubscriptions, requestSubscription } from '../../services/iap.service';
 
 const basePlans = [
   {

@@ -1,19 +1,10 @@
 import React, {useState} from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  SafeAreaView,
-  Alert,
-} from 'react-native';
+import {StyleSheet, View, Text, TextInput, SafeAreaView, Alert} from 'react-native';
 import {colors} from '../../../theme/colors';
 import CountryPicker, {
   DARK_THEME,
   Country,
 } from 'react-native-country-picker-modal';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useNavigation} from '@react-navigation/native';
 import {AuthNavigationProp} from '../../../navigation/types';
 import OvalButton from '../../../components/OvalButton';

@@ -11,10 +11,7 @@ import {colors} from '../../../theme/colors';
 import PasswordTextField from '../../../components/PasswordTextField';
 import {useNavigation} from '@react-navigation/native';
 import {AuthNavigationProp} from '../../../navigation/types';
-import Button from '../../../components/Button';
 
-import {RouteProp, useRoute} from '@react-navigation/native';
-import {RootStackParamsList} from '../../../RootNavigator';
 import {useUserRegistration} from '../../../context/UserRegistrationContext';
 import OvalButton from '../../../components/OvalButton';
 

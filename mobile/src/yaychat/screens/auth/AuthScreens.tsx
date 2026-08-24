@@ -28,7 +28,8 @@ import {
   YayText,
 } from '../../design/components';
 import {colors, spacing} from '../../design/tokens';
-import {authService} from '../../services';
+import {authService, usesLiveAuth} from '../../services';
+import {parsePhone} from '../../utils/phone';
 import {useAction} from '../../state/hooks';
 import {useAuth, useToast} from '../../state/AppProviders';
 import type {Session} from '../../types/models';
@@ -36,6 +37,7 @@ import type {
   AuthStackParamList,
   OnboardingStackParamList,
 } from '../../types/navigation';
+import {chooseProfilePhoto} from '../../utils/profilePhoto';
 
 type AuthProps<R extends keyof AuthStackParamList> = NativeStackScreenProps<
   AuthStackParamList,
@@ -116,7 +118,7 @@ export const WelcomeScreen = ({navigation}: AuthProps<'Welcome'>) => {
         />
         <ValueBullet
           icon="gift-outline"
-          text="Earn YayPoints for everyday activity and invites."
+          text="Earn IndexxPoints for everyday activity and invites."
         />
       </Card>
       <Spacer size={spacing.xl} />
@@ -155,24 +157,35 @@ export const SignInScreen = ({navigation}: AuthProps<'SignIn'>) => {
   const {signIn} = useAuth();
   const toast = useToast();
   const {busy, perform} = useAction();
+  const [mode, setMode] = useState<'Email' | 'Phone'>('Email');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState<{email?: string; password?: string}>({});
+  const [errors, setErrors] = useState<{email?: string; phone?: string; password?: string}>({});
 
   const submit = async () => {
-    const next: {email?: string; password?: string} = {};
-    if (!EMAIL_RE.test(email.trim())) {
+    const next: {email?: string; phone?: string; password?: string} = {};
+    if (mode === 'Email' && !EMAIL_RE.test(email.trim())) {
       next.email = 'Enter a valid email address.';
+    }
+    if (mode === 'Phone') {
+      const parsed = parsePhone(phone);
+      if (!parsed.e164) {
+        next.phone = parsed.error ?? 'Enter a valid phone number.';
+      }
     }
     if (password.length < 6) {
       next.password = 'Password must be at least 6 characters.';
     }
     setErrors(next);
-    if (next.email || next.password) {
+    if (next.email || next.phone || next.password) {
       return;
     }
     const session = await perform(
-      () => authService.signIn(email.trim(), password),
+      () =>
+        mode === 'Email'
+          ? authService.signIn(email.trim(), password)
+          : authService.signInWithPhone(phone.trim(), password),
       message => toast.show(message, 'error'),
     );
     if (session) {
@@ -186,21 +199,39 @@ export const SignInScreen = ({navigation}: AuthProps<'SignIn'>) => {
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
         Sign in to pick up your chats, communities, and rewards.
       </YayText>
-      <Banner
-        tone="info"
-        icon="flask"
-        text='Preview build: any valid email signs in. Use password "wrongpass" to simulate a failed sign-in.'
+      <SegmentedTabs
+        tabs={['Email', 'Phone']}
+        active={mode}
+        onChange={tab => {
+          setMode(tab as 'Email' | 'Phone');
+          setErrors({});
+        }}
       />
-      <TextField
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        placeholder="you@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoCorrect={false}
-        error={errors.email}
-      />
+      <Spacer size={spacing.md} />
+      {mode === 'Email' ? (
+        <TextField
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          error={errors.email}
+        />
+      ) : (
+        <TextField
+          label="Phone number"
+          value={phone}
+          onChangeText={setPhone}
+          placeholder="+1 555 010 0199"
+          keyboardType="phone-pad"
+          textContentType="telephoneNumber"
+          autoCorrect={false}
+          error={errors.phone}
+          hint="Include your country code."
+        />
+      )}
       <TextField
         label="Password"
         value={password}
@@ -227,28 +258,50 @@ export const SignInScreen = ({navigation}: AuthProps<'SignIn'>) => {
 // ---------------------------------------------------------------------------
 
 export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
+  const {signIn} = useAuth();
   const toast = useToast();
   const {busy, perform} = useAction();
+  const [mode, setMode] = useState<'Email' | 'Phone'>('Email');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [profilePic, setProfilePic] = useState<string | undefined>();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [errors, setErrors] = useState<{
     name?: string;
     email?: string;
+    phone?: string;
     password?: string;
     confirm?: string;
     accepted?: string;
   }>({});
+
+  const choosePhoto = async () => {
+    try {
+      const uri = await chooseProfilePhoto();
+      if (uri) {
+        setProfilePic(uri);
+      }
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : 'Could not select that picture.', 'error');
+    }
+  };
 
   const submit = async () => {
     const next: typeof errors = {};
     if (name.trim().length < 2) {
       next.name = 'Enter your name.';
     }
-    if (!EMAIL_RE.test(email.trim())) {
+    if (mode === 'Email' && !EMAIL_RE.test(email.trim())) {
       next.email = 'Enter a valid email address.';
+    }
+    if (mode === 'Phone') {
+      const parsed = parsePhone(phone);
+      if (!parsed.e164) {
+        next.phone = parsed.error ?? 'Enter a valid phone number.';
+      }
     }
     if (password.length < 8) {
       next.password = 'Password must be at least 8 characters.';
@@ -264,12 +317,33 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
       return;
     }
     const session = await perform(
-      () => authService.signUp({name: name.trim(), email: email.trim(), password}),
+      () =>
+        authService.signUp({
+          method: mode.toLowerCase() as 'email' | 'phone',
+          name: name.trim(),
+          email: mode === 'Email' ? email.trim() : undefined,
+          phone: mode === 'Phone' ? phone.trim() : undefined,
+          profilePic,
+          password,
+        }),
       message => toast.show(message, 'error'),
     );
     if (session) {
-      pendingSignUpSession = session;
-      navigation.navigate('VerifyEmail', {email: email.trim()});
+      if (session.onboarded) {
+        signIn(session);
+      } else {
+        pendingSignUpSession = session;
+        if (mode === 'Email') {
+          navigation.navigate('VerifyEmail', {email: email.trim()});
+        } else {
+          // Navigate on the canonical form: it is what the backend stored and
+          // what the verify call must send back, and it is also what the
+          // screen displays.
+          navigation.navigate('VerifyPhone', {
+            phone: parsePhone(phone).e164 ?? phone.trim(),
+          });
+        }
+      }
     }
   };
 
@@ -279,6 +353,32 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
         A couple of details and you are in.
       </YayText>
+      <View style={{alignItems: 'center', marginBottom: spacing.lg}}>
+        <Avatar
+          name={name.trim() || 'New user'}
+          size={84}
+          color="#E2842D"
+          imageUri={profilePic}
+        />
+        <Spacer size={spacing.xs} />
+        <Button
+          label={profilePic ? 'Change profile picture' : 'Upload profile picture'}
+          kind="secondary"
+          icon="camera-outline"
+          onPress={choosePhoto}
+        />
+        {profilePic ? (
+          <Button
+            label="Remove picture"
+            kind="ghost"
+            icon="trash-outline"
+            onPress={() => setProfilePic(undefined)}
+          />
+        ) : null}
+        <YayText variant="micro" color={colors.textMuted}>
+          Optional · image files up to 5 MB
+        </YayText>
+      </View>
       <TextField
         label="Name"
         value={name}
@@ -287,16 +387,39 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
         autoCorrect={false}
         error={errors.name}
       />
-      <TextField
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        placeholder="you@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoCorrect={false}
-        error={errors.email}
+      <SegmentedTabs
+        tabs={['Email', 'Phone']}
+        active={mode}
+        onChange={tab => {
+          setMode(tab as 'Email' | 'Phone');
+          setErrors(prev => ({...prev, email: undefined, phone: undefined}));
+        }}
       />
+      <Spacer size={spacing.md} />
+      {mode === 'Email' ? (
+        <TextField
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          error={errors.email}
+        />
+      ) : (
+        <TextField
+          label="Phone number"
+          value={phone}
+          onChangeText={setPhone}
+          placeholder="+1 555 010 0199"
+          keyboardType="phone-pad"
+          textContentType="telephoneNumber"
+          autoCorrect={false}
+          error={errors.phone}
+          hint="Include your country code."
+        />
+      )}
       <TextField
         label="Password"
         value={password}
@@ -363,6 +486,7 @@ const useVerification = () => {
 
 export const VerifyEmailScreen = ({navigation, route}: AuthProps<'VerifyEmail'>) => {
   const toast = useToast();
+  const backendLive = usesLiveAuth();
   const {busy, perform} = useAction();
   const {finishSignUp} = useVerification();
   const [code, setCode] = useState('');
@@ -375,14 +499,37 @@ export const VerifyEmailScreen = ({navigation, route}: AuthProps<'VerifyEmail'>)
     }
     setError(null);
     const ok = await perform(
-      () => authService.verifyCode(code).then(() => true),
+      () =>
+        authService
+          .verifyCode(code, {channel: 'email', identifier: route.params.email})
+          .then(() => true),
       message => setError(message),
     );
     if (ok) {
       toast.show('Email verified', 'success');
-      navigation.navigate('VerifyPhone', {phone: '+1 (555) 010-0199'});
+      // Only ask for a phone number when the account actually has one. The
+      // previous hard-coded number sent every signup to a phone step for a
+      // line that was not theirs.
+      if (route.params.phone) {
+        navigation.navigate('VerifyPhone', {phone: route.params.phone});
+      } else {
+        finishSignUp();
+      }
     }
   };
+
+  const resend = () =>
+    perform(
+      () =>
+        authService
+          .sendCode({channel: 'email', identifier: route.params.email})
+          .then(() => true),
+      message => toast.show(message, 'error'),
+    ).then(sent => {
+      if (sent) {
+        toast.show('A new code is on its way to your inbox.', 'success');
+      }
+    });
 
   return (
     <Screen>
@@ -390,7 +537,9 @@ export const VerifyEmailScreen = ({navigation, route}: AuthProps<'VerifyEmail'>)
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
         We sent a 6-digit verification code to {route.params.email}.
       </YayText>
-      <Banner tone="info" icon="flask" text="Preview build: the code is always 123456." />
+      {backendLive ? null : (
+        <Banner tone="info" icon="flask" text="Preview build: the code is always 123456." />
+      )}
       <TextField
         label="Verification code"
         value={code}
@@ -410,10 +559,7 @@ export const VerifyEmailScreen = ({navigation, route}: AuthProps<'VerifyEmail'>)
       />
       <Spacer size={spacing.md} />
       <Row style={{justifyContent: 'center'}}>
-        <InlineLink
-          label="Resend code"
-          onPress={() => toast.show('A new code is on its way to your inbox.', 'success')}
-        />
+        <InlineLink label="Resend code" onPress={resend} />
       </Row>
     </Screen>
   );
@@ -421,6 +567,7 @@ export const VerifyEmailScreen = ({navigation, route}: AuthProps<'VerifyEmail'>)
 
 export const VerifyPhoneScreen = ({route}: AuthProps<'VerifyPhone'>) => {
   const toast = useToast();
+  const backendLive = usesLiveAuth();
   const {busy, perform} = useAction();
   const {finishSignUp} = useVerification();
   const [code, setCode] = useState('');
@@ -433,7 +580,10 @@ export const VerifyPhoneScreen = ({route}: AuthProps<'VerifyPhone'>) => {
     }
     setError(null);
     const ok = await perform(
-      () => authService.verifyCode(code).then(() => true),
+      () =>
+        authService
+          .verifyCode(code, {channel: 'phone', identifier: route.params.phone})
+          .then(() => true),
       message => setError(message),
     );
     if (ok) {
@@ -442,6 +592,19 @@ export const VerifyPhoneScreen = ({route}: AuthProps<'VerifyPhone'>) => {
     }
   };
 
+  const resend = () =>
+    perform(
+      () =>
+        authService
+          .sendCode({channel: 'phone', identifier: route.params.phone})
+          .then(() => true),
+      message => toast.show(message, 'error'),
+    ).then(sent => {
+      if (sent) {
+        toast.show('A new code is on its way to your phone.', 'success');
+      }
+    });
+
   return (
     <Screen>
       <YayText variant="title">Verify your phone</YayText>
@@ -449,7 +612,9 @@ export const VerifyPhoneScreen = ({route}: AuthProps<'VerifyPhone'>) => {
         We texted a 6-digit code to {route.params.phone}. Verifying your number helps friends find
         you and keeps your account recoverable.
       </YayText>
-      <Banner tone="info" icon="flask" text="Preview build: the code is always 123456." />
+      {backendLive ? null : (
+        <Banner tone="info" icon="flask" text="Preview build: the code is always 123456." />
+      )}
       <TextField
         label="SMS code"
         value={code}
@@ -464,10 +629,7 @@ export const VerifyPhoneScreen = ({route}: AuthProps<'VerifyPhone'>) => {
       <Button label="Skip for now" kind="ghost" onPress={finishSignUp} />
       <Spacer size={spacing.md} />
       <Row style={{justifyContent: 'center'}}>
-        <InlineLink
-          label="Resend code"
-          onPress={() => toast.show('A new code is on its way to your phone.', 'success')}
-        />
+        <InlineLink label="Resend code" onPress={resend} />
       </Row>
     </Screen>
   );
@@ -504,12 +666,20 @@ export const ForgotPasswordScreen = ({navigation}: AuthProps<'ForgotPassword'>) 
       <Screen>
         <StateView
           icon="mail-open-outline"
-          title="Check your inbox"
-          message={`If an account exists for ${email.trim()}, a reset link is on its way. Follow it, then set a new password here.`}
+          title="Check your email"
+          message={`We sent a 6-digit password reset code to ${email.trim()}. The code expires in 15 minutes.`}
         />
         <Button
-          label="I have my reset link"
+          label="Enter reset code"
           onPress={() => navigation.navigate('ResetPassword', {email: email.trim()})}
+        />
+        <Spacer size={spacing.sm} />
+        <Button
+          label="Resend code"
+          kind="secondary"
+          onPress={submit}
+          loading={busy}
+          icon="refresh-outline"
         />
         <Spacer size={spacing.sm} />
         <Button label="Back to sign in" kind="ghost" onPress={() => navigation.navigate('SignIn')} />
@@ -521,7 +691,7 @@ export const ForgotPasswordScreen = ({navigation}: AuthProps<'ForgotPassword'>) 
     <Screen>
       <YayText variant="title">Forgot your password?</YayText>
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
-        Enter the email on your account and we will send a reset link.
+        Enter the email on your account and we will send a 6-digit reset code.
       </YayText>
       <TextField
         label="Email"
@@ -533,7 +703,7 @@ export const ForgotPasswordScreen = ({navigation}: AuthProps<'ForgotPassword'>) 
         autoCorrect={false}
         error={error}
       />
-      <Button label="Send reset link" onPress={submit} loading={busy} icon="mail-outline" />
+      <Button label="Send reset code" onPress={submit} loading={busy} icon="mail-outline" />
     </Screen>
   );
 };
@@ -541,12 +711,16 @@ export const ForgotPasswordScreen = ({navigation}: AuthProps<'ForgotPassword'>) 
 export const ResetPasswordScreen = ({navigation, route}: AuthProps<'ResetPassword'>) => {
   const toast = useToast();
   const {busy, perform} = useAction();
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [errors, setErrors] = useState<{password?: string; confirm?: string}>({});
+  const [errors, setErrors] = useState<{code?: string; password?: string; confirm?: string}>({});
 
   const submit = async () => {
     const next: typeof errors = {};
+    if (!/^\d{6}$/.test(code)) {
+      next.code = 'Enter the 6-digit code from your email.';
+    }
     if (password.length < 8) {
       next.password = 'Password must be at least 8 characters.';
     }
@@ -554,11 +728,11 @@ export const ResetPasswordScreen = ({navigation, route}: AuthProps<'ResetPasswor
       next.confirm = 'Passwords do not match.';
     }
     setErrors(next);
-    if (next.password || next.confirm) {
+    if (next.code || next.password || next.confirm) {
       return;
     }
     const ok = await perform(
-      () => authService.resetPassword(password).then(() => true),
+      () => authService.resetPassword(route.params.email, code, password).then(() => true),
       message => toast.show(message, 'error'),
     );
     if (ok) {
@@ -571,8 +745,17 @@ export const ResetPasswordScreen = ({navigation, route}: AuthProps<'ResetPasswor
     <Screen>
       <YayText variant="title">Set a new password</YayText>
       <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.lg}}>
-        Choose a new password for {route.params.email}.
+        Enter the code sent to {route.params.email}, then choose a new password.
       </YayText>
+      <TextField
+        label="Reset code"
+        value={code}
+        onChangeText={text => setCode(text.replace(/[^0-9]/g, '').slice(0, 6))}
+        placeholder="6-digit code"
+        keyboardType="number-pad"
+        maxLength={6}
+        error={errors.code}
+      />
       <TextField
         label="New password"
         value={password}
@@ -605,7 +788,7 @@ const LEGAL_COPY: Record<'terms' | 'privacy', {title: string; paragraphs: string
       'This is placeholder draft copy for the YaysApp preview build. It is not a binding agreement and will be replaced by counsel-reviewed terms before public release.',
       '1. Your account. You are responsible for the activity that happens under your account and for keeping your sign-in credentials secure. You must be at least 13 years old (or the minimum age in your country) to use YaysApp.',
       '2. Acceptable use. Do not use YaysApp to harass, defraud, or harm others, to distribute unlawful content, or to interfere with the service. Community spaces have additional rules set by their organizers, and moderators may remove content or members that break them.',
-      '3. Rewards preview. YayPoints, wallet balances, and any earn features shown in this build are simulated previews. They carry no monetary value, cannot be redeemed, and may be reset at any time without notice.',
+      '3. Rewards preview. IndexxPoints, wallet balances, and any earn features shown in this build are simulated previews. They carry no monetary value, cannot be redeemed, and may be reset at any time without notice.',
       '4. Content. You keep ownership of what you post. By posting, you grant YaysApp the limited license needed to store, display, and transmit your content so the service can function.',
       '5. Termination. You can stop using YaysApp at any time and delete your account from Settings. We may suspend accounts that violate these terms.',
       '6. Changes. We will notify you of material changes to these terms in-app before they take effect.',
@@ -776,7 +959,11 @@ export const ProfileSetupScreen = ({navigation, route}: OnboardingProps<'Profile
         You are @{route.params.username}. Add a name and a short bio.
       </YayText>
       <View style={{alignItems: 'center', marginBottom: spacing.lg}}>
-        <Avatar name={name.trim() || route.params.username} size={84} />
+        <Avatar
+          name={name.trim() || route.params.username}
+          size={84}
+          imageUri={session?.user.profilePic}
+        />
         <Spacer size={spacing.xs} />
         <YayText variant="caption" color={colors.textMuted}>
           Your avatar preview updates as you type your name.
@@ -890,7 +1077,7 @@ export const OnboardingDoneScreen = (_props: OnboardingProps<'OnboardingDone'>) 
       <StateView
         icon="sparkles-outline"
         title="You are all set!"
-        message="Your profile is ready and your first YayPoints are waiting."
+        message="Your profile is ready and your first IndexxPoints are waiting."
         compact
       />
       <Card>

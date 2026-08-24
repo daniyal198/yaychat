@@ -13,7 +13,6 @@ import { colors } from '../../../theme/colors';
 import PasswordTextField from '../../../components/PasswordTextField';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { AuthNavigationProp } from '../../../navigation/types';
-import Button from '../../../components/Button';
 import { useAuth } from '../../../context/AuthContext';
 import { RootStackParamsList } from '../../../RootNavigator';
 import { loginWithPhone } from '../../../services/auth.service';
@@ -21,8 +20,6 @@ import OvalButton from '../../../components/OvalButton';
 type RouteProps = RouteProp<RootStackParamsList, 'LoginWithPhonePassword'>;
 const LoginWithPhonePassword = () => {
   const navigation = useNavigation<AuthNavigationProp>();
-  const navigationHome = useNavigation();
-
   const route = useRoute<RouteProps>();
   const { phone } = route.params;
   const [password, setPassword] = useState('');

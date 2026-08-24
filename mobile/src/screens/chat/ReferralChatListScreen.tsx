@@ -1,14 +1,5 @@
 import React from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    SafeAreaView,
-    FlatList,
-    TouchableOpacity,
-    Image,
-    Alert
-} from 'react-native';
+import {View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, Image} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import avatar from '../../../assets/img/Avatar.png';

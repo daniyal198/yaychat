@@ -1,6 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 1:1 audio/video calling (WebRTC). CAMERA is only requested at runtime
+         for video calls; MODIFY_AUDIO_SETTINGS is what lets the app route audio
+         to the earpiece vs. speaker, and BLUETOOTH_CONNECT is required from
+         Android 12 for headset routing. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" android:usesPermissionFlags="neverForLocation" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Add these permissions INSIDE the <manifest> tag but OUTSIDE <application> -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
@@ -33,6 +45,20 @@
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+        <!-- M6 deep links: yaychat://chat/<id>, //c/<id>, //earn, //notifications -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="yaychat" />
+        </intent-filter>
+        <!-- The https twin of the same routes (App Links). -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="yay.chat" />
         </intent-filter>
       </activity>
     </application>

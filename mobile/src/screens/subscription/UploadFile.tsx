@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, Alert} from 'react-native';
 import { pick } from '@react-native-documents/picker';
 import { colors } from '../../theme/colors';
 import UploadIcon from '../../../assets/splash/solar_upload-broken.svg';
@@ -65,172 +58,6 @@ const UploadFileScreen = () => {
     }
   };
 
-  const handleSubmit0 = async () => {
-    if (!selectedFile) {
-      Alert.alert('Error', 'Please select a file first');
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      // 1. Get pre-signed URL from your backend
-      const presignedResponse = await getPresignedUrl(selectedFile?.type);
-      console.log('Presigned URL Response:', presignedResponse);
-
-      const { url, fields } = presignedResponse.data;
-
-      // 2. Create FormData for the upload
-      const formData = new FormData();
-
-      // Append all required fields from the presigned response
-      Object.entries(fields).forEach(([key, value]) => {
-        formData.append(key, value as string);
-      });
-
-      // Append the file - React Native specific format
-      formData.append('file', {
-        uri: selectedFile.uri,
-        name: selectedFile.name,
-        type: selectedFile.type,
-      });
-
-      // 3. Upload to S3
-      // Try PUT first, then fall back to POST if needed
-      let uploadResponse;
-      try {
-        uploadResponse = await fetch(url, {
-          method: 'PUT', // First try PUT
-          body: formData,
-          headers: {
-            'Content-Type': selectedFile.type, // For PUT, use file's content type
-          },
-        });
-      } catch (putError) {
-        console.log('PUT failed, trying POST...', putError);
-        uploadResponse = await fetch(url, {
-          method: 'POST', // Fall back to POST
-          body: formData,
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-      }
-      console.log('Upload Status:', uploadResponse.status);
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('Upload failed:', errorText);
-        Alert.alert('Upload Failed', 'Failed to upload file to S3');
-        return;
-      }
-
-      // 4. Construct the URL where the file can be accessed
-      // Note: This depends on your S3 configuration
-      const uploadedFileUrl = `${url.split('?')[0]}/${fields.key}`;
-
-      // 5. Notify your backend about the successful upload
-      const result = await createFiatDepositForOrder(
-        String(email),
-        String(orderId),
-        fromDetails,
-        toDetails,
-        uploadedFileUrl,
-      );
-
-      if (result.success) {
-        navigation.navigate('TrackSubscription', {
-          orderId,
-          paymentType,
-          amount,
-          currency,
-        });
-      } else {
-        Alert.alert('Error', result.message || 'Deposit creation failed');
-      }
-    } catch (error) {
-      console.error('Upload Error:', error);
-      Alert.alert('Error', 'An error occurred during file upload');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSubmit1 = async () => {
-    if (!selectedFile) {
-      Alert.alert('Error', 'Please select a file first');
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      // 1. Get pre-signed URL with file type information
-      const presignedResponse = await getPresignedUrl(selectedFile.type);
-      const { url, fields } = presignedResponse.data;
-
-      console.log('Presigned URL Response:', presignedResponse);
-
-      // 2. Create FormData for the upload
-      const formData = new FormData();
-
-      // Append all fields from the presigned URL
-      Object.entries(fields).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          formData.append(key, String(value));
-        }
-      });
-
-      // Append the file (must be last field)
-      formData.append('file', {
-        uri: selectedFile.uri,
-        name: fields.key || selectedFile.name,
-        type: selectedFile.type,
-      });
-
-      // 3. Upload to S3
-      const uploadResponse = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        // NOTE: Do NOT set Content-Type header - let React Native set it automatically
-        // with the correct boundary parameter
-      });
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        throw new Error(`Upload failed: ${errorText}`);
-      }
-
-      // 4. Construct the final URL (use the URL from fields)
-      const uploadedFileUrl = `${url}/${fields.key}`;
-
-      // 5. Notify your backend
-      const result = await createFiatDepositForOrder(
-        String(email),
-        String(orderId),
-        fromDetails,
-        toDetails,
-        uploadedFileUrl,
-      );
-
-      if (!result.success) {
-        throw new Error(result.message || 'Deposit creation failed');
-      }
-
-      navigation.navigate('TrackSubscription', {
-        orderId,
-        paymentType,
-        amount,
-        currency,
-      });
-    } catch (error: any) {
-      console.error('Upload Error:', error);
-      Alert.alert('Upload Failed', error.message || 'An error occurred');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleSubmit = async () => {
     if (!selectedFile) {
       Alert.alert('Error', 'Please select a file first');
@@ -250,7 +77,7 @@ const UploadFileScreen = () => {
         xhr.onload = function () {
           resolve(xhr.response);
         };
-        xhr.onerror = function (e) {
+        xhr.onerror = function (_e) {
           reject(new Error('Failed to create blob'));
         };
         xhr.responseType = 'blob';

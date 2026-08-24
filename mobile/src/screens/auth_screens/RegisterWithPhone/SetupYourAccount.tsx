@@ -11,7 +11,6 @@ import TextField from '../../../components/TextField';
 import { colors } from '../../../theme/colors';
 import { useNavigation } from '@react-navigation/native';
 import { AuthNavigationProp } from '../../../navigation/types';
-import Button from '../../../components/Button';
 import { useUserRegistration } from '../../../context/UserRegistrationContext';
 import { checkUsername } from '../../../services/auth.service';
 import OvalButton from '../../../components/OvalButton';

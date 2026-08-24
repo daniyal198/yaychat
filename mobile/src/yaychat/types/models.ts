@@ -8,6 +8,7 @@ export interface User {
   username: string;
   email: string;
   phone?: string;
+  profilePic?: string;
   bio?: string;
   online: boolean;
   lastSeen: string;
@@ -35,6 +36,8 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface Message {
   id: ID;
+  /** Database identifier used by backend-only operations such as read receipts. */
+  backendId?: ID;
   /** Caller-generated idempotency key used to reconcile retries and optimistic sends. */
   clientId?: ID;
   conversationId: ID;
@@ -74,6 +77,8 @@ export interface Conversation {
 
 export interface Community {
   id: ID;
+  /** URL handle used by the community's web link and invites. */
+  slug?: string;
   name: string;
   category: string;
   description: string;
@@ -83,9 +88,49 @@ export interface Community {
   joinRequested?: boolean;
   inviteOnly?: boolean;
   role?: 'admin' | 'moderator' | 'member';
+  verified?: boolean;
+  officialProduct?: string;
+  /** True when this account is banned — the screen shows the reason, not a Join button. */
+  banned?: boolean;
+  /** A private community seen by a non-member: cover fields only, no content. */
+  restricted?: boolean;
+  /** Server's answer to "may I post an official announcement here?". */
+  canPublishAnnouncement?: boolean;
+  canModerate?: boolean;
+  /** M2 chat group backing community chat, so chat reuses the real transport. */
+  chatGroupId?: string;
+  approvedPublisherIds?: ID[];
+  joinRequests?: {
+    id: ID;
+    userName: string;
+    userEmail: string;
+    requestedAt: string;
+    status: 'pending' | 'approved' | 'rejected';
+  }[];
+  moderationReports?: {
+    id: ID;
+    targetType: 'community' | 'post' | 'member' | 'announcement';
+    targetId?: ID;
+    reporterName: string;
+    reason: string;
+    excerpt: string;
+    createdAt: string;
+    status: 'open' | 'approved' | 'removed' | 'dismissed';
+    assignedTo?: string;
+  }[];
+  bannedUserIds?: ID[];
   rules: string[];
-  announcements: {id: ID; title: string; body: string; postedAt: string}[];
-  events: {id: ID; title: string; date: string; attending: number}[];
+  announcements: CommunityAnnouncement[];
+  events: {
+    id: ID;
+    title: string;
+    description?: string;
+    date: string;
+    location?: string;
+    attending: number;
+    /** True when this account has RSVP'd. */
+    going?: boolean;
+  }[];
   polls: {
     id: ID;
     question: string;
@@ -93,8 +138,87 @@ export interface Community {
     votedIndex?: number;
     closesAt: string;
   }[];
-  feed: {id: ID; authorName: string; body: string; postedAt: string; likes: number}[];
+  feed: {
+    id: ID;
+    authorName: string;
+    authorId?: ID;
+    body: string;
+    postedAt: string;
+    likes: number;
+    liked?: boolean;
+    mine?: boolean;
+  }[];
   inviteLink: string;
+  /** Verified-name collisions raised by the server at create/rename time. */
+  impersonationFlags?: ImpersonationFlag[];
+}
+
+export interface CommunityAnnouncement {
+  id: ID;
+  title: string;
+  body: string;
+  postedAt: string;
+  status?: 'pending_approval' | 'scheduled' | 'published' | 'rejected';
+  scheduledFor?: string;
+  audience?: 'all' | 'members' | 'region';
+  region?: string;
+  actionLabel?: string;
+  actionUrl?: string;
+  readCount?: number;
+  /** How many members the send targeted — the denominator of the read rate. */
+  deliveredCount?: number;
+  /** True once this account has opened it; a re-read never re-counts. */
+  readByMe?: boolean;
+  publisherName?: string;
+  publisherVerified?: boolean;
+  approvedBy?: string;
+  rejectedReason?: string;
+}
+
+/** One row on the members screen. */
+export interface CommunityMember {
+  id: ID;
+  email: string;
+  name: string;
+  username: string;
+  profilePic?: string;
+  role?: 'admin' | 'moderator' | 'member';
+  status: 'active' | 'banned' | 'left' | 'removed';
+  joinedAt: string;
+  banReason?: string;
+}
+
+/** A shareable invite link and the limits attached to it. */
+export interface CommunityInvite {
+  code: string;
+  url: string;
+  appUrl: string;
+  maxUses: number | null;
+  uses: number;
+  expiresAt: string | null;
+  revoked: boolean;
+}
+
+/** A suspected impersonation of a verified community. Advisory, never blocking. */
+export interface ImpersonationFlag {
+  matchedCommunityId: ID;
+  matchedName: string;
+  score: number;
+  reason: 'exact' | 'normalized' | 'confusable' | 'official_term';
+}
+
+/** Read analytics for one announcement. */
+export interface AnnouncementStats {
+  announcementId: ID;
+  status: string;
+  audience: string;
+  region?: string;
+  delivered: number;
+  reads: number;
+  actioned: number;
+  readRate: number;
+  scheduledFor?: string;
+  publishedAt?: string;
 }
 
 export interface AiMessage {
@@ -102,6 +226,8 @@ export interface AiMessage {
   role: 'user' | 'assistant';
   text: string;
   createdAt: string;
+  /** True when the answer came from the offline path during a provider outage. */
+  degraded?: boolean;
 }
 
 export interface AiConversation {
@@ -111,12 +237,86 @@ export interface AiConversation {
   saved: boolean;
   updatedAt: string;
   messages: AiMessage[];
+  /** Cumulative spend for this thread, shown on the history row. */
+  costUsd?: number;
 }
 
+/** A tool tile on the AI hub. Mirrors the backend catalogue. */
+export interface AiTool {
+  id: string;
+  title: string;
+  /** Ionicons glyph. */
+  icon: string;
+  prompt: string;
+  /** Needs the financial/legal/medical disclaimer banner. */
+  disclaimer?: boolean;
+  comingSoon?: boolean;
+}
+
+/** Today's usage and cost against the active plan. */
 export interface AiUsage {
-  usedCredits: number;
-  totalCredits: number;
+  usedRequests: number;
+  totalRequests: number;
   plan: string;
+  planLabel: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  costCapUsd: number;
+  /** ISO timestamp of the next quota reset. */
+  resetsAt: string;
+}
+
+/**
+ * Privacy controls. The two `share*` switches are the explicit consent gate:
+ * private chat and community content never reaches a model while they are off.
+ */
+export interface AiConsent {
+  shareChatContent: boolean;
+  shareCommunityContent: boolean;
+  saveHistory: boolean;
+  personalization: boolean;
+  acceptedAt?: string | null;
+}
+
+/** Which provider is answering, so outages are visible rather than silent. */
+export interface AiProviderStatus {
+  id: string;
+  model: string;
+  /** False means answers come from the offline fallback. */
+  live: boolean;
+}
+
+/** One-shot assist result used by the in-chat and in-community actions. */
+export interface AiAssistResult {
+  text: string;
+  degraded: boolean;
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+export type SupportTicketStatus =
+  | 'ai_handling'
+  | 'awaiting_user'
+  | 'escalated'
+  | 'resolved';
+
+export interface SupportTicketMessage {
+  id: ID;
+  author: 'user' | 'ai' | 'agent';
+  text: string;
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  id: ID;
+  subject: string;
+  product: string;
+  status: SupportTicketStatus;
+  messages: SupportTicketMessage[];
+  escalatedAt?: string | null;
+  updatedAt: string;
 }
 
 export type RewardStatus = 'pending' | 'completed' | 'reversed';
@@ -125,7 +325,7 @@ export interface RewardEntry {
   id: ID;
   activity: string;
   amount: number;
-  unit: 'YayPoints';
+  unit: 'IndexxPoints';
   status: RewardStatus;
   createdAt: string;
   note?: string;
@@ -208,14 +408,19 @@ export interface SocialAccount {
 /**
  * Snapshot of the user's Bitcoin Yay state, shown on the BTCY dashboard.
  * All actions deep-link to the Bitcoin Yay app — YaysApp only displays state.
+ *
+ * `null` on a numeric field means the value could not be read from the owning
+ * product, and the screen renders an em dash. It is deliberately distinct from
+ * `0`: "we don't know your nugget balance" and "your balance is zero" lead a
+ * user to do completely different things.
  */
 export interface BtcyDashboard {
   mining: {active: boolean; speed: string; endsIn: string};
-  portfolio: {nuggets: number; tokens: number};
-  alchemy: {current: number; target: number};
+  portfolio: {nuggets: number | null; tokens: number | null};
+  alchemy: {current: number | null; target: number | null};
   referrals: {active: number; target: number};
   station: {unlocked: boolean; benefits: string[]};
-  watchEarn: {watched: number; total: number; nuggetsToday: number};
+  watchEarn: {watched: number | null; total: number | null; nuggetsToday: number | null};
   news: {id: ID; tag: string; title: string; detail: string; hot?: boolean}[];
   promo: {headline: string; subtitle: string; endsIn: string};
 }
@@ -293,6 +498,22 @@ export interface PaymentMethod {
   detail?: string;
 }
 
+/** Notification destinations the app knows how to open (mirrors the server's registry). */
+export type DeepLinkRoute =
+  | 'chat.conversation'
+  | 'chat.list'
+  | 'community.list'
+  | 'community.detail'
+  | 'community.chat'
+  | 'rewards.home'
+  | 'notifications.inbox'
+  | 'support.ticket';
+
+export interface DeepLinkTarget {
+  route: DeepLinkRoute;
+  params: Record<string, string>;
+}
+
 export interface AppNotification {
   id: ID;
   title: string;
@@ -300,6 +521,51 @@ export interface AppNotification {
   createdAt: string;
   read: boolean;
   kind: 'chat' | 'community' | 'reward' | 'system';
+  /** Where tapping this notification goes. Null for informational rows. */
+  deepLink?: DeepLinkTarget | null;
+}
+
+/** Quiet hours in the user's local time; `start > end` wraps past midnight. */
+export interface QuietHours {
+  enabled: boolean;
+  startMinute: number;
+  endMinute: number;
+  utcOffsetMinutes: number;
+}
+
+/** Server-owned notification preferences (M6). Replaces `SettingsState.notifications`. */
+export interface NotificationPreferences {
+  messages: boolean;
+  communities: boolean;
+  rewards: boolean;
+  system: boolean;
+  sounds: boolean;
+  /** Show the message text on the lock screen. */
+  previewText: boolean;
+  quietHours: QuietHours;
+  mutedConversationIds: string[];
+}
+
+/** One install registered for push. */
+export interface PushDeviceInfo {
+  deviceId: string;
+  platform: 'ios' | 'android' | 'web';
+  model: string | null;
+  appVersion: string | null;
+  active: boolean;
+  disabledReason: string | null;
+  lastSeenAt: string | null;
+}
+
+/** Whether push actually reaches a device, and why not when it does not. */
+export interface PushStatus {
+  /** OS-level permission. */
+  permission: 'granted' | 'denied' | 'undetermined';
+  /** A token is registered with the backend for this install. */
+  registered: boolean;
+  /** The server has a live push transport configured. */
+  transportLive: boolean;
+  note: string;
 }
 
 export interface DeviceSession {

@@ -62,7 +62,19 @@ const HubCta = ({
   />
 );
 
-const fmt = (n: number) => n.toLocaleString('en-US');
+/** A figure we could not read renders as an em dash, never as zero. */
+const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-US'));
+
+/**
+ * Progress ratio, or null when either end of the fraction is unknown.
+ * A bar drawn from a guessed denominator is worse than no bar.
+ */
+const ratio = (current: number | null, target: number | null): number | null =>
+  current == null || target == null || target <= 0 ? null : current / target;
+
+/** Difference between two figures, or null when either is unknown. */
+const remaining = (target: number | null, current: number | null): number | null =>
+  target == null || current == null ? null : Math.max(0, target - current);
 
 export const BtcyHubScreen = ({
   navigation,
@@ -75,10 +87,11 @@ export const BtcyHubScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview — figures are simulated. Live data comes from your Bitcoin Yay account." />
+      <MockNotice module="ecosystem" text="Preview — figures are simulated. Live data comes from your Bitcoin Yay account." />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {d => {
-          const alchemyPct = d.alchemy.current / d.alchemy.target;
+          const alchemyPct = ratio(d.alchemy.current, d.alchemy.target);
+          const alchemyLeft = remaining(d.alchemy.target, d.alchemy.current);
           const referralsLeft = d.referrals.target - d.referrals.active;
           return (
             <>
@@ -131,10 +144,10 @@ export const BtcyHubScreen = ({
                     Estimated progress towards Alchemy
                   </YayText>
                   <YayText variant="bodyStrong" color={colors.brandStrong}>
-                    {Math.round(alchemyPct * 100)}%
+                    {alchemyPct == null ? '—' : `${Math.round(alchemyPct * 100)}%`}
                   </YayText>
                 </Row>
-                <ProgressBar value={alchemyPct} />
+                <ProgressBar value={alchemyPct ?? 0} />
               </Card>
 
               {/* Alchemy */}
@@ -144,12 +157,14 @@ export const BtcyHubScreen = ({
                   <YayText variant="bodyStrong">
                     {`${fmt(d.alchemy.current)} / ${fmt(d.alchemy.target)}`}
                   </YayText>
-                  <Badge label={`${fmt(d.alchemy.target - d.alchemy.current)} to go`} tone="brand" />
+                  <Badge label={`${fmt(alchemyLeft)} to go`} tone="brand" />
                 </Row>
                 <Spacer size={spacing.xs} />
-                <ProgressBar value={alchemyPct} tone={colors.gold} />
+                <ProgressBar value={alchemyPct ?? 0} tone={colors.gold} />
                 <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                  {`${fmt(d.alchemy.target - d.alchemy.current)} nuggets remaining until your next refine.`}
+                  {alchemyLeft == null
+                    ? 'Alchemy progress is unavailable right now.'
+                    : `${fmt(alchemyLeft)} nuggets remaining until your next refine.`}
                 </YayText>
                 <Spacer size={spacing.sm} />
                 <HubCta label="Open Alchemy" onPress={() => openBitcoinYay('alchemy')} />
@@ -215,13 +230,17 @@ export const BtcyHubScreen = ({
                     Today's ads
                   </YayText>
                   <YayText variant="bodyStrong">
-                    {`${d.watchEarn.watched} / ${d.watchEarn.total}`}
+                    {d.watchEarn.total == null
+                      ? fmt(d.watchEarn.watched)
+                      : `${fmt(d.watchEarn.watched)} / ${fmt(d.watchEarn.total)}`}
                   </YayText>
                 </Row>
                 <Spacer size={spacing.xs} />
-                <ProgressBar value={d.watchEarn.watched / d.watchEarn.total} />
+                <ProgressBar value={ratio(d.watchEarn.watched, d.watchEarn.total) ?? 0} />
                 <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                  {`${d.watchEarn.nuggetsToday} nuggets earned today. Ads play in the Bitcoin Yay app.`}
+                  {d.watchEarn.nuggetsToday == null
+                    ? 'Ads play in the Bitcoin Yay app.'
+                    : `${fmt(d.watchEarn.nuggetsToday)} nuggets earned today. Ads play in the Bitcoin Yay app.`}
                 </YayText>
                 <Spacer size={spacing.sm} />
                 <HubCta label="Complete" onPress={() => openBitcoinYay('watch-earn')} />

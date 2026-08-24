@@ -33,7 +33,9 @@ import {
   shadows,
   spacing,
   typography,
+  MAX_FONT_SCALE,
 } from './tokens';
+import {dataMode, DataModule} from '../services/dataMode';
 
 // ---------------------------------------------------------------------------
 // Oval — the brand oval image, used for every oval in the app
@@ -147,6 +149,7 @@ export const YayText = ({
   children: React.ReactNode;
 } & React.ComponentProps<typeof Text>) => (
   <Text
+    maxFontSizeMultiplier={MAX_FONT_SCALE}
     {...rest}
     style={[
       {fontFamily: typography.bodyFamily, color},
@@ -358,35 +361,68 @@ export const TextField = ({
   error,
   hint,
   style,
+  secureTextEntry,
   ...inputProps
 }: {
   label?: string;
   error?: string | null;
   hint?: string;
   style?: ViewStyle;
-} & React.ComponentProps<typeof TextInput>) => (
-  <View style={[{marginBottom: spacing.md}, style]}>
-    {label ? (
-      <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
-        {label}
-      </YayText>
-    ) : null}
-    <TextInput
-      placeholderTextColor={colors.textFaint}
-      {...inputProps}
-      style={[styles.input, error ? {borderColor: colors.danger} : null]}
-    />
-    {error ? (
-      <YayText variant="caption" color={colors.danger} style={{marginTop: spacing.xxs}}>
-        {error}
-      </YayText>
-    ) : hint ? (
-      <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xxs}}>
-        {hint}
-      </YayText>
-    ) : null}
-  </View>
-);
+} & React.ComponentProps<typeof TextInput>) => {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const isPassword = !!secureTextEntry;
+  return (
+    <View style={[{marginBottom: spacing.md}, style]}>
+      {label ? (
+        <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
+          {label}
+        </YayText>
+      ) : null}
+      {isPassword ? (
+        <View style={[styles.passwordInputWrap, error ? {borderColor: colors.danger} : null]}>
+          <TextInput
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
+            placeholderTextColor={colors.textFaint}
+            {...inputProps}
+            secureTextEntry={!passwordVisible}
+            autoCapitalize={inputProps.autoCapitalize ?? 'none'}
+            autoCorrect={inputProps.autoCorrect ?? false}
+            textContentType={inputProps.textContentType ?? 'password'}
+            style={[styles.input, styles.passwordInput]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
+            onPress={() => setPasswordVisible(v => !v)}
+            hitSlop={8}
+            style={styles.passwordToggle}>
+            <Ionicons
+              name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+              size={21}
+              color={colors.textMuted}
+            />
+          </Pressable>
+        </View>
+      ) : (
+        <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
+          placeholderTextColor={colors.textFaint}
+          {...inputProps}
+          style={[styles.input, error ? {borderColor: colors.danger} : null]}
+        />
+      )}
+      {error ? (
+        <YayText variant="caption" color={colors.danger} style={{marginTop: spacing.xxs}}>
+          {error}
+        </YayText>
+      ) : hint ? (
+        <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xxs}}>
+          {hint}
+        </YayText>
+      ) : null}
+    </View>
+  );
+};
 
 export const SearchBar = ({
   value,
@@ -402,6 +438,7 @@ export const SearchBar = ({
   <View style={styles.searchBar}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <TextInput
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
@@ -514,10 +551,14 @@ export const Avatar = ({
   name,
   size = 44,
   online,
+  color,
+  imageUri,
 }: {
   name: string;
   size?: number;
   online?: boolean;
+  color?: string;
+  imageUri?: string;
 }) => {
   const initials = name
     .split(' ')
@@ -526,8 +567,41 @@ export const Avatar = ({
     .slice(0, 2)
     .join('')
     .toUpperCase();
+  if (imageUri) {
+    const imageHeight = Math.round(size * 0.76);
+    const imageWidth = Math.round(imageHeight * OVAL_ASPECT);
+    return (
+      <View style={{width: Math.round(size * OVAL_ASPECT), height: size}}>
+        <Oval size={size} color={color ?? avatarColorFor(name)}>
+          <View
+            style={[
+              styles.avatarImageFrame,
+              {
+                width: imageWidth,
+                height: imageHeight,
+                borderRadius: imageHeight / 2,
+              },
+            ]}>
+            <Image
+              source={{uri: imageUri}}
+              style={styles.avatarImage}
+              resizeMode="cover"
+              accessibilityLabel={`${name} profile picture`}
+            />
+          </View>
+        </Oval>
+        {online !== undefined ? (
+          <Oval
+            size={11}
+            color={online ? colors.success : colors.textFaint}
+            style={styles.presenceDot}
+          />
+        ) : null}
+      </View>
+    );
+  }
   return (
-    <Oval size={size} color={avatarColorFor(name)}>
+    <Oval size={size} color={color ?? avatarColorFor(name)}>
       <YayText
         variant="bodyStrong"
         color={colors.textOnBrand}
@@ -575,14 +649,17 @@ export const Badge = ({
   );
 };
 
-export const CountBubble = ({count}: {count: number}) =>
-  count > 0 ? (
+export const CountBubble = ({count}: {count: number}) => {
+  const safeCount = Number.isFinite(count) ? Math.max(0, count) : 0;
+  const label = safeCount > 999 ? '999+' : String(safeCount);
+  return safeCount > 0 ? (
     <Oval color={colors.notify} minSize={20}>
-      <YayText variant="micro" color={colors.textOnBrand}>
-        {count > 8 ? '9+' : String(count)}
+      <YayText variant="micro" color={colors.textOnBrand} numberOfLines={1}>
+        {label}
       </YayText>
     </Oval>
   ) : null;
+};
 
 export const Chip = ({
   label,
@@ -621,6 +698,7 @@ export const ListRow = ({
   icon,
   iconTone = colors.brand,
   avatarName,
+  avatarImageUri,
   online,
   right,
   onPress,
@@ -632,6 +710,7 @@ export const ListRow = ({
   icon?: string;
   iconTone?: string;
   avatarName?: string;
+  avatarImageUri?: string;
   online?: boolean;
   right?: React.ReactNode;
   onPress?: () => void;
@@ -644,7 +723,7 @@ export const ListRow = ({
     disabled={!onPress}
     style={({pressed}) => [styles.listRow, pressed && {backgroundColor: colors.surfaceSunken}]}>
     {avatarName ? (
-      <Avatar name={avatarName} online={online} />
+      <Avatar name={avatarName} imageUri={avatarImageUri} online={online} />
     ) : icon ? (
       <View style={[styles.rowIcon, {backgroundColor: colors.brandSoft}]}>
         <Ionicons name={icon} size={19} color={iconTone} />
@@ -698,13 +777,46 @@ export const Banner = ({
 };
 
 /** Marks screens whose data is simulated. Required on wallet/reward previews. */
-export const MockNotice = ({text}: {text?: string}) => (
-  <Banner
-    tone="warning"
-    icon="flask"
-    text={text ?? 'Preview build — data shown here is simulated. No real balances, rewards, or transactions.'}
-  />
-);
+/**
+ * The "this data is not real" banner.
+ *
+ * Passing `module` ties the banner to whether that feature is actually being
+ * served by the backend: once it is, the banner disappears on its own. This is
+ * the one piece of UI that must never be stale in either direction — leaving it
+ * up over live balances trains users to ignore it, and dropping it over preview
+ * data is a lie about their money.
+ */
+export const MockNotice = ({text, module}: {text?: string; module?: DataModule}) => {
+  const live = useIsLive(module);
+  if (live) {
+    return null;
+  }
+  return (
+    <Banner
+      tone="warning"
+      icon="flask"
+      text={text ?? 'Preview build — data shown here is simulated. No real balances, rewards, or transactions.'}
+    />
+  );
+};
+
+/** Tracks a module's live/preview state, re-rendering when the probe resolves. */
+const useIsLive = (module?: DataModule): boolean => {
+  const [live, setLive] = useState(() => (module ? dataMode.isLive(module) : false));
+  useEffect(() => {
+    if (!module) {
+      setLive(false);
+      return;
+    }
+    setLive(dataMode.isLive(module));
+    return dataMode.subscribe((changed, isLive) => {
+      if (changed === module) {
+        setLive(isLive);
+      }
+    });
+  }, [module]);
+  return module ? live : false;
+};
 
 export const StateView = ({
   icon,
@@ -1050,6 +1162,7 @@ export const AiBrandLogo = ({size = 56}: {size?: number}) => {
   const tile = (bg: string, fg: string, label: string) => (
     <View style={{width: cell, height: cell, backgroundColor: bg, alignItems: 'center', justifyContent: 'center'}}>
       <Text
+        allowFontScaling={false}
         style={{
           color: fg,
           fontSize,
@@ -1189,6 +1302,28 @@ const styles = StyleSheet.create({
     fontFamily: typography.bodyFamily,
     color: colors.textPrimary,
   },
+  passwordInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.xs,
+  },
+  passwordInput: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    paddingHorizontal: 0,
+  },
+  passwordToggle: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1238,6 +1373,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -2,
     bottom: -1,
+  },
+  avatarImageFrame: {
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceSunken,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   badge: {
     borderRadius: radius.pill,

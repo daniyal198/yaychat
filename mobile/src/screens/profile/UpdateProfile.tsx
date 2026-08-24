@@ -1,17 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Image,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert} from 'react-native';
 import { colors } from '../../theme/colors';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import ProfileIcon from '../../../assets/img/profile_grey.svg';
 import TextField from '../../components/TextField';
@@ -48,13 +37,13 @@ const UpdateProfile = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [country, setCountry] = useState('');
-  const [personalIdNumber, setPersonalIdNumber] = useState('');
+  const [_country, setCountry] = useState('');
+  const [_personalIdNumber, setPersonalIdNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
-  const [userData, setUserData] = useState(null);
+  const [_userData, setUserData] = useState(null);
   const [referralCode, setReferralCode] = useState(null);
-  const [loadingUserData, setLoadingUserData] = useState(true);
+  const [_loadingUserData, setLoadingUserData] = useState(true);
   const [errors, setErrors] = useState({
     username: '',
     passwordMatch: '',
@@ -74,8 +63,8 @@ const UpdateProfile = () => {
             setFirstName(response.data.firstName || '');
             setLastName(response.data.lastName || '');
             setUsername(response.data.username || '');
-            setCountry(response.data.country || '');
-            setPersonalIdNumber(response.data.personalIdNumber || '');
+            setCountry(response.data._country || '');
+            setPersonalIdNumber(response.data._personalIdNumber || '');
             setReferralCode(response.data.referralCode || '');
           }
         }

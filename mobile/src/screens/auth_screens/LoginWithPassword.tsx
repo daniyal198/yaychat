@@ -18,7 +18,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 
 type StartScreenNavigationProp = StackNavigationProp<
   RootStackParamsList,
-  'LoginWithPassword'
+  'LoginWithPhonePassword'
 >;
 
 const LoginWithPassword: React.FC = () => {

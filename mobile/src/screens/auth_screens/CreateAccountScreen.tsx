@@ -21,21 +21,10 @@ import AppleIcon from '../../../assets/img/apple_icon.svg';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamsList } from '../../RootNavigator';
 import { useUserRegistration } from '../../context/UserRegistrationContext';
-import {
-  GoogleSignin,
-  SignInSuccessResponse,
-  statusCodes,
-} from '@react-native-google-signin/google-signin';
+import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import { signupWithGoogle } from '../../services/auth.service';
 import OvalButton from '../../components/OvalButton';
-import PhonePng from '../../../assets/img/call_icon.png';
-import appleAuth, {
-  AppleButton,
-  AppleRequestOperation,
-  AppleRequestScope,
-  AppleCredentialState,
-  appleAuthAndroid
-} from '@invertase/react-native-apple-authentication';
+import appleAuth, {appleAuthAndroid} from '@invertase/react-native-apple-authentication';
 
 export type AuthNavigationProp = StackNavigationProp<RootStackParamsList>;
 
@@ -43,7 +32,7 @@ const CreateAccountScreen = () => {
   const navigation = useNavigation<AuthNavigationProp>();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, _setPhone] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = useState('');
@@ -285,53 +274,6 @@ const CreateAccountScreen = () => {
     }
   };
 
-  const handleAppleSignup0 = async () => {
-    try {
-      const appleAuthRequestResponse = await appleAuth.performRequest({
-        requestedOperation: 1,
-        requestedScopes: [0, 1],
-      });
-
-      console.log('Apple Sign-In response:', appleAuthRequestResponse);
-
-      const credentialState = await appleAuth.getCredentialStateForUser(
-        appleAuthRequestResponse.user,
-      );
-
-      if (credentialState === AppleCredentialState.AUTHORIZED) {
-        let tokenResponse = {
-          authorizationCode: appleAuthRequestResponse.authorizationCode,
-          identityToken: appleAuthRequestResponse.identityToken,
-          user: appleAuthRequestResponse.user,
-          email: appleAuthRequestResponse.email,
-          fullName: appleAuthRequestResponse.fullName,
-        }
-        const res = await signupWithApple(
-          tokenResponse
-        );
-
-        if (res?.status === 200) {
-          Alert.alert(
-            'Signup Successful',
-            'Your Apple account has been registered.',
-            [{ text: 'OK', onPress: () => navigation.navigate('Login') }],
-          );
-        } else {
-          Alert.alert('Error', res?.message || 'Apple signup failed');
-        }
-      } else {
-        throw new Error('Apple authentication failed');
-      }
-    } catch (error: any) {
-      console.log('Apple signup error:', error);
-      if (error.code === appleAuth.Error.CANCELED) {
-        Alert.alert('Cancelled', 'Apple sign-in was cancelled');
-      } else {
-        Alert.alert('Error', 'Apple signup failed');
-      }
-    }
-  };
-
   // Utility function to generate random string
   const generateRandomString = (length: number) => {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -493,7 +435,7 @@ const CreateAccountScreen = () => {
           {/* <TextField
             label="Phone Number(Optional)"
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={_setPhone}
             placeholder={'Phone Number'}
             multiline={false}
           /> */}

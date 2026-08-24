@@ -1,13 +1,5 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  useWindowDimensions,
-  StatusBar,
-} from 'react-native';
+import {View, Text, StyleSheet, SafeAreaView, useWindowDimensions, StatusBar} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import ChatLargeIcon from '../../../assets/img/chatLargeIcon.svg';

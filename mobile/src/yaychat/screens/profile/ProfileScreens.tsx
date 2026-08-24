@@ -38,7 +38,10 @@ import {
   YayText,
 } from '../../design/components';
 import {
+  aiService,
+  analytics,
   authService,
+  errorMessage,
   featureFlags,
   notificationService,
   settingsService,
@@ -46,10 +49,20 @@ import {
   simulation,
   userService,
 } from '../../services';
-import type {AppNotification, SettingsState, User} from '../../types/models';
+import {pushNotificationService} from '../../services/pushNotifications';
+import {telemetry} from '../../services/telemetry';
+import {navigateToDeepLink} from '../../navigation/navigationRef';
+import type {
+  AppNotification,
+  NotificationPreferences,
+  PushStatus,
+  SettingsState,
+  User,
+} from '../../types/models';
 import type {ProfileStackParamList} from '../../types/navigation';
 import {useAsync, useAction} from '../../state/hooks';
 import {useAuth, useToast} from '../../state/AppProviders';
+import {chooseProfilePhoto} from '../../utils/profilePhoto';
 
 type ProfileProps<R extends keyof ProfileStackParamList> = NativeStackScreenProps<
   ProfileStackParamList,
@@ -194,7 +207,7 @@ export const ProfileHomeScreen = ({navigation}: ProfileProps<'ProfileHome'>) => 
     <Screen>
       <Card onPress={() => navigation.navigate('EditProfile')}>
         <Row gap={spacing.md}>
-          <Avatar name={user?.name ?? 'Yay User'} size={72} />
+          <Avatar name={user?.name ?? 'Yay User'} size={72} imageUri={user?.profilePic} />
           <View style={{flex: 1}}>
             <YayText variant="title" numberOfLines={1}>
               {user?.name ?? 'Yay user'}
@@ -354,7 +367,19 @@ export const EditProfileScreen = ({navigation}: ProfileProps<'EditProfile'>) => 
   const [name, setName] = useState(user?.name ?? '');
   const [username, setUsername] = useState(user?.username ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
+  const [profilePic, setProfilePic] = useState(user?.profilePic);
   const [errors, setErrors] = useState<{name?: string; username?: string}>({});
+
+  const choosePhoto = async () => {
+    try {
+      const uri = await chooseProfilePhoto();
+      if (uri) {
+        setProfilePic(uri);
+      }
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : 'Could not select that picture.', 'error');
+    }
+  };
 
   const save = async () => {
     const nextErrors: {name?: string; username?: string} = {};
@@ -369,7 +394,13 @@ export const EditProfileScreen = ({navigation}: ProfileProps<'EditProfile'>) => 
       return;
     }
     const result = await perform(
-      () => userService.updateProfile({name: name.trim(), username, bio: bio.trim()}),
+      () =>
+        userService.updateProfile({
+          name: name.trim(),
+          username,
+          bio: bio.trim(),
+          profilePic,
+        }),
       message => toast.show(message, 'error'),
     );
     if (result) {
@@ -382,10 +413,22 @@ export const EditProfileScreen = ({navigation}: ProfileProps<'EditProfile'>) => 
   return (
     <Screen>
       <View style={{alignItems: 'center', marginBottom: spacing.lg}}>
-        <Avatar name={name || 'Yay User'} size={72} />
-        <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-          Custom avatars arrive in a later milestone
-        </YayText>
+        <Avatar name={name || 'Yay User'} size={72} imageUri={profilePic} />
+        <Spacer size={spacing.xs} />
+        <Button
+          label={profilePic ? 'Change profile picture' : 'Upload profile picture'}
+          kind="secondary"
+          icon="camera-outline"
+          onPress={choosePhoto}
+        />
+        {profilePic ? (
+          <Button
+            label="Remove picture"
+            kind="ghost"
+            icon="trash-outline"
+            onPress={() => setProfilePic('')}
+          />
+        ) : null}
       </View>
       <TextField
         label="Name"
@@ -444,7 +487,7 @@ export const QrProfileScreen = (_props: ProfileProps<'QrProfile'>) => {
   return (
     <Screen>
       <Card style={{alignItems: 'center', paddingVertical: spacing.xl}}>
-        <Avatar name={user?.name ?? 'Yay User'} size={64} />
+        <Avatar name={user?.name ?? 'Yay User'} size={64} imageUri={user?.profilePic} />
         <Spacer size={spacing.sm} />
         <YayText variant="title">{user?.name ?? 'Yay user'}</YayText>
         <YayText variant="caption" color={colors.textMuted}>
@@ -512,7 +555,7 @@ export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
         <Banner
           tone="success"
           icon="person-add"
-          text="Invite friends to YaysApp and earn YayPoints when they join."
+          text="Invite friends to YaysApp and earn IndexxPoints when they join."
         />
       </Pressable>
       <AsyncView
@@ -535,6 +578,7 @@ export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
                 {i > 0 ? <Divider /> : null}
                 <ListRow
                   avatarName={u.name}
+                  avatarImageUri={u.profilePic}
                   online={u.online}
                   title={u.name}
                   subtitle={u.online ? 'Online' : `Last seen ${timeAgo(u.lastSeen)}`}
@@ -638,6 +682,7 @@ export const BlockedUsersScreen = (_props: ProfileProps<'BlockedUsers'>) => {
                 {i > 0 ? <Divider /> : null}
                 <ListRow
                   avatarName={u.name}
+                  avatarImageUri={u.profilePic}
                   title={u.name}
                   subtitle={`@${u.username}`}
                   chevron={false}
@@ -680,6 +725,21 @@ export const NotificationsScreen = (_props: ProfileProps<'Notifications'>) => {
     reload();
   };
 
+  /**
+   * Opening a notification marks it read and follows its deep link, the same
+   * target the push itself would have opened. Rows without a link (system
+   * notices) stay put rather than navigating somewhere arbitrary.
+   */
+  const open = async (notification: AppNotification) => {
+    if (!notification.read) {
+      await notificationService.markRead(notification.id).catch(() => {});
+      reload();
+    }
+    if (notification.deepLink) {
+      navigateToDeepLink(notification.deepLink);
+    }
+  };
+
   return (
     <Screen>
       {hasUnread ? (
@@ -704,7 +764,8 @@ export const NotificationsScreen = (_props: ProfileProps<'Notifications'>) => {
                   icon={NOTIFICATION_ICONS[n.kind]}
                   title={n.title}
                   subtitle={`${n.body} · ${timeAgo(n.createdAt)}`}
-                  chevron={false}
+                  chevron={Boolean(n.deepLink)}
+                  onPress={() => open(n)}
                   right={!n.read ? <View style={styles.unreadDot} /> : undefined}
                 />
               </View>
@@ -720,45 +781,182 @@ export const NotificationsScreen = (_props: ProfileProps<'Notifications'>) => {
 // Settings screens (all built on SettingsShell)
 // ---------------------------------------------------------------------------
 
-export const NotificationSettingsScreen = (_props: ProfileProps<'NotificationSettings'>) => (
-  <SettingsShell>
-    {(s, patch) => (
-      <Card style={styles.sectionCard}>
-        <SwitchRow
-          label="Messages"
-          description="Alerts for new direct and group messages."
-          value={s.notifications.messages}
-          onValueChange={v => patch({...s, notifications: {...s.notifications, messages: v}})}
-        />
-        <Divider />
-        <SwitchRow
-          label="Communities"
-          description="Announcements, events, and mentions from communities you joined."
-          value={s.notifications.communities}
-          onValueChange={v => patch({...s, notifications: {...s.notifications, communities: v}})}
-        />
-        <Divider />
-        <SwitchRow
-          label="Rewards"
-          description="Streak reminders and reward confirmations."
-          value={s.notifications.rewards}
-          onValueChange={v => patch({...s, notifications: {...s.notifications, rewards: v}})}
-        />
-        <Divider />
-        <SwitchRow
-          label="Sounds"
-          description="Play a sound with each notification."
-          value={s.notifications.sounds}
-          onValueChange={v => patch({...s, notifications: {...s.notifications, sounds: v}})}
-        />
-        <Spacer size={spacing.xs} />
-        <YayText variant="caption" color={colors.textMuted}>
-          Muted chats never notify you regardless of these settings.
-        </YayText>
-      </Card>
-    )}
-  </SettingsShell>
-);
+const minutesToClock = (minute: number): string => {
+  const hours = Math.floor(minute / 60) % 24;
+  const mins = minute % 60;
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+};
+
+/**
+ * Notification settings (Module 6).
+ *
+ * Backed by the server-owned preference record rather than local settings,
+ * because the delivery service is what reads these — a switch that only ever
+ * changed a value on the device would not stop a single push.
+ */
+export const NotificationSettingsScreen = (_props: ProfileProps<'NotificationSettings'>) => {
+  const {show} = useToast();
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const {data, loading, error, offline, reload} = useAsync(
+    () => notificationService.preferences(),
+    [],
+  );
+
+  useEffect(() => {
+    if (data) {
+      setPreferences(data);
+    }
+  }, [data]);
+
+  useEffect(() => {
+    let mounted = true;
+    pushNotificationService
+      .status()
+      .then(next => {
+        if (mounted) {
+          setStatus(next);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /**
+   * Optimistic: the switch moves immediately and rolls back if the server
+   * rejects it. A settings toggle that waits on a round trip feels broken.
+   */
+  const patch = async (next: Partial<NotificationPreferences>) => {
+    const previous = preferences;
+    setPreferences(current => (current ? {...current, ...next} : current));
+    try {
+      const saved = await notificationService.updatePreferences(next);
+      setPreferences(saved);
+      const [setting, value] = Object.entries(next)[0] ?? [];
+      if (typeof setting === 'string') {
+        analytics.track('notification_settings_changed', {setting, value: String(value)});
+      }
+    } catch (e) {
+      setPreferences(previous);
+      show(errorMessage(e), 'error');
+    }
+  };
+
+  const quietHours = preferences?.quietHours;
+
+  return (
+    <Screen scroll>
+      {status && (status.permission !== 'granted' || !status.transportLive) ? (
+        <Banner tone="info" text={status.note} />
+      ) : null}
+      <AsyncView
+        loading={loading && !preferences}
+        error={error}
+        offline={offline}
+        onRetry={reload}
+        data={preferences}
+        skeleton={<ListSkeleton />}>
+        {p => (
+          <>
+            <Card style={styles.sectionCard}>
+              <SwitchRow
+                label="Messages"
+                description="Alerts for new direct and group messages."
+                value={p.messages}
+                onValueChange={v => patch({messages: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Communities"
+                description="Announcements, events, and mentions from communities you joined."
+                value={p.communities}
+                onValueChange={v => patch({communities: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Rewards"
+                description="Streak reminders and reward confirmations."
+                value={p.rewards}
+                onValueChange={v => patch({rewards: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Product updates"
+                description="Account and security notices, and release announcements."
+                value={p.system}
+                onValueChange={v => patch({system: v})}
+              />
+            </Card>
+
+            <SectionHeader title="How they arrive" />
+            <Card style={styles.sectionCard}>
+              <SwitchRow
+                label="Sounds"
+                description="Play a sound with each notification."
+                value={p.sounds}
+                onValueChange={v => patch({sounds: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Show message preview"
+                description="Show the message text on the lock screen. Turn this off and notifications only say you have one."
+                value={p.previewText}
+                onValueChange={v => patch({previewText: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Quiet hours"
+                description={
+                  quietHours
+                    ? `Hold notifications between ${minutesToClock(
+                        quietHours.startMinute,
+                      )} and ${minutesToClock(quietHours.endMinute)} your time. They still appear in the app.`
+                    : 'Hold notifications overnight.'
+                }
+                value={Boolean(quietHours?.enabled)}
+                onValueChange={v =>
+                  patch({
+                    quietHours: {
+                      enabled: v,
+                      startMinute: quietHours?.startMinute ?? 22 * 60,
+                      endMinute: quietHours?.endMinute ?? 7 * 60,
+                      // Sent with every change so the window follows the user
+                      // when they travel.
+                      utcOffsetMinutes: -new Date().getTimezoneOffset(),
+                    },
+                  })
+                }
+              />
+            </Card>
+
+            {p.mutedConversationIds.length ? (
+              <>
+                <SectionHeader title="Muted" />
+                <Card style={styles.sectionCard}>
+                  <ListRow
+                    icon="notifications-off"
+                    title={`${p.mutedConversationIds.length} muted ${
+                      p.mutedConversationIds.length === 1 ? 'conversation' : 'conversations'
+                    }`}
+                    subtitle="Muted chats never notify you, whatever these settings say."
+                    chevron={false}
+                  />
+                </Card>
+              </>
+            ) : null}
+
+            <Spacer size={spacing.xs} />
+            <YayText variant="caption" color={colors.textMuted}>
+              Muted chats never notify you regardless of these settings.
+            </YayText>
+          </>
+        )}
+      </AsyncView>
+    </Screen>
+  );
+};
 
 export const PrivacySettingsScreen = (_props: ProfileProps<'PrivacySettings'>) => (
   <SettingsShell
@@ -877,54 +1075,138 @@ export const CommunitySettingsScreen = (_props: ProfileProps<'CommunitySettings'
   );
 };
 
+/**
+ * The canonical AI privacy surface (Module 5). Backed by the real consent
+ * record rather than local settings state, so the switches here are the same
+ * ones the backend enforces before any chat or community content is sent.
+ */
 export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
   const toast = useToast();
   const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const consent = useAsync(() => aiService.consent(), []);
+  const usage = useAsync(() => aiService.usage(), []);
+
+  const patchConsent = async (patch: Parameters<typeof aiService.updateConsent>[0]) => {
+    try {
+      consent.setData(await aiService.updateConsent(patch));
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    }
+  };
+
   return (
     <>
-      <SettingsShell
-        header={
-          <Banner
-            tone="info"
-            icon="sparkles"
-            text="aiainai never reads your private chats without an explicit action."
-          />
-        }>
-        {(s, patch) => (
-          <>
+      <Screen>
+        <Banner
+          tone="info"
+          icon="shield-checkmark"
+          text="Nothing from your chats or communities reaches an AI provider unless you turn it on below — and then only for the message or conversation you pick."
+        />
+        <Spacer />
+        <AsyncView
+          loading={consent.loading}
+          error={consent.error}
+          offline={consent.offline}
+          onRetry={consent.reload}
+          data={consent.data}>
+          {c => (
             <Card style={styles.sectionCard}>
+              <SwitchRow
+                label="Share chat content with AI"
+                description="Allows Summarize and Translate inside a conversation."
+                value={c.shareChatContent}
+                onValueChange={v => patchConsent({shareChatContent: v})}
+              />
+              <Divider />
+              <SwitchRow
+                label="Share community content with AI"
+                description="Allows summarizing a community feed or announcement."
+                value={c.shareCommunityContent}
+                onValueChange={v => patchConsent({shareCommunityContent: v})}
+              />
+              <Divider />
               <SwitchRow
                 label="Save history"
                 description="Keep past AI conversations so you can revisit them."
-                value={s.ai.saveHistory}
-                onValueChange={v => patch({...s, ai: {...s.ai, saveHistory: v}})}
+                value={c.saveHistory}
+                onValueChange={v => patchConsent({saveHistory: v})}
               />
               <Divider />
               <SwitchRow
                 label="Personalization"
-                description="Let aiainai tailor suggestions using your activity."
-                value={s.ai.personalization}
-                onValueChange={v => patch({...s, ai: {...s.ai, personalization: v}})}
+                description="Let the assistant use earlier turns in the same thread."
+                value={c.personalization}
+                onValueChange={v => patchConsent({personalization: v})}
               />
             </Card>
-            <Spacer />
-            <Button
-              label="Clear AI history"
-              kind="danger"
-              icon="trash-outline"
-              onPress={() => setConfirmClear(true)}
-            />
-          </>
-        )}
-      </SettingsShell>
+          )}
+        </AsyncView>
+
+        <SectionHeader title="Usage today" />
+        <AsyncView
+          loading={usage.loading}
+          error={usage.error}
+          offline={usage.offline}
+          onRetry={usage.reload}
+          data={usage.data}>
+          {u => (
+            <Card>
+              <Row style={{justifyContent: 'space-between'}}>
+                <YayText variant="caption" color={colors.textMuted}>
+                  Requests
+                </YayText>
+                <YayText variant="bodyStrong">
+                  {u.usedRequests} / {u.totalRequests}
+                </YayText>
+              </Row>
+              <Divider />
+              <Row style={{justifyContent: 'space-between'}}>
+                <YayText variant="caption" color={colors.textMuted}>
+                  Tokens
+                </YayText>
+                <YayText variant="bodyStrong">{u.tokensIn + u.tokensOut}</YayText>
+              </Row>
+              <Divider />
+              <Row style={{justifyContent: 'space-between'}}>
+                <YayText variant="caption" color={colors.textMuted}>
+                  Cost
+                </YayText>
+                <YayText variant="bodyStrong">
+                  {u.costUsd < 0.01 && u.costUsd > 0 ? '<$0.01' : `$${u.costUsd.toFixed(2)}`}
+                </YayText>
+              </Row>
+            </Card>
+          )}
+        </AsyncView>
+
+        <Spacer />
+        <Button
+          label="Clear AI history"
+          kind="danger"
+          icon="trash-outline"
+          loading={clearing}
+          onPress={() => setConfirmClear(true)}
+        />
+      </Screen>
       <ConfirmSheet
         visible={confirmClear}
         onClose={() => setConfirmClear(false)}
         title="Clear AI history?"
-        message="This removes all saved aiainai conversations. It cannot be undone."
+        message="This removes all your saved AI conversations. It cannot be undone."
         confirmLabel="Clear history"
         destructive
-        onConfirm={() => toast.show('AI history cleared', 'success')}
+        onConfirm={async () => {
+          setClearing(true);
+          try {
+            await aiService.clearHistory();
+            toast.show('AI history cleared', 'success');
+          } catch (e) {
+            toast.show(errorMessage(e), 'error');
+          } finally {
+            setClearing(false);
+          }
+        }}
       />
     </>
   );
@@ -943,7 +1225,7 @@ export const RewardsSettingsScreen = (_props: ProfileProps<'RewardsSettings'>) =
       <Card style={styles.sectionCard}>
         <SwitchRow
           label="Activity tracking"
-          description="Track eligible actions — daily check-ins, messages sent, and referrals — so you can earn YayPoints. Nothing else is tracked."
+          description="Track eligible actions — daily check-ins, messages sent, and referrals — so you can earn IndexxPoints. Nothing else is tracked."
           value={s.rewards.activityTracking}
           onValueChange={v => patch({...s, rewards: {activityTracking: v}})}
         />
@@ -1178,7 +1460,7 @@ const FAQS: {q: string; a: string}[] = [
     a: 'This is Milestone 1 of YaysApp. Screens, flows, and states are real, but data is simulated locally on your device. Nothing you do here affects a live account.',
   },
   {
-    q: 'Are my YayPoints and rewards real?',
+    q: 'Are my IndexxPoints and rewards real?',
     a: 'Not yet. Rewards in this build are simulated so you can review the earning flows. Real reward tracking arrives when the backend ships in a later milestone.',
   },
   {
@@ -1304,7 +1586,7 @@ export const HelpScreen = (_props: ProfileProps<'Help'>) => {
 // ---------------------------------------------------------------------------
 
 const LEGAL_DRAFT = (title: string) =>
-  `${title}\n\nDraft — for preview. This placeholder text stands in for the final ${title.toLowerCase()} which is being prepared with counsel and ships before public launch.\n\n1. Acceptance. By using this preview build of YaysApp you acknowledge the app is under active development and data shown is simulated.\n\n2. Accounts. Preview accounts are local to your device. No personal data leaves the device in Milestone 1.\n\n3. Rewards & wallet. YayPoints, balances, and transactions in this build are simulated and carry no monetary value.\n\n4. Conduct. Be kind. Harassment, spam, and abuse are prohibited and will be enforced when live services launch.\n\n5. Changes. These terms will be replaced by final documents prior to launch; continued use after launch constitutes acceptance of the final versions.`;
+  `${title}\n\nDraft — for preview. This placeholder text stands in for the final ${title.toLowerCase()} which is being prepared with counsel and ships before public launch.\n\n1. Acceptance. By using this preview build of YaysApp you acknowledge the app is under active development and data shown is simulated.\n\n2. Accounts. Preview accounts are local to your device. No personal data leaves the device in Milestone 1.\n\n3. Rewards & wallet. IndexxPoints, balances, and transactions in this build are simulated and carry no monetary value.\n\n4. Conduct. Be kind. Harassment, spam, and abuse are prohibited and will be enforced when live services launch.\n\n5. Changes. These terms will be replaced by final documents prior to launch; continued use after launch constitutes acceptance of the final versions.`;
 
 export const AboutLegalScreen = ({route}: ProfileProps<'AboutLegal'>) => {
   const toast = useToast();
@@ -1400,7 +1682,7 @@ export const DeleteAccountScreen = (_props: ProfileProps<'DeleteAccount'>) => {
         {[
           'Your profile, username, and bio are removed.',
           'Your chats and message history are deleted for you.',
-          'Your YayPoints balance and reward history are forfeited.',
+          'Your IndexxPoints balance and reward history are forfeited.',
           'You leave every community you joined.',
           'Wallet preview data is cleared from this device.',
         ].map(line => (
@@ -1447,7 +1729,32 @@ export const DeveloperScreen = (_props: ProfileProps<'Developer'>) => {
   const toast = useToast();
   const [offline, setOffline] = useState(simulation.offline);
   const [latency, setLatency] = useState(simulation.latencyMs);
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [queuedEvents, setQueuedEvents] = useState(0);
   const flags = featureFlags.all();
+
+  // Poll rather than subscribe: the queue is written from everywhere, and this
+  // screen only exists to observe it.
+  useEffect(() => {
+    setQueuedEvents(telemetry.pending().length);
+    const id = setInterval(() => setQueuedEvents(telemetry.pending().length), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    pushNotificationService
+      .status()
+      .then(next => {
+        if (mounted) {
+          setPushStatus(next);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <Screen>
@@ -1510,6 +1817,72 @@ export const DeveloperScreen = (_props: ProfileProps<'Developer'>) => {
           kind="danger"
           icon="log-out-outline"
           onPress={() => expireSession()}
+        />
+      </Card>
+
+      <SectionHeader title="Notifications" />
+      <Card style={styles.sectionCard}>
+        <ListRow
+          icon="notifications-outline"
+          title="Push status"
+          subtitle={pushStatus?.note ?? 'Checking…'}
+          chevron={false}
+        />
+        <Divider />
+        <Button
+          label="Send myself a test notification"
+          kind="secondary"
+          icon="send-outline"
+          onPress={async () => {
+            try {
+              // Exercises the whole chain: permission, token, transport, deep
+              // link, and tap routing — without needing a second account.
+              const delivered = await notificationService.sendTestNotification();
+              toast.show(
+                delivered
+                  ? 'Sent — check your device'
+                  : 'Recorded in your inbox; no device received a push',
+                delivered ? 'success' : 'info',
+              );
+            } catch (e) {
+              toast.show(errorMessage(e), 'error');
+            }
+          }}
+        />
+      </Card>
+
+      <SectionHeader title="Telemetry" />
+      <Card style={styles.sectionCard}>
+        <ListRow
+          icon="pulse-outline"
+          title={`${queuedEvents} event${queuedEvents === 1 ? '' : 's'} waiting to send`}
+          subtitle="Events batch on device and flush every 30s, or immediately at 20."
+          chevron={false}
+        />
+        <Divider />
+        <Button
+          label="Flush events now"
+          kind="secondary"
+          icon="cloud-upload-outline"
+          onPress={async () => {
+            await telemetry.flush();
+            setQueuedEvents(telemetry.pending().length);
+            toast.show('Flushed the analytics queue');
+          }}
+        />
+        <Spacer size={spacing.xs} />
+        <Button
+          label="Report a handled error"
+          kind="secondary"
+          icon="bug-outline"
+          onPress={async () => {
+            // Deliberately non-fatal: this proves the crash path end to end
+            // without taking the app down to do it.
+            await telemetry.reportError(new Error('Developer-screen test error'), {
+              fatal: false,
+            });
+            toast.show('Crash report sent');
+          }}
         />
       </Card>
 

@@ -14,19 +14,6 @@ interface RegisterPayload {
   referralCode: string;
 }
 
-interface RegisterPayloadForPhone {
-  firstName: string;
-  lastName: string;
-  username: string;
-  countryCode: string;
-  country: string;
-  phone: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  referralCode: string;
-}
-
 export const registerUser = async (payload: RegisterPayload) => {
   try {
     const res = await API.post('/api/v1/inex/user/registerwithapp', payload,

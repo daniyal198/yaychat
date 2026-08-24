@@ -7,6 +7,7 @@ import { ChatGroupService } from "../services/chatgroups.service";
 import { GroupReadStateService } from "./groupReadState.service";
 import { ChatMessageService } from "./chatmessage.service";
 import { ChatUserBlockService } from "./chatUserBlock.service";
+import { registerCallHandlers } from "./calls/signaling";
 
 export const EVERYONE_GROUP_ID = "1596e5c0-7eb0-11f0-89eb-753fe21ceabe";
 export const EVERYONE_GROUP_NAME = "Bitcoin Yay General";
@@ -132,7 +133,16 @@ export class ChatSocketService {
 
       // typing events should be volatile to avoid backpressure flood
       socket.on("typing", (payload) => {
-        this.io.volatile.to(`group:${payload?.groupId}`).emit("typing", payload);
+        const fromEmail = (socket.data as any).email as string;
+        const eventPayload = { ...(payload || {}), email: fromEmail };
+        if (payload?.groupId) {
+          this.io.volatile.to(`group:${payload.groupId}`).emit("typing", eventPayload);
+          return;
+        }
+        const receiverEmail = normEmail(payload?.receiverEmail || payload?.to || "");
+        if (receiverEmail) {
+          this.io.volatile.to(`user:${receiverEmail}`).emit("typing", eventPayload);
+        }
       });
 
       // Client marks a group as read
@@ -186,6 +196,11 @@ export class ChatSocketService {
           cb?.({ groups: [], direct: { total: 0 } });
         }
       });
+
+      // 1:1 audio/video call signaling — SDP + ICE relay and call lifecycle.
+      // Registered per connection so calls ride the same authenticated socket
+      // as chat, and a user's `user:` room already reaches every device.
+      registerCallHandlers(this.io, socket);
 
       // Healthcheck
       socket.on("ping:client", (msg: string, cb?: (s: string) => void) => cb?.(msg || "pong"));

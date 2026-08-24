@@ -30,9 +30,19 @@
 				<string>com.googleusercontent.apps.699982907155-0c45n33n4ko0drc7hfi608pj0kvqksfm</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>chat.yay.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>yaychat</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>16</string>
+	<string>17</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -43,7 +53,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>This app requires access to the camera to support certain features that may use image or video input provided by the user.</string>
+	<string>YaysApp uses the camera for video calls and for photos you choose to send in chats.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>YaysApp uses the microphone for voice and video calls and for voice notes you record.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>UIAppFonts</key>

@@ -12,6 +12,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
   AsyncView,
+  Banner,
   Badge,
   Card,
   HubCta,
@@ -28,7 +29,7 @@ import {
 } from '../../design/components';
 import {colors, radius, shadows, spacing} from '../../design/tokens';
 import {shoperpalService} from '../../services';
-import {useAsync} from '../../state/hooks';
+import {useAsync, useLiveData} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import type {ShoperpalDashboard} from '../../types/models';
 import type {RootStackParamList} from '../../types/navigation';
@@ -245,10 +246,21 @@ export const ShoperpalHubScreen = ({
     () => shoperpalService.dashboard(),
     [],
   );
+  const live = useLiveData('ecosystem');
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text="Preview — figures are simulated. Live data comes from your ShoperPal account." />
+      {/* Buyer spend and nugget balance are read from real orders; supplier
+          state has no source in this backend yet. */}
+      {live ? (
+        <Banner
+          tone="info"
+          icon="information-circle"
+          text="Buyer spend and nugget balance are live. Supplier figures need the ShoperPal merchant API."
+        />
+      ) : (
+        <MockNotice text="Preview — figures are simulated. Live data comes from your ShoperPal account." />
+      )}
       <Spacer size={spacing.sm} />
       <SegmentedTabs tabs={['Buyer', 'Supplier']} active={view} onChange={setView} />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>

@@ -183,6 +183,9 @@ const StartMiningScreen = () => {
     return () => {
       if (timerInterval) clearInterval(timerInterval);
     };
+    // Mount-once fetch. Adding `timerInterval` would tear down and restart the
+    // 1s mining timer on every tick, because the effect sets it itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startMiningFunction = async () => {

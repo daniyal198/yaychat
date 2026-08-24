@@ -97,7 +97,12 @@ const VestingScreen = () => {
       lockupPercentage !== originalLockupPercentage ||
       lockupDuration !== originalLockupDuration;
     setShowUpdateButton(shouldShow);
-  }, [lockupPercentage, lockupDuration]);
+  }, [
+    lockupPercentage,
+    lockupDuration,
+    originalLockupPercentage,
+    originalLockupDuration,
+  ]);
 
   const renderSliderLabels = (points, suffix = '') => (
     <View style={styles.sliderLabelsContainer}>

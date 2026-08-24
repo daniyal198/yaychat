@@ -128,6 +128,14 @@ export const radius = {
   pill: 999,
 } as const;
 
+/**
+ * Hard cap on OS "Larger Text" (Dynamic Type) growth. The layout is tuned for
+ * the sizes in `typography`; letting iOS/Android scale them freely blows up
+ * chat rows, tab labels and bubbles. 1.15 keeps accessibility scaling useful
+ * without breaking the design.
+ */
+export const MAX_FONT_SCALE = 1.15;
+
 export const typography = {
   titleFamily: 'Avenir Next',
   bodyFamily: 'Avenir Next',

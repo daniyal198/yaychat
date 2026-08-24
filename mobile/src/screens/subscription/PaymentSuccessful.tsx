@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors } from '../../theme/colors';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { SubscriptionNavigationProp, SubscriptionStackParamList } from '../../navigation/types';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import SuccessIcon from '../../../assets/img/payment_successful_icon.svg';
 const PaymentSuccessful = () => {
   const navigation = useNavigation<SubscriptionNavigationProp>();

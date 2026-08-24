@@ -1,9 +1,17 @@
 /**
- * Wallet preview screens (Milestone 4 scope).
+ * Wallet screens.
  *
- * IMPORTANT: everything here is simulated. Every screen opens with a
- * <MockNotice /> and no copy or control may imply real money movement.
- * Real wallet functionality ships in a later milestone after security review.
+ * Two data sources with very different guarantees meet here:
+ *
+ *  - **IndexxPoints** — YaysApp's own balance. Real and spendable once the rewards
+ *    backend is live (`useLiveData('rewards')`).
+ *  - **Crypto** — real balances read from the Indexx wallet service, but
+ *    read-only: YaysApp does not hold keys and cannot sign a transfer. Those
+ *    rows arrive with `preview: true` and must never get a working Send.
+ *
+ * Until the rewards backend answers, every figure is simulated and the
+ * <MockNotice /> says so. The rule that no copy may imply money movement YaysApp
+ * cannot perform holds in both modes — what changes is *why* it cannot.
  */
 import React, {useEffect, useMemo, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
@@ -30,13 +38,17 @@ import {
 } from '../../design/components';
 import {colors, radius, spacing} from '../../design/tokens';
 import {errorMessage, featureFlags, paymentService, walletService} from '../../services';
-import {useAsync} from '../../state/hooks';
+import {useAsync, useLiveData} from '../../state/hooks';
 import {useAuth, useToast} from '../../state/AppProviders';
 import type {PaymentMethod, WalletAsset, WalletTransaction} from '../../types/models';
 import type {RootStackParamList} from '../../types/navigation';
 
 const WALLET_NOTICE =
   'Wallet preview — no real assets, balances, or transactions. Real wallet functionality arrives in a later milestone after security review.';
+
+/** Shown once balances are real but YaysApp still cannot move the crypto ones. */
+const READ_ONLY_NOTICE =
+  'Crypto balances are read from your Indexx account and are view-only here. Send and convert run in Indexx Wallet.';
 
 // ---------------------------------------------------------------------------
 // Formatting helpers (local — preview only)
@@ -111,6 +123,7 @@ export const WalletOverviewScreen = ({
   navigation,
 }: NativeStackScreenProps<RootStackParamList, 'WalletOverview'>) => {
   const toast = useToast();
+  const live = useLiveData('rewards');
   const {data, loading, error, offline, reload, refreshing, refresh} = useAsync(
     () => walletService.assets(),
     [],
@@ -132,7 +145,8 @@ export const WalletOverviewScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text={WALLET_NOTICE} />
+      <MockNotice module="rewards" text={WALLET_NOTICE} />
+      {live ? <Banner tone="info" icon="eye-outline" text={READ_ONLY_NOTICE} /> : null}
       <AsyncView
         loading={loading}
         error={error}
@@ -140,19 +154,23 @@ export const WalletOverviewScreen = ({
         onRetry={reload}
         data={data}
         isEmpty={data != null && data.length === 0}
-        emptyTitle="No preview assets"
-        emptyMessage="Preview balances will appear here.">
+        emptyTitle={live ? 'No assets yet' : 'No preview assets'}
+        emptyMessage={
+          live
+            ? 'Earn IndexxPoints or open an Indexx wallet and your balances appear here.'
+            : 'Preview balances will appear here.'
+        }>
         {assets => {
           const total = assets.reduce((sum, a) => sum + a.fiatValue, 0);
           return (
             <View>
               <Card style={styles.totalCard}>
                 <YayText variant="caption" color={colors.textMuted}>
-                  Total preview value
+                  {live ? 'Total value' : 'Total preview value'}
                 </YayText>
                 <YayText variant="display">{`≈ ${formatFiat(total)}`}</YayText>
                 <YayText variant="caption" color={colors.textMuted}>
-                  Preview balances
+                  {live ? 'IndexxPoints have no fiat value yet' : 'Preview balances'}
                 </YayText>
               </Card>
 
@@ -193,7 +211,7 @@ export const WalletOverviewScreen = ({
               <SectionHeader title="Assets" />
               <View style={{gap: spacing.sm}}>
                 {assets.map(asset => (
-                  <AssetCard key={asset.symbol} asset={asset} />
+                  <AssetCard key={asset.symbol} asset={asset} live={live} />
                 ))}
               </View>
 
@@ -218,13 +236,17 @@ export const WalletOverviewScreen = ({
                     <Ionicons name="construct-outline" size={24} color={colors.brand} />
                   </View>
                   <YayText variant="bodyStrong" style={{textAlign: 'center'}}>
-                    Full wallet setup arrives with Milestone 7
+                    {live
+                      ? 'Self-custody wallet arrives after security review'
+                      : 'Full wallet setup arrives with Milestone 7'}
                   </YayText>
                   <YayText
                     variant="caption"
                     color={colors.textMuted}
                     style={{textAlign: 'center'}}>
-                    Key management, backups, and real balances land after the security review.
+                    {live
+                      ? 'YaysApp does not hold your keys. Key management and in-app transfers land once the custody review completes — until then, move funds in Indexx Wallet.'
+                      : 'Key management, backups, and real balances land after the security review.'}
                   </YayText>
                 </View>
                 <Button
@@ -245,9 +267,12 @@ export const WalletOverviewScreen = ({
   );
 };
 
-const AssetCard = ({asset}: {asset: WalletAsset}) => {
+const AssetCard = ({asset, live}: {asset: WalletAsset; live: boolean}) => {
   const isBtcy = asset.symbol === 'BTCY';
   const isNuggets = asset.symbol === 'NUG';
+  // Live IndexxPoints are the one row that is both real and movable in-app, so it
+  // is the only one that loses the qualifier badge.
+  const badge = !live ? 'Preview' : asset.preview ? 'View-only' : null;
   return (
     <Card style={isBtcy ? styles.btcyCard : undefined}>
       <Row gap={spacing.sm}>
@@ -255,7 +280,7 @@ const AssetCard = ({asset}: {asset: WalletAsset}) => {
         <View style={{flex: 1}}>
           <Row gap={spacing.xs}>
             <YayText variant="bodyStrong">{asset.name}</YayText>
-            <Badge label="Preview" tone="brand" />
+            {badge ? <Badge label={badge} tone="brand" /> : null}
           </Row>
           <YayText variant="caption" color={colors.textMuted}>
             {`${formatBalance(asset.balance)} ${asset.symbol}`}
@@ -313,7 +338,7 @@ export const WalletTransactionsScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice text={WALLET_NOTICE} />
+      <MockNotice module="rewards" text={WALLET_NOTICE} />
       <Row gap={spacing.xs} style={{marginBottom: spacing.sm}}>
         {TX_FILTERS.map(f => (
           <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
@@ -402,7 +427,7 @@ export const TransactionDetailScreen = ({
 
   return (
     <Screen>
-      <MockNotice text={WALLET_NOTICE} />
+      <MockNotice module="rewards" text={WALLET_NOTICE} />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {t => {
           const meta = TX_META[t.type];
@@ -518,7 +543,7 @@ export const SendPreviewScreen = ({
 
   return (
     <Screen>
-      <MockNotice text={WALLET_NOTICE} />
+      <MockNotice module="rewards" text={WALLET_NOTICE} />
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {assets => {
           const selected = assets.find(a => a.symbol === symbol) ?? assets[0];
@@ -650,7 +675,7 @@ export const ReceivePreviewScreen = (
 
   return (
     <Screen>
-      <MockNotice text={WALLET_NOTICE} />
+      <MockNotice module="rewards" text={WALLET_NOTICE} />
       <Card style={styles.qrCard}>
         <FakeQr seed={username} />
         <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>

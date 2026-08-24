@@ -1,10 +1,16 @@
 /**
- * aiainai screens: AiHome (tool hub + usage), AiChat (assistant thread), and
- * AiHistory (past sessions). All data comes from the mock aiService.
+ * Module 5 — AI assistant, AI governance, and the support desk.
+ *
+ * Screens: AiHome (tools, live usage + cost, provider status, privacy),
+ * AiChat (assistant thread with reporting), AiHistory, and the support desk
+ * (AiSupport + AiSupportThread). All data comes from `aiService`, which runs
+ * against the backend when the M5 routes are deployed and against the local
+ * engine otherwise — the screens do not branch on which is live.
  */
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Animated,
+  Clipboard,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -36,13 +42,20 @@ import {
   SegmentedTabs,
   Skeleton,
   Spacer,
+  SwitchRow,
+  TextField,
   YayText,
 } from '../../design/components';
-import {colors, radius, shadows, spacing, typography} from '../../design/tokens';
+import {MAX_FONT_SCALE, colors, radius, spacing, typography} from '../../design/tokens';
 import {ApiError, aiService, errorMessage} from '../../services';
-import {useToast} from '../../state/AppProviders';
+import {useAuth, useToast} from '../../state/AppProviders';
 import {useAsync} from '../../state/hooks';
-import type {AiConversation, AiMessage} from '../../types/models';
+import type {
+  AiConsent,
+  AiConversation,
+  AiMessage,
+  SupportTicket,
+} from '../../types/models';
 import type {AiStackParamList} from '../../types/navigation';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +86,79 @@ const timeAgo = (iso: string): string => {
 const toolTitle = (toolId: string): string =>
   aiService.tools().find(t => t.id === toolId)?.title ?? toolId;
 
+/** Cost is usually sub-cent, so plain `toFixed(2)` would read as $0.00. */
+export const formatCost = (usd: number): string => {
+  if (!Number.isFinite(usd) || usd <= 0) {
+    return '$0.00';
+  }
+  return usd < 0.01 ? `<$0.01` : `$${usd.toFixed(2)}`;
+};
+
+const REPORT_REASONS = [
+  'Inaccurate or misleading',
+  'Harmful or unsafe',
+  'Offensive content',
+  'Gave financial, legal, or medical advice',
+  'Something else',
+];
+
+// ---------------------------------------------------------------------------
+// Shared: privacy / consent controls
+// ---------------------------------------------------------------------------
+
+/**
+ * The consent surface. Both content switches are off until the user turns them
+ * on — AI inside chats and communities is blocked server-side until then.
+ */
+export const AiPrivacySheet = ({
+  visible,
+  onClose,
+  consent,
+  onChange,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  consent: AiConsent | null;
+  onChange: (patch: Partial<AiConsent>) => void;
+}) => (
+  <BottomSheet visible={visible} onClose={onClose} title="AI privacy">
+    <YayText variant="caption" color={colors.textMuted}>
+      Nothing from your chats or communities is sent to an AI provider unless you
+      turn it on here, and then only for the message or conversation you pick.
+    </YayText>
+    <Spacer size={spacing.sm} />
+    <Card style={{paddingVertical: spacing.xxs}}>
+      <SwitchRow
+        label="Share chat content with AI"
+        description="Allows Summarize and Translate inside a conversation."
+        value={!!consent?.shareChatContent}
+        onValueChange={v => onChange({shareChatContent: v})}
+      />
+      <Divider />
+      <SwitchRow
+        label="Share community content with AI"
+        description="Allows summarizing a community feed or announcement."
+        value={!!consent?.shareCommunityContent}
+        onValueChange={v => onChange({shareCommunityContent: v})}
+      />
+      <Divider />
+      <SwitchRow
+        label="Save history"
+        description="Keep past AI conversations so you can revisit them."
+        value={consent?.saveHistory ?? true}
+        onValueChange={v => onChange({saveHistory: v})}
+      />
+      <Divider />
+      <SwitchRow
+        label="Personalization"
+        description="Let the assistant use earlier turns in the same thread."
+        value={consent?.personalization ?? true}
+        onValueChange={v => onChange({personalization: v})}
+      />
+    </Card>
+  </BottomSheet>
+);
+
 // ---------------------------------------------------------------------------
 // AiHome
 // ---------------------------------------------------------------------------
@@ -82,8 +168,30 @@ export const AiHomeScreen = ({
 }: NativeStackScreenProps<AiStackParamList, 'AiHome'>) => {
   const toast = useToast();
   const usage = useAsync(() => aiService.usage(), []);
+  const consent = useAsync(() => aiService.consent(), []);
+  const [provider, setProvider] = useState(aiService.providerStatus());
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const tools = aiService.tools();
   const prompts = aiService.suggestedPrompts();
+
+  useEffect(() => {
+    // Refreshes the tool catalogue and tells us whether a live provider is up.
+    aiService.loadCatalog().then(setProvider);
+  }, []);
+
+  const patchConsent = useCallback(
+    async (patch: Partial<AiConsent>) => {
+      try {
+        consent.setData(await aiService.updateConsent(patch));
+      } catch (e) {
+        toast.show(errorMessage(e), 'error');
+      }
+    },
+    [consent, toast],
+  );
+
+  const sharingOn =
+    !!consent.data?.shareChatContent || !!consent.data?.shareCommunityContent;
 
   return (
     <Screen refreshing={usage.refreshing} onRefresh={usage.refresh}>
@@ -93,9 +201,22 @@ export const AiHomeScreen = ({
           aiainai
         </YayText>
         <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-          Powered by aiainai.com — answers are simulated in this preview.
+          {provider.live
+            ? `Answers by ${provider.model}`
+            : 'No AI provider connected — answers are generated offline.'}
         </YayText>
       </Card>
+
+      {!provider.live ? (
+        <>
+          <Spacer size={spacing.sm} />
+          <Banner
+            tone="warning"
+            icon="cloud-offline"
+            text="AI provider unavailable. You can keep using the assistant, but answers are offline placeholders."
+          />
+        </>
+      ) : null}
 
       <Spacer />
       <Card>
@@ -111,26 +232,65 @@ export const AiHomeScreen = ({
               <Skeleton height={8} />
             </View>
           }>
-          {u => (
-            <View>
-              <Row style={{justifyContent: 'space-between'}}>
-                <YayText variant="bodyStrong">
-                  {u.usedCredits} / {u.totalCredits} credits used
-                </YayText>
-                <Badge label={u.plan} tone="brand" />
-              </Row>
-              <Spacer size={spacing.xs} />
-              <ProgressBar
-                value={u.totalCredits > 0 ? u.usedCredits / u.totalCredits : 0}
-                tone={u.usedCredits >= u.totalCredits ? colors.danger : colors.brand}
-              />
-              <Spacer size={spacing.xs} />
-              <YayText variant="caption" color={colors.textMuted}>
-                Preview plan — credits reset daily
-              </YayText>
-            </View>
-          )}
+          {u => {
+            const exhausted = u.usedRequests >= u.totalRequests;
+            return (
+              <View>
+                <Row style={{justifyContent: 'space-between'}}>
+                  <YayText variant="bodyStrong">
+                    {u.usedRequests} / {u.totalRequests} requests today
+                  </YayText>
+                  <Badge label={u.planLabel} tone="brand" />
+                </Row>
+                <Spacer size={spacing.xs} />
+                <ProgressBar
+                  value={u.totalRequests > 0 ? u.usedRequests / u.totalRequests : 0}
+                  tone={exhausted ? colors.danger : colors.brand}
+                />
+                <Spacer size={spacing.xs} />
+                {/* Cost and tokens are surfaced so spend is observable, not just billed. */}
+                <Row style={{justifyContent: 'space-between'}}>
+                  <YayText variant="caption" color={colors.textMuted}>
+                    {u.tokensIn + u.tokensOut} tokens · {formatCost(u.costUsd)} today
+                  </YayText>
+                  <YayText variant="caption" color={colors.textMuted}>
+                    Resets at midnight UTC
+                  </YayText>
+                </Row>
+                {exhausted ? (
+                  <>
+                    <Spacer size={spacing.xs} />
+                    <Banner
+                      tone="danger"
+                      icon="flash-off"
+                      text="Daily AI limit reached. New requests resume after the reset."
+                    />
+                  </>
+                ) : null}
+              </View>
+            );
+          }}
         </AsyncView>
+      </Card>
+
+      <Spacer />
+      <Card onPress={() => setPrivacyOpen(true)}>
+        <Row gap={spacing.sm}>
+          <Ionicons
+            name={sharingOn ? 'lock-open-outline' : 'lock-closed-outline'}
+            size={20}
+            color={sharingOn ? colors.brand : colors.textMuted}
+          />
+          <View style={{flex: 1}}>
+            <YayText variant="bodyStrong">AI privacy</YayText>
+            <YayText variant="caption" color={colors.textMuted}>
+              {sharingOn
+                ? 'Chat or community content may be shared when you ask for it.'
+                : 'Your chats and communities are never sent to AI.'}
+            </YayText>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+        </Row>
       </Card>
 
       <SectionHeader title="Tools" />
@@ -142,6 +302,10 @@ export const AiHomeScreen = ({
             onPress={() => {
               if (tool.comingSoon) {
                 toast.show(`${tool.title} is coming soon.`, 'info');
+                return;
+              }
+              if (tool.id === 'support') {
+                navigation.navigate('AiSupport');
                 return;
               }
               navigation.navigate('AiChat', {toolId: tool.id});
@@ -185,12 +349,19 @@ export const AiHomeScreen = ({
         />
         <Divider />
         <ListRow
-          title="Saved"
-          subtitle="Answers you bookmarked"
-          icon="bookmark-outline"
-          onPress={() => navigation.navigate('AiHistory')}
+          title="Support desk"
+          subtitle="AI first, a human agent if you need one"
+          icon="help-buoy-outline"
+          onPress={() => navigation.navigate('AiSupport')}
         />
       </Card>
+
+      <AiPrivacySheet
+        visible={privacyOpen}
+        onClose={() => setPrivacyOpen(false)}
+        consent={consent.data}
+        onChange={patchConsent}
+      />
     </Screen>
   );
 };
@@ -232,6 +403,7 @@ export const AiChatScreen = ({
 }: NativeStackScreenProps<AiStackParamList, 'AiChat'>) => {
   const {conversationId, toolId, initialPrompt} = route.params ?? {};
   const toast = useToast();
+  const {session} = useAuth();
   const [convo, setConvo] = useState<AiConversation | null>(null);
   const [loading, setLoading] = useState(!!conversationId);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -239,7 +411,10 @@ export const AiChatScreen = ({
   const [sending, setSending] = useState(false);
   const [failedText, setFailedText] = useState<string | null>(null);
   const [rateLimited, setRateLimited] = useState(false);
+  const [feedbackById, setFeedbackById] = useState<Record<string, 'up' | 'down' | undefined>>({});
+  const [reportTarget, setReportTarget] = useState<AiMessage | null>(null);
   const listRef = useRef<FlatList<AiMessage>>(null);
+  const composerRef = useRef<TextInput>(null);
 
   const activeToolId = convo?.tool ?? toolId ?? 'ask';
   const tool = aiService.tools().find(t => t.id === activeToolId);
@@ -288,18 +463,22 @@ export const AiChatScreen = ({
       }
       setSending(true);
       setFailedText(null);
+      setRateLimited(false);
       try {
         let current = convo;
         if (!current) {
           current = await aiService.start(activeToolId, trimmed);
           setConvo(current);
         }
-        const updated = await aiService.send(current.id, trimmed, activeToolId);
+        const updated = await aiService.send(current.id, trimmed, activeToolId, session?.user.name);
         setConvo({...updated, messages: [...updated.messages]});
         setDraft('');
       } catch (e) {
         if (e instanceof ApiError && e.code === 'rate_limited') {
           setRateLimited(true);
+        } else if (e instanceof ApiError && e.code === 'validation') {
+          // Safety blocks and over-long prompts land here — show the reason.
+          toast.show(e.message, 'error');
         } else {
           setFailedText(trimmed);
         }
@@ -307,21 +486,90 @@ export const AiChatScreen = ({
         setSending(false);
       }
     },
-    [convo, activeToolId, sending],
+    [convo, activeToolId, sending, session?.user.name, toast],
   );
 
   const messages = convo?.messages ?? [];
+
+  const copyMessage = useCallback(
+    (text: string, label = 'Copied') => {
+      Clipboard.setString(text);
+      toast.show(label, 'success');
+    },
+    [toast],
+  );
+
+  const editPrompt = useCallback(
+    (text: string) => {
+      setDraft(text);
+      requestAnimationFrame(() => composerRef.current?.focus());
+      toast.show('Prompt ready to edit', 'info');
+    },
+    [toast],
+  );
+
+  const recordFeedback = useCallback(
+    (messageId: string, value: 'up' | 'down') => {
+      setFeedbackById(prev => ({
+        ...prev,
+        [messageId]: prev[messageId] === value ? undefined : value,
+      }));
+      toast.show('Thanks for the feedback', 'success');
+    },
+    [toast],
+  );
+
+  const submitReport = useCallback(
+    async (reason: string) => {
+      const target = reportTarget;
+      setReportTarget(null);
+      if (!target) {
+        return;
+      }
+      try {
+        await aiService.reportAnswer({
+          reason,
+          excerpt: target.text,
+          conversationId: convo?.id,
+          messageId: target.id,
+        });
+        toast.show('Report sent for review.', 'success');
+      } catch (e) {
+        toast.show(errorMessage(e), 'error');
+      }
+    },
+    [reportTarget, convo?.id, toast],
+  );
 
   const renderMessage = ({item}: {item: AiMessage}) => {
     if (item.role === 'user') {
       return (
         <View style={styles.userRow}>
-          <View style={[styles.bubble, styles.bubbleMine]}>
-            <YayText color={colors.textOnBrand}>{item.text}</YayText>
+          <View style={styles.userMessageWrap}>
+            <View style={[styles.bubble, styles.bubbleMine]}>
+              <YayText color={colors.textOnBrand}>{item.text}</YayText>
+            </View>
+            <Row gap={0} style={styles.userActionRow}>
+              <IconButton
+                icon="copy-outline"
+                size={16}
+                color={colors.textMuted}
+                label="Copy prompt"
+                onPress={() => copyMessage(item.text, 'Prompt copied')}
+              />
+              <IconButton
+                icon="create-outline"
+                size={16}
+                color={colors.textMuted}
+                label="Edit prompt"
+                onPress={() => editPrompt(item.text)}
+              />
+            </Row>
           </View>
         </View>
       );
     }
+    const feedback = feedbackById[item.id];
     return (
       <View style={styles.assistantRow}>
         <Oval size={26} style={styles.aiAvatar}>
@@ -331,27 +579,39 @@ export const AiChatScreen = ({
           <View style={[styles.bubble, styles.bubbleTheirs]}>
             <YayText>{item.text}</YayText>
           </View>
+          {item.degraded ? (
+            <YayText variant="caption" color={colors.warning} style={{marginTop: 2}}>
+              Offline answer — no AI provider was reachable.
+            </YayText>
+          ) : null}
           <Row gap={0} style={{marginTop: 2}}>
             <IconButton
               icon="copy-outline"
               size={16}
               color={colors.textMuted}
               label="Copy answer"
-              onPress={() => toast.show('Copied', 'success')}
+              onPress={() => copyMessage(item.text)}
             />
             <IconButton
-              icon="thumbs-up-outline"
+              icon={feedback === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}
               size={16}
-              color={colors.textMuted}
+              color={feedback === 'up' ? colors.brand : colors.textMuted}
               label="Good answer"
-              onPress={() => toast.show('Thanks for the feedback', 'success')}
+              onPress={() => recordFeedback(item.id, 'up')}
             />
             <IconButton
-              icon="thumbs-down-outline"
+              icon={feedback === 'down' ? 'thumbs-down' : 'thumbs-down-outline'}
+              size={16}
+              color={feedback === 'down' ? colors.danger : colors.textMuted}
+              label="Bad answer"
+              onPress={() => recordFeedback(item.id, 'down')}
+            />
+            <IconButton
+              icon="flag-outline"
               size={16}
               color={colors.textMuted}
-              label="Bad answer"
-              onPress={() => toast.show('Thanks for the feedback', 'success')}
+              label="Report answer"
+              onPress={() => setReportTarget(item)}
             />
           </Row>
         </View>
@@ -373,7 +633,11 @@ export const AiChatScreen = ({
             />
           ) : null}
           {rateLimited ? (
-            <Banner tone="danger" icon="flash-off" text="You have used all preview credits" />
+            <Banner
+              tone="danger"
+              icon="flash-off"
+              text="Daily AI limit reached. Your quota resets at midnight UTC."
+            />
           ) : null}
         </View>
         {loading ? (
@@ -433,6 +697,8 @@ export const AiChatScreen = ({
         )}
         <View style={styles.composer}>
           <TextInput
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
+            ref={composerRef}
             value={draft}
             onChangeText={setDraft}
             placeholder="Ask aiainai anything…"
@@ -450,6 +716,25 @@ export const AiChatScreen = ({
           />
         </View>
       </KeyboardAvoidingView>
+
+      <BottomSheet
+        visible={!!reportTarget}
+        onClose={() => setReportTarget(null)}
+        title="Report this answer">
+        <YayText variant="caption" color={colors.textMuted}>
+          Reported answers go to a human reviewer with the text of the reply.
+        </YayText>
+        <Spacer size={spacing.sm} />
+        {REPORT_REASONS.map(reason => (
+          <Button
+            key={reason}
+            label={reason}
+            kind="secondary"
+            style={{marginTop: spacing.xs}}
+            onPress={() => submitReport(reason)}
+          />
+        ))}
+      </BottomSheet>
     </Screen>
   );
 };
@@ -514,7 +799,7 @@ export const AiHistoryScreen = ({
                     {item.title}
                   </YayText>
                   <YayText variant="caption" color={colors.textMuted}>
-                    {timeAgo(item.updatedAt)}
+                    {timeAgo(item.updatedAt)} · {formatCost(item.costUsd ?? 0)}
                   </YayText>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
@@ -575,6 +860,306 @@ export const AiHistoryScreen = ({
 };
 
 // ---------------------------------------------------------------------------
+// Support desk
+// ---------------------------------------------------------------------------
+
+const TICKET_TONE: Record<SupportTicket['status'], {label: string; tone: 'brand' | 'neutral' | 'warning' | 'success'}> = {
+  ai_handling: {label: 'AI handling', tone: 'brand'},
+  awaiting_user: {label: 'Awaiting you', tone: 'neutral'},
+  escalated: {label: 'With an agent', tone: 'warning'},
+  resolved: {label: 'Resolved', tone: 'success'},
+};
+
+export const AiSupportScreen = ({
+  navigation,
+}: NativeStackScreenProps<AiStackParamList, 'AiSupport'>) => {
+  const toast = useToast();
+  const tickets = useAsync(() => aiService.tickets(), []);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [detail, setDetail] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => navigation.addListener('focus', () => tickets.refresh()), [navigation, tickets]);
+
+  const createTicket = useCallback(async () => {
+    const text = detail.trim();
+    if (!text) {
+      toast.show('Describe the problem first.', 'error');
+      return;
+    }
+    setCreating(true);
+    try {
+      const ticket = await aiService.createTicket({subject: subject.trim() || text, text});
+      setComposeOpen(false);
+      setSubject('');
+      setDetail('');
+      tickets.refresh();
+      navigation.navigate('AiSupportThread', {ticketId: ticket.id});
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setCreating(false);
+    }
+  }, [detail, subject, tickets, navigation, toast]);
+
+  return (
+    <Screen scroll={false}>
+      <Banner
+        tone="info"
+        icon="help-buoy"
+        text="AI answers first. If it cannot help, escalate and a human agent picks it up with the full transcript."
+      />
+      <Spacer size={spacing.sm} />
+      <Button label="New support request" icon="add" onPress={() => setComposeOpen(true)} />
+      <Spacer size={spacing.sm} />
+      <AsyncView
+        loading={tickets.loading}
+        error={tickets.error}
+        offline={tickets.offline}
+        onRetry={tickets.reload}
+        data={tickets.data}
+        isEmpty={(tickets.data ?? []).length === 0}
+        emptyTitle="No support requests"
+        emptyMessage="Open one and the AI first line will try to resolve it straight away."
+        emptyAction={{label: 'New request', onPress: () => setComposeOpen(true)}}>
+        {items => (
+          <FlatList
+            data={items}
+            keyExtractor={t => t.id}
+            ItemSeparatorComponent={Divider}
+            renderItem={({item}) => {
+              const status = TICKET_TONE[item.status];
+              return (
+                <Pressable
+                  onPress={() => navigation.navigate('AiSupportThread', {ticketId: item.id})}
+                  style={({pressed}) => [
+                    styles.historyRow,
+                    pressed && {backgroundColor: colors.surfaceSunken},
+                  ]}>
+                  <View style={{flex: 1, gap: spacing.xxs}}>
+                    <Row gap={spacing.xs}>
+                      <Badge label={status.label} tone={status.tone} />
+                      <YayText variant="caption" color={colors.textMuted}>
+                        {item.product}
+                      </YayText>
+                    </Row>
+                    <YayText variant="bodyStrong" numberOfLines={1}>
+                      {item.subject}
+                    </YayText>
+                    <YayText variant="caption" color={colors.textMuted}>
+                      {timeAgo(item.updatedAt)}
+                    </YayText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                </Pressable>
+              );
+            }}
+          />
+        )}
+      </AsyncView>
+
+      <BottomSheet
+        visible={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        title="New support request">
+        <TextField
+          label="Subject"
+          value={subject}
+          onChangeText={setSubject}
+          placeholder="Short summary (optional)"
+        />
+        <TextField
+          label="What is happening?"
+          value={detail}
+          onChangeText={setDetail}
+          placeholder="Describe the problem and what you already tried."
+          multiline
+        />
+        <Button
+          label={creating ? 'Sending…' : 'Send to AI support'}
+          icon="paper-plane"
+          loading={creating}
+          style={{marginTop: spacing.sm}}
+          onPress={createTicket}
+        />
+      </BottomSheet>
+    </Screen>
+  );
+};
+
+export const AiSupportThreadScreen = ({
+  route,
+  navigation,
+}: NativeStackScreenProps<AiStackParamList, 'AiSupportThread'>) => {
+  const {ticketId} = route.params;
+  const toast = useToast();
+  const [ticket, setTicket] = useState<SupportTicket | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [confirmEscalate, setConfirmEscalate] = useState(false);
+  const listRef = useRef<FlatList<SupportTicket['messages'][number]>>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    aiService
+      .tickets()
+      .then(all => {
+        const found = all.find(t => t.id === ticketId) ?? null;
+        setTicket(found);
+        if (!found) {
+          setLoadError('This support request is no longer available.');
+        }
+      })
+      .catch(e => setLoadError(errorMessage(e)))
+      .finally(() => setLoading(false));
+  }, [ticketId]);
+
+  useEffect(load, [load]);
+
+  useEffect(() => {
+    navigation.setOptions({title: ticket?.subject ?? 'Support'});
+  }, [navigation, ticket?.subject]);
+
+  const send = useCallback(async () => {
+    const text = draft.trim();
+    if (!text || sending) {
+      return;
+    }
+    setSending(true);
+    try {
+      setTicket(await aiService.replyToTicket(ticketId, text));
+      setDraft('');
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setSending(false);
+    }
+  }, [draft, sending, ticketId, toast]);
+
+  const escalate = useCallback(async () => {
+    try {
+      setTicket(await aiService.escalateTicket(ticketId, 'Requested by the user'));
+      toast.show('Escalated to a human agent.', 'success');
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    }
+  }, [ticketId, toast]);
+
+  const escalated = ticket?.status === 'escalated';
+
+  return (
+    <Screen scroll={false} padded={false}>
+      <KeyboardAvoidingView
+        style={{flex: 1}}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        <View style={{paddingHorizontal: spacing.md, paddingTop: spacing.sm}}>
+          <Banner
+            tone={escalated ? 'warning' : 'info'}
+            icon={escalated ? 'person' : 'sparkles'}
+            text={
+              escalated
+                ? 'A human agent owns this request. Your replies are queued for them.'
+                : 'Answered by AI. Escalate any time to reach a human agent.'
+            }
+          />
+        </View>
+        {loading ? (
+          <View style={{padding: spacing.md, gap: spacing.sm}}>
+            <Skeleton height={44} width="70%" />
+            <Skeleton height={44} width="80%" style={{alignSelf: 'flex-end'}} />
+          </View>
+        ) : loadError ? (
+          <View style={{padding: spacing.md}}>
+            <Banner tone="danger" text={loadError} />
+            <Button label="Try again" kind="secondary" onPress={load} />
+          </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            data={ticket?.messages ?? []}
+            keyExtractor={m => m.id}
+            contentContainerStyle={styles.thread}
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => listRef.current?.scrollToEnd({animated: true})}
+            renderItem={({item}) =>
+              item.author === 'user' ? (
+                <View style={styles.userRow}>
+                  <View style={[styles.bubble, styles.bubbleMine]}>
+                    <YayText color={colors.textOnBrand}>{item.text}</YayText>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.assistantRow}>
+                  <Oval size={26} style={styles.aiAvatar}>
+                    <Ionicons
+                      name={item.author === 'agent' ? 'person' : 'sparkles'}
+                      size={14}
+                      color={colors.textOnBrand}
+                    />
+                  </Oval>
+                  <View style={{flex: 1}}>
+                    <YayText variant="caption" color={colors.textMuted}>
+                      {item.author === 'agent' ? 'Support agent' : 'AI support'}
+                    </YayText>
+                    <View style={[styles.bubble, styles.bubbleTheirs]}>
+                      <YayText>{item.text}</YayText>
+                    </View>
+                  </View>
+                </View>
+              )
+            }
+            ListFooterComponent={
+              ticket && !escalated ? (
+                <Button
+                  label="Escalate to a human agent"
+                  kind="secondary"
+                  icon="person-add-outline"
+                  style={{marginTop: spacing.md}}
+                  onPress={() => setConfirmEscalate(true)}
+                />
+              ) : null
+            }
+          />
+        )}
+        <View style={styles.composer}>
+          <TextInput
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={escalated ? 'Message the agent…' : 'Reply to AI support…'}
+            placeholderTextColor={colors.textFaint}
+            multiline
+            style={styles.composerInput}
+            accessibilityLabel="Message support"
+          />
+          <IconButton
+            icon="arrow-up-circle"
+            size={32}
+            color={draft.trim() && !sending ? colors.brand : colors.textFaint}
+            label="Send"
+            onPress={send}
+          />
+        </View>
+      </KeyboardAvoidingView>
+
+      <ConfirmSheet
+        visible={confirmEscalate}
+        onClose={() => setConfirmEscalate(false)}
+        title="Escalate to a human?"
+        message="Your full conversation with AI support is shared with the agent so you do not have to repeat yourself."
+        confirmLabel="Escalate"
+        onConfirm={escalate}
+      />
+    </Screen>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
@@ -611,6 +1196,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     paddingLeft: spacing.xxl,
+  },
+  userMessageWrap: {
+    alignItems: 'flex-end',
+    maxWidth: '100%',
+  },
+  userActionRow: {
+    marginTop: 2,
+    justifyContent: 'flex-end',
   },
   assistantRow: {
     flexDirection: 'row',

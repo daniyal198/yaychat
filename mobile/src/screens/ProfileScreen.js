@@ -14,6 +14,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {useAuth} from '../context/AuthContext';
 import {useNavigation} from '@react-navigation/native';
 import {getUserDetails} from '../services/auth.service';
+import {decodeJWT} from '../utils/jwt';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {Share} from 'react-native';
 
@@ -76,6 +77,10 @@ const ProfileScreen = () => {
     fetchUserData();
   }, []);
 
+  useEffect(() => {
+    console.log('isLoggedIn', isLoggedIn);
+  }, [isLoggedIn]);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -92,9 +97,6 @@ const ProfileScreen = () => {
     );
   }
 
-  useEffect(() => {
-    console.log('isLoggedIn', isLoggedIn);
-  }, [isLoggedIn]);
   const handleLogout = async () => {
     try {
       console.log('Starting logout process...');

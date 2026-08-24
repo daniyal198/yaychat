@@ -1,5 +1,26 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {errorMessage, isOfflineError} from '../services';
+import {ApiError, errorMessage, isOfflineError} from '../services';
+import {dataMode, DataModule} from '../services/dataMode';
+
+const ASYNC_TIMEOUT_MS = 15000;
+
+const withTimeout = async <T,>(promise: Promise<T>): Promise<T> => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new ApiError('This is taking longer than expected. Please try again.', 'server'));
+        }, ASYNC_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+};
 
 /**
  * Standard data-loading hook. Pairs with <AsyncView /> so every screen gets
@@ -12,6 +33,7 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const mounted = useRef(true);
+  const runId = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -21,6 +43,8 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   }, []);
 
   const run = useCallback(async (asRefresh = false) => {
+    const currentRun = runId.current + 1;
+    runId.current = currentRun;
     if (asRefresh) {
       setRefreshing(true);
     } else {
@@ -29,12 +53,12 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []) {
     setError(null);
     setOffline(false);
     try {
-      const result = await loader();
-      if (mounted.current) {
+      const result = await withTimeout(loader());
+      if (mounted.current && runId.current === currentRun) {
         setData(result);
       }
     } catch (e) {
-      if (mounted.current) {
+      if (mounted.current && runId.current === currentRun) {
         if (isOfflineError(e)) {
           setOffline(true);
         } else {
@@ -42,7 +66,7 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []) {
         }
       }
     } finally {
-      if (mounted.current) {
+      if (mounted.current && runId.current === currentRun) {
         setLoading(false);
         setRefreshing(false);
       }
@@ -84,4 +108,25 @@ export function useAction() {
     [],
   );
   return {busy, perform};
+}
+
+/**
+ * Whether a feature module is being served by the real backend this session.
+ *
+ * Screens use this to choose copy: the difference between "preview balance" and
+ * "balance" is the difference between a mock-up and a statement about someone's
+ * money, so it has to follow the actual data source rather than a build flag.
+ * Starts false and flips when the service layer's probe resolves.
+ */
+export function useLiveData(module: DataModule): boolean {
+  const [live, setLive] = useState(() => dataMode.isLive(module));
+  useEffect(() => {
+    setLive(dataMode.isLive(module));
+    return dataMode.subscribe((changed, isLive) => {
+      if (changed === module) {
+        setLive(isLive);
+      }
+    });
+  }, [module]);
+  return live;
 }

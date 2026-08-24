@@ -2,15 +2,23 @@ import React, {useState} from 'react';
 import {View, Text, TextInput, StyleSheet} from 'react-native';
 import {colors} from '../theme/colors';
 
+type MultiInputFieldProps = {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  maxWords?: number;
+};
+
 const MultiInputField = ({
   label,
   value,
   onChangeText,
   placeholder,
   maxWords = 315,
-}) => {
+}: MultiInputFieldProps) => {
   const [wordCount, setWordCount] = useState(0);
-  const handleTextChange = text => {
+  const handleTextChange = (text: string) => {
     const words = text.match(/\b\w+\b/g) || []; // Match only words, ignore spaces
     const count = words.length; // Count actual words typed
 

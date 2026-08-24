@@ -3,8 +3,6 @@
  * Mutated by the mock services so the app feels live within a session.
  */
 import {
-  AiConversation,
-  AiUsage,
   AppNotification,
   BtcyDashboard,
   EmmmDashboard,
@@ -87,7 +85,7 @@ export const messages: Record<string, Message[]> = {
   c_amara: [
     msg('c_amara', 'u_amara', 'Morning! Did you see the new Earn challenges?', 260),
     msg('c_amara', ME_ID, 'Not yet — anything good?', 255),
-    msg('c_amara', 'u_amara', 'Daily check-in streak now gives bonus YayPoints on day 7 🎉', 250),
+    msg('c_amara', 'u_amara', 'Daily check-in streak now gives bonus IndexxPoints on day 7 🎉', 250),
     msg('c_amara', ME_ID, 'Nice, I am on day 5. Two more to go.', 245, {
       reactions: [{emoji: '🔥', userIds: ['u_amara']}],
     }),
@@ -230,10 +228,44 @@ export const communities: Community[] = [
     privacy: 'public',
     joined: true,
     role: 'member',
+    verified: true,
+    officialProduct: 'Bitcoin Yay',
+    approvedPublisherIds: [ME_ID, 'u_sana'],
+    joinRequests: [],
+    moderationReports: [],
+    bannedUserIds: [],
     rules: ['Be kind and constructive.', 'No financial advice.', 'No spam or self-promotion.', 'Use English in main channels.'],
     announcements: [
-      {id: nextId('an'), title: 'AMA recap posted', body: 'The summary of last week’s AMA with the BTCY team is now pinned.', postedAt: hoursAgo(5)},
-      {id: nextId('an'), title: 'New moderators', body: 'Welcome Sana and Devon to the mod team!', postedAt: daysAgo(2)},
+      {
+        id: nextId('an'),
+        title: 'AMA recap posted',
+        body: 'The summary of last week’s AMA with the BTCY team is now pinned.',
+        postedAt: hoursAgo(5),
+        status: 'published',
+        audience: 'members',
+        actionLabel: 'Read recap',
+        actionUrl: 'mock-link://btcy-ama-recap',
+        readCount: 4820,
+        publisherName: 'BTCY Official',
+        publisherVerified: true,
+        approvedBy: 'Sana Aziz',
+      },
+      {
+        id: nextId('an'),
+        title: 'Rewards roadmap livestream',
+        body: 'Join the official BTCY team for a product roadmap livestream.',
+        postedAt: hoursAgo(1),
+        status: 'scheduled',
+        scheduledFor: inDays(1),
+        audience: 'region',
+        region: 'United States',
+        actionLabel: 'Set reminder',
+        actionUrl: 'mock-link://btcy-roadmap-livestream',
+        readCount: 0,
+        publisherName: 'BTCY Official',
+        publisherVerified: true,
+        approvedBy: 'Sana Aziz',
+      },
     ],
     events: [
       {id: nextId('ev'), title: 'Community call: Rewards roadmap', date: inDays(2), attending: 214},
@@ -265,8 +297,22 @@ export const communities: Community[] = [
     memberCount: 3210,
     privacy: 'public',
     joined: false,
+    joinRequests: [],
+    moderationReports: [],
+    bannedUserIds: [],
     rules: ['Critique the work, not the person.', 'Credit sources.'],
-    announcements: [{id: nextId('an'), title: 'July design jam', body: 'Theme: chat interfaces that feel like home.', postedAt: daysAgo(1)}],
+    announcements: [
+      {
+        id: nextId('an'),
+        title: 'July design jam',
+        body: 'Theme: chat interfaces that feel like home.',
+        postedAt: daysAgo(1),
+        status: 'published',
+        audience: 'all',
+        readCount: 612,
+        publisherName: 'Amara Okafor',
+      },
+    ],
     events: [{id: nextId('ev'), title: 'Design jam kickoff', date: inDays(4), attending: 67}],
     polls: [],
     feed: [{id: nextId('fp'), authorName: 'Amara Okafor', body: 'Moodboard drop: sunrise palettes 🌅', postedAt: hoursAgo(8), likes: 77}],
@@ -280,6 +326,18 @@ export const communities: Community[] = [
     memberCount: 890,
     privacy: 'private',
     joined: false,
+    joinRequested: true,
+    joinRequests: [
+      {
+        id: nextId('jr'),
+        userName: 'Jordan Reyes',
+        userEmail: 'jordan@example.com',
+        requestedAt: hoursAgo(2),
+        status: 'pending',
+      },
+    ],
+    moderationReports: [],
+    bannedUserIds: [],
     rules: ['Verified members only.', 'No signals or pumping.'],
     announcements: [],
     events: [],
@@ -296,8 +354,33 @@ export const communities: Community[] = [
     privacy: 'public',
     joined: true,
     role: 'moderator',
+    joinRequests: [],
+    moderationReports: [
+      {
+        id: nextId('rep'),
+        targetType: 'post',
+        targetId: 'fp_study_spam',
+        reporterName: 'Priya Nair',
+        reason: 'Spam',
+        excerpt: 'Check out this deal, DM me for the link...',
+        createdAt: minutesAgo(45),
+        status: 'open',
+      },
+    ],
+    bannedUserIds: [],
     rules: ['Stay on topic.', 'Share resources freely.'],
-    announcements: [{id: nextId('an'), title: 'Exam season thread', body: 'Post your goals for the week.', postedAt: hoursAgo(30)}],
+    announcements: [
+      {
+        id: nextId('an'),
+        title: 'Exam season thread',
+        body: 'Post your goals for the week.',
+        postedAt: hoursAgo(30),
+        status: 'published',
+        audience: 'members',
+        readCount: 1204,
+        publisherName: 'Priya Nair',
+      },
+    ],
     events: [{id: nextId('ev'), title: 'Pomodoro sprint', date: inDays(1), attending: 156}],
     polls: [],
     feed: [{id: nextId('fp'), authorName: 'Priya Nair', body: 'The AI summarizer saved me 2 hours on lecture notes today.', postedAt: hoursAgo(6), likes: 51}],
@@ -312,6 +395,9 @@ export const communities: Community[] = [
     privacy: 'private',
     joined: false,
     inviteOnly: true,
+    joinRequests: [],
+    moderationReports: [],
+    bannedUserIds: [],
     rules: ['Invite only.'],
     announcements: [],
     events: [],
@@ -327,52 +413,8 @@ export const communityCategories = ['All', 'Crypto & Learning', 'Design', 'Marke
 // AI
 // ---------------------------------------------------------------------------
 
-export const aiConversations: AiConversation[] = [
-  {
-    id: 'ai_1',
-    title: 'AMA summary for Indexx Pioneers',
-    tool: 'Summarize',
-    saved: true,
-    updatedAt: hoursAgo(4),
-    messages: [
-      {id: nextId('am'), role: 'user', text: 'Summarize the key points from the BTCY AMA transcript I pasted.', createdAt: hoursAgo(4)},
-      {id: nextId('am'), role: 'assistant', text: 'Here are the key points:\n\n1. Rewards roadmap ships in phases, starting with daily check-ins.\n2. Nugget-to-BTCY conversion rules are still under review.\n3. Community moderators get new tools next quarter.\n\n(Simulated response — production AI arrives in Milestone 5.)', createdAt: hoursAgo(4)},
-    ],
-  },
-  {
-    id: 'ai_2',
-    title: 'Email to landlord',
-    tool: 'Write an email',
-    saved: false,
-    updatedAt: daysAgo(1),
-    messages: [
-      {id: nextId('am'), role: 'user', text: 'Write a polite email asking my landlord to fix the heater.', createdAt: daysAgo(1)},
-      {id: nextId('am'), role: 'assistant', text: 'Subject: Heater repair request — Unit 4B\n\nHi Sam,\n\nI hope you are well. The heater in my unit has stopped working... (Simulated response.)', createdAt: daysAgo(1)},
-    ],
-  },
-];
-
-export const aiUsage: AiUsage = {usedCredits: 34, totalCredits: 100, plan: 'Preview plan'};
-
-export const aiTools = [
-  {id: 'ask', title: 'Ask a question', icon: 'help-circle', prompt: 'Ask me anything.'},
-  {id: 'summarize', title: 'Summarize text', icon: 'reader', prompt: 'Paste text and I will summarize it.'},
-  {id: 'summarize_pdf', title: 'Summarize PDF', icon: 'document-text', prompt: 'PDF support is coming soon.', comingSoon: true},
-  {id: 'translate', title: 'Translate', icon: 'language', prompt: 'Tell me what to translate and into which language.'},
-  {id: 'email', title: 'Write an email', icon: 'mail', prompt: 'Describe the email you need.'},
-  {id: 'study', title: 'Study assistant', icon: 'school', prompt: 'What are you studying today?'},
-  {id: 'code', title: 'Coding assistant', icon: 'code-slash', prompt: 'Share code or describe the bug.'},
-  {id: 'finance', title: 'Financial assistant', icon: 'trending-up', prompt: 'General financial information only — never investment advice.', disclaimer: true},
-  {id: 'image', title: 'Generate an image', icon: 'color-palette', prompt: 'Image generation is coming soon.', comingSoon: true},
-];
-
-export const suggestedPrompts = [
-  'Summarize my unread group messages',
-  'Translate "good morning" into Portuguese',
-  'Help me plan a study schedule for finals',
-  'Draft a friendly reminder email',
-  'Explain BTCY nuggets like I am five',
-];
+// AI catalogue, usage, consent, and history now live in
+// services/ai/localEngine.ts, which mirrors the backend contract.
 
 // ---------------------------------------------------------------------------
 // Earn
@@ -390,8 +432,8 @@ export const earnSummary: EarnSummary = {
     {name: 'Devon Clarke', joinedAt: daysAgo(1), reward: 100, status: 'pending'},
   ],
   campaigns: [
-    {id: 'camp_1', title: 'Launch week double points', description: 'All chat activities earn 2× YayPoints during launch week.', endsAt: inDays(4), reward: '2× on chat activities'},
-    {id: 'camp_2', title: 'Community builder', description: 'Create a community and reach 50 members.', endsAt: inDays(20), reward: '1,000 YayPoints'},
+    {id: 'camp_1', title: 'Launch week double points', description: 'All chat activities earn 2× IndexxPoints during launch week.', endsAt: inDays(4), reward: '2× on chat activities'},
+    {id: 'camp_2', title: 'Community builder', description: 'Create a community and reach 50 members.', endsAt: inDays(20), reward: '1,000 IndexxPoints'},
   ],
 };
 
@@ -410,11 +452,11 @@ export const earnActivities: EarnActivity[] = [
 ];
 
 export const rewardHistory: RewardEntry[] = [
-  {id: nextId('r'), activity: 'Group to Earn', amount: 15, unit: 'YayPoints', status: 'completed', createdAt: hoursAgo(2)},
-  {id: nextId('r'), activity: 'Daily check-in', amount: 20, unit: 'YayPoints', status: 'completed', createdAt: daysAgo(1)},
-  {id: nextId('r'), activity: 'Invite Friends to Earn', amount: 100, unit: 'YayPoints', status: 'pending', createdAt: daysAgo(1), note: 'Waiting for Devon to verify their account.'},
-  {id: nextId('r'), activity: 'Chat to Earn', amount: 30, unit: 'YayPoints', status: 'completed', createdAt: daysAgo(2)},
-  {id: nextId('r'), activity: 'AI to Earn', amount: 25, unit: 'YayPoints', status: 'reversed', createdAt: daysAgo(4), note: 'Reversed: automated activity detected. Repeated abuse can restrict your account.'},
+  {id: nextId('r'), activity: 'Group to Earn', amount: 15, unit: 'IndexxPoints', status: 'completed', createdAt: hoursAgo(2)},
+  {id: nextId('r'), activity: 'Daily check-in', amount: 20, unit: 'IndexxPoints', status: 'completed', createdAt: daysAgo(1)},
+  {id: nextId('r'), activity: 'Invite Friends to Earn', amount: 100, unit: 'IndexxPoints', status: 'pending', createdAt: daysAgo(1), note: 'Waiting for Devon to verify their account.'},
+  {id: nextId('r'), activity: 'Chat to Earn', amount: 30, unit: 'IndexxPoints', status: 'completed', createdAt: daysAgo(2)},
+  {id: nextId('r'), activity: 'AI to Earn', amount: 25, unit: 'IndexxPoints', status: 'reversed', createdAt: daysAgo(4), note: 'Reversed: automated activity detected. Repeated abuse can restrict your account.'},
 ];
 
 // ---------------------------------------------------------------------------
@@ -467,7 +509,7 @@ export const socialAccounts: SocialAccount[] = [
     unlocks: [
       'One-tap invites — friends get your referral link in a WhatsApp message.',
       'Share chats, moments, and product finds straight into WhatsApp.',
-      'Earn YayPoints when an invited friend joins YaysApp.',
+      'Earn IndexxPoints when an invited friend joins YaysApp.',
     ],
     connected: false,
   },
@@ -762,11 +804,19 @@ export const paymentMockDetail: Record<string, string> = {
 // Notifications / sessions / settings
 // ---------------------------------------------------------------------------
 
+// Deep links mirror what the M6 delivery service attaches to a real push, so
+// tapping a row here exercises the same routing a notification tap does.
+//
+// These point at list routes rather than a specific conversation or community
+// on purpose: this seed is sample data, but chat and communities run against
+// the real backend, so a mock `c_amara` / `co_btcy` id would resolve to nothing
+// and the screen would show an error. A real notification carries a real id
+// from the server and opens the item itself.
 export const notifications: AppNotification[] = [
-  {id: nextId('n'), title: 'Amara Okafor', body: 'Got it, reviewing now 👀', createdAt: minutesAgo(12), read: false, kind: 'chat'},
-  {id: nextId('n'), title: 'Daily check-in ready', body: 'Keep your 5-day streak alive!', createdAt: hoursAgo(1), read: false, kind: 'reward'},
-  {id: nextId('n'), title: 'BTCY Learners', body: 'New announcement: AMA recap posted', createdAt: hoursAgo(5), read: true, kind: 'community'},
-  {id: nextId('n'), title: 'Welcome to YaysApp', body: 'This is a preview build with simulated data.', createdAt: daysAgo(1), read: true, kind: 'system'},
+  {id: nextId('n'), title: 'Amara Okafor', body: 'Got it, reviewing now 👀', createdAt: minutesAgo(12), read: false, kind: 'chat', deepLink: {route: 'chat.list', params: {}}},
+  {id: nextId('n'), title: 'Daily check-in ready', body: 'Keep your 5-day streak alive!', createdAt: hoursAgo(1), read: false, kind: 'reward', deepLink: {route: 'rewards.home', params: {}}},
+  {id: nextId('n'), title: 'BTCY Learners', body: 'New announcement: AMA recap posted', createdAt: hoursAgo(5), read: true, kind: 'community', deepLink: {route: 'community.list', params: {}}},
+  {id: nextId('n'), title: 'Welcome to YaysApp', body: 'This is a preview build with simulated data.', createdAt: daysAgo(1), read: true, kind: 'system', deepLink: null},
 ];
 
 export const deviceSessions: DeviceSession[] = [

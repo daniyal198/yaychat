@@ -2,11 +2,14 @@
  * Design-kit interaction tests (Milestone 1 test plan).
  */
 import React from 'react';
+import {TextInput} from 'react-native';
 import ReactTestRenderer, {act} from 'react-test-renderer';
 import {
   AsyncView,
+  Avatar,
   Badge,
   Button,
+  CountBubble,
   EmptyState,
   ErrorState,
   ListRow,
@@ -52,6 +55,16 @@ describe('TextField', () => {
     expect(textContent(withError)).toContain('Enter a valid email address.');
     const withHint = render(<TextField label="Email" hint="We never share this." />);
     expect(textContent(withHint)).toContain('We never share this.');
+  });
+
+  it('toggles password visibility', () => {
+    const tree = render(<TextField label="Password" value="secret123" secureTextEntry />);
+    expect(tree.root.findByType(TextInput).props.secureTextEntry).toBe(true);
+    act(() => {
+      tree.root.findByProps({accessibilityLabel: 'Show password'}).props.onPress();
+    });
+    expect(tree.root.findByType(TextInput).props.secureTextEntry).toBe(false);
+    expect(tree.root.findByProps({accessibilityLabel: 'Hide password'})).toBeTruthy();
   });
 });
 
@@ -125,6 +138,13 @@ describe('AsyncView', () => {
 });
 
 describe('ListRow and Badge', () => {
+  it('renders a selected profile picture instead of initials', () => {
+    const tree = render(<Avatar name="Test User" imageUri="file:///profile.jpg" />);
+    const image = tree.root.findByProps({accessibilityLabel: 'Test User profile picture'});
+    expect(image.props.source).toEqual({uri: 'file:///profile.jpg'});
+    expect(textContent(tree)).not.toContain('TU');
+  });
+
   it('renders title, subtitle, and avatar initials', () => {
     const tree = render(
       <ListRow title="Amara Okafor" subtitle="online" avatarName="Amara Okafor" onPress={() => {}} />,
@@ -137,5 +157,9 @@ describe('ListRow and Badge', () => {
 
   it('renders badge tones', () => {
     expect(textContent(render(<Badge label="Preview" tone="warning" />))).toContain('Preview');
+  });
+
+  it('caps large unread counts in count bubbles', () => {
+    expect(textContent(render(<CountBubble count={22013} />))).toContain('999+');
   });
 });

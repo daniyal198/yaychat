@@ -12,7 +12,6 @@ import {
   Image,
 } from 'react-native';
 import TextField from '../../components/TextField';
-import Button from '../../components/Button';
 import {useNavigation} from '@react-navigation/native';
 import {RootStackParamsList} from '../../RootNavigator';
 import {StackNavigationProp} from '@react-navigation/stack';

@@ -9,6 +9,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Clipboard,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,14 +17,18 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useHeaderHeight} from '@react-navigation/elements';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
   AsyncView,
   Avatar,
   Badge,
+  Banner,
   Oval,
   BottomSheet,
   Button,
@@ -49,12 +54,22 @@ import {
   YayText,
 } from '../../design/components';
 import {EmojiPicker} from '../../design/EmojiPicker';
-import {colors, radius, spacing, typography} from '../../design/tokens';
-import {ME_ID, chatService, communityService, errorMessage, userService} from '../../services';
+import {MAX_FONT_SCALE, colors, radius, spacing, typography} from '../../design/tokens';
+import {
+  ME_ID,
+  chatService,
+  communityService,
+  errorMessage,
+  featureFlags,
+  userService,
+} from '../../services';
+import {callService} from '../../services/calls/callService';
+import {navigateToCall} from '../../navigation/navigationRef';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast, useUnread} from '../../state/AppProviders';
 import {Conversation, Message, User} from '../../types/models';
 import {ChatsStackParamList} from '../../types/navigation';
+import {useAiAssist} from '../shared/AiAssist';
 import {ChatLinkCard, classifyChatLink} from './linkCards';
 
 // ---------------------------------------------------------------------------
@@ -97,8 +112,17 @@ const dayLabel = (iso: string): string => {
   return d.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric'});
 };
 
-const presenceLabel = (u: User): string =>
-  u.online ? 'online' : `last seen ${timeAgo(u.lastSeen)} ago`;
+const presenceLabel = (u: User): string => {
+  if (u.online) {
+    return 'online';
+  }
+
+  const elapsed = timeAgo(u.lastSeen);
+  if (elapsed === 'now') {
+    return 'last seen just now';
+  }
+  return /^\d+[mhd]$/.test(elapsed) ? `last seen ${elapsed} ago` : `last seen ${elapsed}`;
+};
 
 const kindPrefix = (m: Message): string => {
   switch (m.kind) {
@@ -240,12 +264,34 @@ const ConversationRow = ({
   onLongPress: () => void;
 }) => {
   const unread = conversation.unreadCount > 0;
+  const [avatarImageUri, setAvatarImageUri] = useState<string | undefined>();
+  const peerId = conversation.type === 'direct' ? otherMemberId(conversation) : undefined;
+
+  useEffect(() => {
+    let mounted = true;
+    if (peerId) {
+      userService
+        .getUser(peerId)
+        .then(user => {
+          if (mounted) {
+            setAvatarImageUri(user.profilePic);
+          }
+        })
+        .catch(() => undefined);
+    } else {
+      setAvatarImageUri(undefined);
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [peerId]);
+
   return (
   <Pressable
     onPress={onPress}
     onLongPress={onLongPress}
     style={({pressed}) => [styles.convoRow, pressed && {backgroundColor: colors.surfaceSunken}]}>
-    <Avatar name={conversation.title} size={48} />
+    <Avatar name={conversation.title} size={48} imageUri={avatarImageUri} />
     <View style={{flex: 1}}>
       <Row gap={spacing.xxs}>
         <YayText variant="bodyStrong" numberOfLines={1} style={{flexShrink: 1}}>
@@ -542,6 +588,7 @@ export const ChatSearchScreen = ({
                 <ListRow
                   key={user.id}
                   avatarName={user.name}
+                  avatarImageUri={user.profilePic}
                   online={user.online}
                   title={user.name}
                   subtitle={user.email ? user.email : `@${user.username}`}
@@ -651,6 +698,24 @@ export const ArchivedChatsScreen = ({
 // NewChatScreen
 // ---------------------------------------------------------------------------
 
+/** A group needs at least two others: one member would create a direct chat. */
+const MIN_GROUP_MEMBERS = 2;
+
+/** Removable participant pill, WhatsApp-style: avatar, name, and a clear ✕. */
+const ParticipantChip = ({user, onRemove}: {user: User; onRemove: () => void}) => (
+  <Pressable
+    onPress={onRemove}
+    accessibilityRole="button"
+    accessibilityLabel={`Remove ${user.name}`}
+    style={styles.participantChip}>
+    <Avatar name={user.name} size={22} imageUri={user.profilePic} />
+    <YayText variant="caption" numberOfLines={1} style={styles.participantChipLabel}>
+      {user.name}
+    </YayText>
+    <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+  </Pressable>
+);
+
 export const NewChatScreen = ({
   navigation,
   route,
@@ -658,8 +723,19 @@ export const NewChatScreen = ({
   const toast = useToast();
   const {busy, perform} = useAction();
   const [mode, setMode] = useState(route.params?.group ? 'Group' : 'Direct');
+  /**
+   * Group creation is two steps, as in WhatsApp: choose who is in the group,
+   * then name it. Cramming both onto one screen is what made the picker
+   * unusable — the name field and category row pushed the contact list off
+   * screen exactly when you needed it.
+   */
+  const [step, setStep] = useState<'participants' | 'details'>('participants');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  /**
+   * Full users rather than ids, so someone added by typing an email — who is
+   * in nobody's contact list — still renders with a name and avatar.
+   */
+  const [selected, setSelected] = useState<User[]>([]);
   const [groupName, setGroupName] = useState('');
   const groupCategories = useMemo(
     () => communityService.categories().filter(c => c !== 'All'),
@@ -667,6 +743,18 @@ export const NewChatScreen = ({
   );
   const [groupCategory, setGroupCategory] = useState('Other');
   const {data, loading, error, offline, reload} = useAsync(() => userService.contacts());
+
+  const isGroup = mode === 'Group';
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: !isGroup
+        ? 'New chat'
+        : step === 'participants'
+        ? 'Add participants'
+        : 'Group details',
+    });
+  }, [navigation, isGroup, step]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -678,12 +766,20 @@ export const NewChatScreen = ({
       : data;
   }, [data, query]);
 
+  /**
+   * A typed-out email becomes an addable person in *both* modes. Previously
+   * this was gated to Direct, which meant a user with an empty contact list
+   * had no way whatsoever to put anyone in a group.
+   */
   const typedEmailUser = useMemo<User | null>(() => {
     const email = query.trim().toLowerCase();
-    if (mode !== 'Direct' || !emailLike.test(email)) {
+    if (!emailLike.test(email)) {
       return null;
     }
     if (data?.some(u => u.email?.toLowerCase() === email || u.id.toLowerCase() === email)) {
+      return null;
+    }
+    if (selected.some(u => u.id.toLowerCase() === email)) {
       return null;
     }
     return {
@@ -696,12 +792,31 @@ export const NewChatScreen = ({
       lastSeen: new Date().toISOString(),
       isContact: false,
     };
-  }, [data, mode, query]);
+  }, [data, query, selected]);
 
   const displayedUsers = useMemo(
     () => (typedEmailUser ? [typedEmailUser, ...filtered] : filtered),
     [filtered, typedEmailUser],
   );
+
+  const isSelected = (id: string) => selected.some(u => u.id === id);
+
+  /** Contacts are a convenience here, never a prerequisite. */
+  const contactsFailed = Boolean(error) && !loading;
+  const showContactsSkeleton = loading && !data && !typedEmailUser;
+
+  const toggleMember = (user: User) => {
+    setSelected(prev =>
+      prev.some(u => u.id === user.id)
+        ? prev.filter(u => u.id !== user.id)
+        : [...prev, user],
+    );
+    // Clear the search after adding a typed email so the next one can be typed
+    // straight away instead of having to clear the field by hand.
+    if (!isSelected(user.id) && typedEmailUser?.id === user.id) {
+      setQuery('');
+    }
+  };
 
   const openDirect = async (userId: string) => {
     const convo = await perform(
@@ -715,7 +830,7 @@ export const NewChatScreen = ({
 
   const createGroup = async () => {
     const convo = await perform(
-      () => chatService.createConversation(selected, groupName, groupCategory),
+      () => chatService.createConversation(selected.map(u => u.id), groupName, groupCategory),
       m => toast.show(m, 'error'),
     );
     if (convo) {
@@ -723,27 +838,31 @@ export const NewChatScreen = ({
     }
   };
 
-  return (
-    <Screen scroll={false}>
-      <SegmentedTabs tabs={['Direct', 'Group']} active={mode} onChange={setMode} />
-      <Spacer size={spacing.sm} />
-      <SearchBar value={query} onChangeText={setQuery} placeholder="Search contacts" />
-      <Spacer size={spacing.sm} />
-      {mode === 'Group' ? (
-        <>
-          <TextField
-            label="Group name"
-            placeholder="Name your group"
-            value={groupName}
-            onChangeText={setGroupName}
-          />
-          <YayText variant="caption" color={colors.textSecondary} style={{marginBottom: spacing.xxs}}>
-            Category
-          </YayText>
+  // --- Step 2: name the group ------------------------------------------------
+  if (isGroup && step === 'details') {
+    return (
+      <Screen>
+        <Button
+          label="Back to participants"
+          kind="ghost"
+          icon="chevron-back"
+          onPress={() => setStep('participants')}
+        />
+        <Spacer size={spacing.xs} />
+        <TextField
+          label="Group name"
+          placeholder="Name your group"
+          value={groupName}
+          onChangeText={setGroupName}
+        />
+        <YayText variant="caption" color={colors.textSecondary} style={styles.fieldLabel}>
+          Category
+        </YayText>
+        <View style={styles.categoryRow}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{gap: spacing.xxs, paddingBottom: spacing.sm}}>
+            contentContainerStyle={styles.categoryRowContent}>
             {groupCategories.map(cat => (
               <Chip
                 key={cat}
@@ -753,70 +872,173 @@ export const NewChatScreen = ({
               />
             ))}
           </ScrollView>
-        </>
+        </View>
+
+        <SectionHeader title={`Participants (${selected.length})`} />
+        <Card>
+          {selected.map((user, index) => (
+            <View key={user.id}>
+              {index > 0 ? <Divider /> : null}
+              <ListRow
+                avatarName={user.name}
+                avatarImageUri={user.profilePic}
+                title={user.name}
+                subtitle={user.email || `@${user.username}`}
+                chevron={false}
+                right={
+                  <IconButton
+                    icon="close"
+                    label={`Remove ${user.name}`}
+                    color={colors.textMuted}
+                    onPress={() => setSelected(prev => prev.filter(u => u.id !== user.id))}
+                  />
+                }
+              />
+            </View>
+          ))}
+        </Card>
+
+        <Spacer size={spacing.md} />
+        <Button
+          label="Create group"
+          icon="checkmark"
+          disabled={!groupName.trim() || selected.length < MIN_GROUP_MEMBERS}
+          loading={busy}
+          onPress={createGroup}
+        />
+        {!groupName.trim() ? (
+          <>
+            <Spacer size={spacing.xs} />
+            <YayText variant="caption" color={colors.textMuted} style={styles.centeredHint}>
+              Give the group a name to finish.
+            </YayText>
+          </>
+        ) : null}
+      </Screen>
+    );
+  }
+
+  // --- Step 1: pick people (and the whole of Direct mode) --------------------
+  return (
+    <Screen scroll={false}>
+      <SegmentedTabs
+        tabs={['Direct', 'Group']}
+        active={mode}
+        onChange={next => {
+          setMode(next);
+          setStep('participants');
+        }}
+      />
+      <Spacer size={spacing.sm} />
+      <SearchBar
+        value={query}
+        onChangeText={setQuery}
+        placeholder={isGroup ? 'Search or type an email' : 'Search contacts'}
+      />
+
+      {isGroup && selected.length > 0 ? (
+        <View style={styles.selectedTray}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.selectedTrayContent}>
+            {selected.map(user => (
+              <ParticipantChip
+                key={user.id}
+                user={user}
+                onRemove={() => setSelected(prev => prev.filter(u => u.id !== user.id))}
+              />
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
-      <View style={{flex: 1}}>
-        <AsyncView
-          loading={loading}
-          error={error}
-          offline={offline}
-          onRetry={reload}
-          data={data}
-          isEmpty={displayedUsers.length === 0}
-          emptyTitle={query ? 'No contacts found' : 'No contacts yet'}
-          emptyMessage={
-            query
-              ? `Nothing matched “${query.trim()}”. Type the full email address to start a direct chat.`
-              : 'Type a full email address to start chatting.'
-          }>
-          {() => (
-            <FlatList
-              data={displayedUsers}
-              keyExtractor={u => u.id}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({item}) =>
-                mode === 'Direct' ? (
-                  <ListRow
-                    avatarName={item.name}
-                    online={item.online}
-                    title={item.name}
-                    subtitle={item.email ? item.email : `@${item.username}`}
-                    onPress={() => openDirect(item.id)}
-                  />
-                ) : (
-                  <CheckRow
-                    label={item.name}
-                    checked={selected.includes(item.id)}
-                    onToggle={() =>
-                      setSelected(prev =>
-                        prev.includes(item.id)
-                          ? prev.filter(id => id !== item.id)
-                          : [...prev, item.id],
-                      )
-                    }
-                  />
-                )
+
+      <Spacer size={spacing.sm} />
+      <View style={styles.flex1}>
+        {/*
+          Contacts load in the background, but adding by email must not depend
+          on it. The directory call is slow enough to time out against the
+          15s `useAsync` budget, and when it did, an <AsyncView> wrapped around
+          the whole list took the typed-email row down with it — leaving no way
+          to start any chat at all. The failure is now a banner over a list
+          that still works.
+        */}
+        {contactsFailed ? (
+          <>
+            <Banner
+              tone={offline ? 'warning' : 'info'}
+              text={
+                offline
+                  ? "You're offline. You can still add people by typing their full email address."
+                  : "Couldn't load your contacts. You can still add people by typing their full email address."
               }
             />
-          )}
-        </AsyncView>
+            <Button label="Retry loading contacts" kind="ghost" icon="refresh" onPress={reload} />
+            <Spacer size={spacing.xs} />
+          </>
+        ) : null}
+
+        {showContactsSkeleton ? (
+          <ListSkeleton />
+        ) : displayedUsers.length === 0 ? (
+          <EmptyState
+            icon="person-add-outline"
+            title={query ? 'No one matched' : 'No contacts yet'}
+            message={
+              query
+                ? `Nothing matched “${query.trim()}”. Type a full email address to ${
+                    isGroup ? 'add someone' : 'start a direct chat'
+                  }.`
+                : isGroup
+                ? 'Type a full email address to add someone to the group.'
+                : 'Type a full email address to start chatting.'
+            }
+          />
+        ) : (
+          <FlatList
+            data={displayedUsers}
+            keyExtractor={u => u.id}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({item}) =>
+              isGroup ? (
+                <CheckRow
+                  label={item.email ? `${item.name} · ${item.email}` : item.name}
+                  checked={isSelected(item.id)}
+                  onToggle={() => toggleMember(item)}
+                />
+              ) : (
+                <ListRow
+                  avatarName={item.name}
+                  avatarImageUri={item.profilePic}
+                  online={item.online}
+                  title={item.name}
+                  subtitle={item.email ? item.email : `@${item.username}`}
+                  onPress={() => openDirect(item.id)}
+                />
+              )
+            }
+          />
+        )}
       </View>
-      {mode === 'Group' ? (
-        <View style={{paddingTop: spacing.sm}}>
-          {selected.length < 2 ? (
-            <YayText
-              variant="caption"
-              color={colors.textMuted}
-              style={{textAlign: 'center', marginBottom: spacing.xs}}>
-              Pick at least 2 members to create a group
+
+      {isGroup ? (
+        <View style={styles.stepFooter}>
+          {selected.length < MIN_GROUP_MEMBERS ? (
+            <YayText variant="caption" color={colors.textMuted} style={styles.centeredHint}>
+              {selected.length === 0
+                ? 'Add at least 2 people to create a group.'
+                : 'Add 1 more person — 2 people makes a direct chat.'}
             </YayText>
           ) : null}
+          <Spacer size={spacing.xs} />
           <Button
-            label={`Create group${selected.length > 0 ? ` (${selected.length})` : ''}`}
-            icon="people"
-            disabled={selected.length < 2}
-            loading={busy}
-            onPress={createGroup}
+            label={
+              selected.length > 0 ? `Next · ${selected.length} selected` : 'Next'
+            }
+            icon="arrow-forward"
+            disabled={selected.length < MIN_GROUP_MEMBERS}
+            onPress={() => setStep('details')}
           />
         </View>
       ) : null}
@@ -1108,13 +1330,35 @@ export const ConversationScreen = ({
   route,
 }: NativeStackScreenProps<ChatsStackParamList, 'Conversation'>) => {
   const {conversationId} = route.params;
+  const {width: windowWidth} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // KeyboardAvoidingView measures its frame relative to the parent, which on a
+  // native stack already sits below the header — so the header height has to be
+  // added back or the composer ends up flush against the keyboard.
+  const headerHeight = useHeaderHeight();
+  const [keyboardUp, setKeyboardUp] = useState(false);
   const toast = useToast();
   const showToast = toast.show;
-  const {clearConversation, setActiveConversation} = useUnread();
+  const {clearConversation, refresh: refreshUnread, setActiveConversation} = useUnread();
   const {data, loading, error, offline, reload} = useAsync(async () => {
     const conversation = await chatService.getConversation(conversationId);
     const page = await chatService.getMessages(conversationId);
-    const members = await Promise.all(conversation.memberIds.map(id => userService.getUser(id)));
+    const members = conversation.type === 'group'
+      ? Array.from(new Set(page.items.map(message => message.senderId)))
+          .filter(id => id && id !== ME_ID)
+          .map(id => {
+            const email = String(id).trim().toLowerCase();
+            const name = email.split('@')[0] || 'Member';
+            return {
+              id,
+              name,
+              username: name,
+              email,
+              online: false,
+              lastSeen: '',
+            } as User;
+          })
+      : await Promise.all(conversation.memberIds.map(id => userService.getUser(id)));
     return {conversation, messages: page.items, members, nextCursor: page.nextCursor};
   }, [conversationId]);
 
@@ -1125,6 +1369,9 @@ export const ConversationScreen = ({
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
   const [confirmCall, setConfirmCall] = useState<'voice' | 'video' | null>(null);
+  // Calling needs both the WebRTC native module and a server that serves the
+  // calls module, so the buttons are hidden rather than shown-and-failing.
+  const [callsAvailable, setCallsAvailable] = useState(false);
   const [confirmMsgDelete, setConfirmMsgDelete] = useState<{message: Message; everyone: boolean} | null>(null);
   const [emojiTarget, setEmojiTarget] = useState<'composer' | {message: Message} | null>(null);
   const [attachSheet, setAttachSheet] = useState(false);
@@ -1132,10 +1379,26 @@ export const ConversationScreen = ({
   const [selectedIds, setSelectedIds] = useState<Set<string> | null>(null);
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [otherTyping, setOtherTyping] = useState(false);
+  // AI-in-chat actions. The hook owns the disclosure + consent gate; nothing
+  // leaves the device until the user confirms inside its sheet.
+  const {run: runAiAssist, sheet: aiAssistSheet} = useAiAssist();
+  const aiInChatEnabled = featureFlags.isEnabled('ai_in_chat');
   const unreadAnchorId = useRef<string | null>(null);
   const seenMessageIds = useRef<Set<string>>(new Set());
   const lastNotifiedIncomingId = useRef<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const shown = Keyboard.addListener(showEvent, () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener(hideEvent, () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localId = useRef(0);
 
   const conversation = data?.conversation;
@@ -1150,11 +1413,92 @@ export const ConversationScreen = ({
   const otherUser = conversation && !isGroup ? memberById[otherMemberId(conversation) ?? ''] : undefined;
 
   useEffect(() => {
+    let cancelled = false;
+    callService
+      .capabilities()
+      .then(c => !cancelled && setCallsAvailable(c.available))
+      .catch(() => !cancelled && setCallsAvailable(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Place a call to the other member of a 1:1 chat.
+   *
+   * The peer is the account email rather than the display name — that is what
+   * the signaling server routes on, and two people can share a display name.
+   */
+  const startCall = useCallback(
+    async (media: 'audio' | 'video') => {
+      setConfirmCall(null);
+      // Direct conversation ids are `dm:<email>` on the backend path, which is
+      // the fallback when the member list has not loaded yet.
+      const peerEmail =
+        otherUser?.email ??
+        (conversationId.startsWith('dm:') ? conversationId.slice(3) : '');
+      if (!peerEmail) {
+        toast.show('This chat has no one to call.', 'error');
+        return;
+      }
+      try {
+        await callService.place(peerEmail, media);
+        navigateToCall('ActiveCall');
+      } catch (e: any) {
+        toast.show(e?.message ?? 'Could not start the call.', 'error');
+      }
+    },
+    [conversationId, otherUser, toast],
+  );
+
+  // Reassigned every render so the AI callbacks below can stay stable and not
+  // re-run the header effect on every incoming message.
+  const buildTranscript = useRef<() => string>(() => '');
+  buildTranscript.current = () =>
+    msgs
+      .filter(m => !m.deleted && !m.recalled && m.text.trim())
+      .slice(-30)
+      .map(m => `${memberById[m.senderId]?.name ?? 'Someone'}: ${m.text}`)
+      .join('\n');
+
+  const summarizeChatWithAi = useCallback(() => {
+    const transcript = buildTranscript.current();
+    if (!transcript) {
+      toast.show('There is nothing to summarize yet.', 'info');
+      return;
+    }
+    runAiAssist({
+      kind: 'summarize_conversation',
+      scope: 'chat',
+      title: 'Summarize this chat',
+      describes: 'The last 30 messages in this conversation',
+      content: transcript,
+    });
+  }, [runAiAssist, toast]);
+
+  const translateMessageWithAi = useCallback(
+    (message: Message) => {
+      runAiAssist({
+        kind: 'translate_message',
+        scope: 'chat',
+        title: 'Translate message',
+        describes: 'This one message',
+        content: `Translate into English:\n\n${message.text}`,
+      });
+    },
+    [runAiAssist],
+  );
+
+  useEffect(() => {
     const scheduledTimers = timers.current;
     return () => {
       scheduledTimers.forEach(clearTimeout);
+      if (typingStopTimer.current) {
+        clearTimeout(typingStopTimer.current);
+      }
+      chatService.setTyping(conversationId, ME_ID, false).catch(() => undefined);
     };
-  }, []);
+  }, [conversationId]);
 
   useEffect(() => {
     if (data) {
@@ -1171,14 +1515,18 @@ export const ConversationScreen = ({
       setNextCursor(data.nextCursor);
       setActiveConversation(conversationId);
       clearConversation(conversationId, list[list.length - 1]?.id);
-      chatService.markRead(conversationId);
     }
   }, [data, conversationId, clearConversation, setActiveConversation]);
 
   useEffect(() => {
     setActiveConversation(conversationId);
+    clearConversation(conversationId);
+    chatService
+      .markRead(conversationId)
+      .then(refreshUnread)
+      .catch(() => undefined);
     return () => setActiveConversation(null);
-  }, [conversationId, setActiveConversation]);
+  }, [conversationId, clearConversation, refreshUnread, setActiveConversation]);
 
   useEffect(() => {
     return chatService.subscribeConversation(conversationId, event => {
@@ -1243,6 +1591,7 @@ export const ConversationScreen = ({
       return;
     }
     const typing = otherTyping || conversation.typingUserIds.length > 0;
+    const displayTitle = !isGroup && otherUser ? otherUser.name : conversation.title;
     const subtitle = isGroup
       ? typing
         ? 'typing…'
@@ -1254,26 +1603,45 @@ export const ConversationScreen = ({
       : '';
     navigation.setOptions({
       headerTitle: () => (
-        <Row gap={spacing.xs}>
-          <Avatar name={conversation.title} size={34} />
-          <View>
-            <YayText variant="bodyStrong" numberOfLines={1}>
-              {conversation.title}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isGroup ? 'Open conversation details' : 'Open contact profile'}
+          hitSlop={6}
+          onPress={() => {
+            if (otherUser) {
+              navigation.navigate('ContactProfile', {userId: otherUser.id});
+              return;
+            }
+            navigation.navigate('ConversationDetails', {conversationId});
+          }}
+          style={[styles.conversationHeader, {width: Math.max(96, Math.min(164, windowWidth - 230))}]}>
+          <Avatar name={displayTitle} size={34} imageUri={otherUser?.profilePic} />
+          <View style={styles.conversationHeaderText}>
+            <YayText variant="bodyStrong" numberOfLines={1} ellipsizeMode="tail">
+              {displayTitle}
             </YayText>
             {subtitle ? (
               <YayText
                 variant="micro"
+                numberOfLines={1}
                 color={typing || otherUser?.online ? colors.brand : colors.textMuted}>
                 {subtitle}
               </YayText>
             ) : null}
           </View>
-        </Row>
+        </Pressable>
       ),
       headerRight: () => (
         <Row gap={0}>
-          <IconButton icon="call" label="Voice call" onPress={() => setConfirmCall('voice')} />
-          <IconButton icon="videocam" label="Video call" onPress={() => setConfirmCall('video')} />
+          {aiInChatEnabled ? (
+            <IconButton icon="sparkles" label="Summarize with AI" onPress={summarizeChatWithAi} />
+          ) : null}
+          {callsAvailable && !isGroup ? (
+            <>
+              <IconButton icon="call" label="Voice call" onPress={() => setConfirmCall('voice')} />
+              <IconButton icon="videocam" label="Video call" onPress={() => setConfirmCall('video')} />
+            </>
+          ) : null}
           <IconButton
             icon="ellipsis-horizontal-circle"
             label="Conversation details"
@@ -1282,7 +1650,21 @@ export const ConversationScreen = ({
         </Row>
       ),
     });
-  }, [navigation, conversation, conversationId, isGroup, otherUser, otherTyping]);
+  }, [
+    navigation,
+    conversation,
+    conversationId,
+    isGroup,
+    otherUser,
+    otherTyping,
+    windowWidth,
+    aiInChatEnabled,
+    summarizeChatWithAi,
+    // The capability probe resolves after first paint; without it here the
+    // call buttons would never appear on the chat opened at launch.
+    callsAvailable,
+    startCall,
+  ]);
 
   const scheduleIncomingReply = useCallback(() => {
     if (!conversation || isGroup) {
@@ -1350,6 +1732,24 @@ export const ConversationScreen = ({
         });
     },
     [conversationId, scheduleIncomingReply],
+  );
+
+  const updateComposerText = useCallback(
+    (value: string) => {
+      setText(value);
+      const hasText = value.trim().length > 0;
+      chatService.setTyping(conversationId, ME_ID, hasText).catch(() => undefined);
+      if (typingStopTimer.current) {
+        clearTimeout(typingStopTimer.current);
+      }
+      if (hasText) {
+        typingStopTimer.current = setTimeout(() => {
+          chatService.setTyping(conversationId, ME_ID, false).catch(() => undefined);
+          typingStopTimer.current = null;
+        }, 2500);
+      }
+    },
+    [conversationId],
   );
 
   const loadOlderMessages = useCallback(async () => {
@@ -1551,6 +1951,17 @@ export const ConversationScreen = ({
             toast.show('Copied', 'success');
           }}
         />
+        {aiInChatEnabled && m.kind === 'text' && m.text.trim() ? (
+          <ListRow
+            icon="language"
+            title="Translate with AI"
+            chevron={false}
+            onPress={() => {
+              close();
+              translateMessageWithAi(m);
+            }}
+          />
+        ) : null}
         <ListRow
           icon="arrow-redo"
           title="Forward"
@@ -1628,12 +2039,18 @@ export const ConversationScreen = ({
     );
   };
 
+  // WhatsApp keeps a clear gap between the send button and the keyboard, and
+  // clears the home indicator when the keyboard is down.
+  const composerPad = {
+    paddingBottom: keyboardUp ? spacing.sm : Math.max(insets.bottom, spacing.xs),
+  };
+
   return (
     <Screen scroll={false} padded={false}>
       <KeyboardAvoidingView
         style={{flex: 1}}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}>
+        keyboardVerticalOffset={headerHeight}>
         <AsyncView
           loading={loading}
           error={error}
@@ -1746,7 +2163,7 @@ export const ConversationScreen = ({
                 </YayText>
               ) : null}
               {selectedIds ? (
-                <View style={styles.composer}>
+                <View style={[styles.composer, composerPad]}>
                   <Row style={{justifyContent: 'space-between'}}>
                     <YayText variant="bodyStrong">
                       {`${selectedIds.size} selected`}
@@ -1779,7 +2196,7 @@ export const ConversationScreen = ({
                   </Row>
                 </View>
               ) : (
-              <View style={styles.composer}>
+              <View style={[styles.composer, composerPad]}>
                 {editingMsg ? (
                   <Row gap={spacing.xs} style={styles.replyBar}>
                     <Ionicons name="create-outline" size={15} color={colors.brand} />
@@ -1841,29 +2258,43 @@ export const ConversationScreen = ({
                     </ScrollView>
                   </View>
                 ) : null}
-                <Row gap={spacing.xxs} style={{alignItems: 'flex-end'}}>
-                  <IconButton icon="add-circle" size={26} color={colors.brand} label="Attach" onPress={() => setAttachSheet(true)} />
-                  <TextInput
-                    value={text}
-                    onChangeText={setText}
-                    placeholder="Message"
-                    placeholderTextColor={colors.textFaint}
-                    multiline
-                    style={styles.composerInput}
-                    accessibilityLabel="Message input"
-                  />
+                {/* WhatsApp layout: attach outside the pill, emoji inside it,
+                    send as a separate circle. */}
+                <Row gap={spacing.xs} style={styles.composerRow}>
                   <IconButton
-                    icon={emojiTarget === 'composer' ? 'close-circle' : 'happy-outline'}
-                    label={emojiTarget === 'composer' ? 'Close emoji' : 'Emoji'}
-                    onPress={() => setEmojiTarget(current => (current === 'composer' ? null : 'composer'))}
+                    icon="add"
+                    size={26}
+                    color={colors.brand}
+                    label="Attach"
+                    onPress={() => setAttachSheet(true)}
                   />
+                  <View style={styles.composerField}>
+                    <TextInput
+                      value={text}
+                      onChangeText={updateComposerText}
+                      placeholder="Message"
+                      placeholderTextColor={colors.textFaint}
+                      multiline
+                      maxFontSizeMultiplier={MAX_FONT_SCALE}
+                      style={styles.composerInput}
+                      accessibilityLabel="Message input"
+                    />
+                    <View style={styles.composerFieldAction}>
+                      <IconButton
+                        icon={emojiTarget === 'composer' ? 'close-circle' : 'happy-outline'}
+                        size={21}
+                        label={emojiTarget === 'composer' ? 'Close emoji' : 'Emoji'}
+                        onPress={() => setEmojiTarget(current => (current === 'composer' ? null : 'composer'))}
+                      />
+                    </View>
+                  </View>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={editingMsg ? 'Save edit' : 'Send'}
                     disabled={!text.trim()}
                     onPress={sendText}
                     style={!text.trim() ? {opacity: 0.4} : null}>
-                    <Oval size={38}>
+                    <Oval size={40}>
                       <Ionicons
                         name={editingMsg ? 'checkmark' : 'paper-plane'}
                         size={18}
@@ -1891,14 +2322,7 @@ export const ConversationScreen = ({
             : undefined
         }
         confirmLabel={confirmCall === 'video' ? 'Video call' : 'Call'}
-        onConfirm={() =>
-          toast.show(
-            confirmCall === 'video'
-              ? 'Video call started (preview)'
-              : 'Voice call started (preview)',
-            'success',
-          )
-        }
+        onConfirm={() => startCall(confirmCall === 'video' ? 'video' : 'audio')}
       />
       <ConfirmSheet
         visible={confirmMsgDelete != null}
@@ -1948,6 +2372,7 @@ export const ConversationScreen = ({
         <ListRow icon="happy" title="Stickers" chevron={false} right={<Badge label="Coming soon" tone="neutral" />} />
         <ListRow icon="film" title="GIFs" chevron={false} right={<Badge label="Coming soon" tone="neutral" />} />
       </BottomSheet>
+      {aiAssistSheet}
     </Screen>
   );
 };
@@ -1991,14 +2416,20 @@ export const ConversationDetailsScreen = ({
       <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
         {c => {
           const isGroup = c.type === 'group';
+          const displayTitle = !isGroup && otherUser ? otherUser.name : c.title;
           const myRole = c.groupRoles?.[ME_ID] ?? 'member';
           const canManage = isGroup && (myRole === 'owner' || myRole === 'admin');
           return (
             <View>
               <Card style={{alignItems: 'center', gap: spacing.xs}}>
-                <Avatar name={c.title} size={72} online={!isGroup ? otherUser?.online : undefined} />
+                <Avatar
+                  name={displayTitle}
+                  size={72}
+                  imageUri={!isGroup ? otherUser?.profilePic : undefined}
+                  online={!isGroup ? otherUser?.online : undefined}
+                />
                 <YayText variant="title" style={{textAlign: 'center'}}>
-                  {c.title}
+                  {displayTitle}
                 </YayText>
                 {isGroup ? (
                   <YayText variant="caption" color={colors.textMuted}>
@@ -2279,6 +2710,7 @@ export const GroupMembersScreen = ({
                   style={({pressed}) => [pressed && {backgroundColor: colors.surfaceSunken, borderRadius: radius.sm}]}>
                   <ListRow
                     avatarName={item.name}
+                    avatarImageUri={item.profilePic}
                     online={item.online}
                     title={item.id === ME_ID ? `${item.name} (you)` : item.name}
                     subtitle={`@${item.username}`}
@@ -2536,8 +2968,20 @@ export const ContactProfileScreen = ({
         {user => (
           <View>
             <Card style={{alignItems: 'center', gap: spacing.xs}}>
-              <Avatar name={user.name} size={84} online={user.online} />
+              <Avatar
+                name={user.name}
+                size={84}
+                imageUri={user.profilePic}
+                online={user.online}
+              />
               <YayText variant="title">{user.name}</YayText>
+              <YayText
+                variant="body"
+                color={colors.textSecondary}
+                selectable
+                style={styles.profileEmail}>
+                {user.email}
+              </YayText>
               <YayText variant="caption" color={colors.textMuted}>
                 {`@${user.username} · ${presenceLabel(user)}`}
               </YayText>
@@ -2662,6 +3106,31 @@ export const ContactProfileScreen = ({
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
+  flex1: {flex: 1},
+  centeredHint: {textAlign: 'center'},
+  fieldLabel: {marginBottom: spacing.xxs},
+  // A horizontal ScrollView in a flex column has no intrinsic height, so it
+  // stretched to fill the screen and the category pills rendered as tall
+  // ovals. Constraining the row is what keeps them chip-shaped.
+  categoryRow: {flexGrow: 0, marginBottom: spacing.sm},
+  categoryRowContent: {gap: spacing.xxs, paddingRight: spacing.sm},
+  selectedTray: {flexGrow: 0, marginTop: spacing.sm},
+  selectedTrayContent: {gap: spacing.xxs, paddingRight: spacing.sm},
+  participantChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surfaceRaised,
+    maxWidth: 180,
+  },
+  participantChipLabel: {flexShrink: 1},
+  stepFooter: {paddingTop: spacing.sm},
+
   convoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2676,6 +3145,15 @@ const styles = StyleSheet.create({
     bottom: spacing.xl,
   },
   // Conversation
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  conversationHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
   pinnedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2831,7 +3309,12 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderSoft,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
+    paddingTop: spacing.xs,
+    // paddingBottom is supplied at render time (keyboard / safe-area aware).
+    paddingBottom: spacing.xs,
+  },
+  composerRow: {
+    alignItems: 'flex-end',
   },
   replyBar: {
     backgroundColor: colors.brandSoft,
@@ -2866,19 +3349,33 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 30,
   },
-  composerInput: {
+  // The pill that wraps the text input and the in-field emoji button.
+  composerField: {
     flex: 1,
-    maxHeight: 4 * typography.body.lineHeight + spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    minHeight: 40,
     backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.borderSoft,
     borderRadius: radius.lg,
-    paddingHorizontal: spacing.sm,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+    paddingLeft: spacing.sm,
+    paddingRight: spacing.xxs,
+  },
+  composerInput: {
+    flex: 1,
+    maxHeight: 6 * typography.body.lineHeight,
+    paddingTop: Platform.OS === 'ios' ? 10 : 6,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 6,
+    paddingHorizontal: 0,
     fontSize: 15,
+    lineHeight: typography.body.lineHeight,
     fontFamily: typography.bodyFamily,
     color: colors.textPrimary,
+  },
+  composerFieldAction: {
+    height: 38,
+    justifyContent: 'center',
   },
   // Shared media
   mediaGrid: {
@@ -2897,6 +3394,10 @@ const styles = StyleSheet.create({
     padding: spacing.xxs,
   },
   // Contact profile
+  profileEmail: {
+    maxWidth: '100%',
+    textAlign: 'center',
+  },
   qrPlaceholder: {
     width: 140,
     height: 140,

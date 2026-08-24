@@ -15,17 +15,12 @@ import {
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import {RootStackParamsList} from '../../RootNavigator';
 import {StackNavigationProp} from '@react-navigation/stack';
-import Button from '../../components/Button';
 import {
   CodeField,
   useBlurOnFulfill,
   useClearByFocusCell,
 } from 'react-native-confirmation-code-field';
-import {
-  resendEmailCode,
-  validateEmail,
-  validateOtp,
-} from '../../services/auth.service';
+import {resendEmailCode, validateOtp} from '../../services/auth.service';
 import OvalButton from '../../components/OvalButton';
 
 const CELL_COUNT = 6;
@@ -44,9 +39,10 @@ const EmailVerificationScreen = () => {
   const {
     email = 'your email',
     isPhone = false,
-    verificationType = isPhone ? 'phone' : 'email',
     userType,
   } = route.params || {};
+  const verificationType: 'email' | 'phone' =
+    route.params?.verificationType ?? (isPhone ? 'phone' : 'email');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const ref = useBlurOnFulfill({value: code, cellCount: CELL_COUNT});
