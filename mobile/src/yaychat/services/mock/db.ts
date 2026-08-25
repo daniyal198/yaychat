@@ -624,11 +624,12 @@ export const btcyDashboard: BtcyDashboard = {
 };
 
 // EMMM dashboard snapshot — mirrors the user's emmm.io account; every CTA
-// deep-links into the EMMM app. '—' marks values not yet wired to the API.
+// deep-links into the EMMM app. Preview missing numeric values as zero, matching
+// the live mapper, so the UI never presents an empty-looking balance.
 export const emmmDashboard: EmmmDashboard = {
   slate: {open: true, draw: 'Week 1 Lottery', jackpot: 'USDT 50,000.00', closesIn: '6d 23h'},
-  portfolio: {value: '$—', cash: '$—', usdt: '$—', nuggets: '—'},
-  accuracy: {overall: '—%', thisWeek: '—%', brier: '—'},
+  portfolio: {value: '$0', cash: '$0', usdt: '$0', nuggets: '0'},
+  accuracy: {overall: '0%', thisWeek: '0%', brier: '0'},
   ticket: {title: 'Week 1 Slate — Ticket #abc123', matched: 5, total: 7, tier: 'Match 5'},
   promo: {headline: 'Win real BTCY Tokens +20%', subtitle: '10% win boost + 7 days turbo mining'},
 };
@@ -673,11 +674,9 @@ export const rehumanDashboard: RehumanDashboard = {
 // into the ShoperPal app.
 export const shoperpalDashboard: ShoperpalDashboard = {
   buyer: {
-    level: 'Silver',
-    nextLevel: 'Gold',
     earnRate: '1.25 BTCY / $1',
     monthSpend: 245,
-    nextLevelAt: 500,
+    orderCount: 4,
     nuggets: {released: 1340, pending: 85, wallet: 1255, lifetime: 1425},
     flash: {title: 'Up to 40% off, ends today', endsIn: '04:12:36'},
   },

@@ -460,18 +460,16 @@ export interface RehumanDashboard {
 /** Snapshot of the user's ShoperPal buyer + supplier state for the hub. */
 export interface ShoperpalDashboard {
   buyer: {
-    level: string;
-    nextLevel: string;
     earnRate: string;
     monthSpend: number;
-    nextLevelAt: number;
+    orderCount: number;
     nuggets: {released: number; pending: number; wallet: number; lifetime: number};
     flash: {title: string; endsIn: string};
   };
   supplier: {
     plan: string;
     productsListed: number;
-    productsLimit: number;
+    productsLimit: number | string;
     commission: string;
     aiCredits: {used: number; total: number; resetsIn: string};
     earnings: {gross: string; fee: string; payout: string};

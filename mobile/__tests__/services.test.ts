@@ -12,6 +12,7 @@ import {
   walletService,
   simulation,
   setSimulatedOffline,
+  unwrapEcosystemBody,
   ME_ID,
 } from '../src/yaychat/services';
 
@@ -22,6 +23,19 @@ beforeAll(() => {
 afterEach(() => {
   setSimulatedOffline(false);
   simulation.failNextRequest = null;
+});
+
+describe('ecosystem response envelopes', () => {
+  it('unwraps modern data-only responses before dashboard mapping', () => {
+    const snapshot = {buyer: {monthSpend: 39, orderCount: 1}};
+    expect(unwrapEcosystemBody({data: snapshot})).toEqual(snapshot);
+  });
+
+  it('also accepts legacy status envelopes and already-unwrapped snapshots', () => {
+    const snapshot = {portfolio: {nuggets: 39}};
+    expect(unwrapEcosystemBody({status: 200, data: snapshot})).toEqual(snapshot);
+    expect(unwrapEcosystemBody(snapshot)).toEqual(snapshot);
+  });
 });
 
 describe('authService', () => {

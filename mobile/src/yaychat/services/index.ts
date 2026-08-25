@@ -4048,6 +4048,16 @@ async function viaEcosystem<T>(remote: () => Promise<T>, local: () => T | Promis
   return (await probeEcosystemBackend()) ? remote() : local();
 }
 
+/**
+ * Ecosystem routes use the modern `{data: snapshot}` envelope without the
+ * legacy top-level `status` field. `backendBody` intentionally only unwraps
+ * legacy envelopes, so unwrap this route family explicitly before mapping it.
+ */
+export const unwrapEcosystemBody = (payload: any): any => {
+  const body = backendBody(payload);
+  return body && typeof body === 'object' && 'data' in body ? body.data : body;
+};
+
 const nullableNumber = (value: unknown): number | null => {
   if (value === null || value === undefined) {
     return null;
@@ -4111,7 +4121,7 @@ const backendBtcyDashboard = (raw: any): BtcyDashboard => ({
 export const btcyService = {
   async dashboard(): Promise<BtcyDashboard> {
     return viaEcosystem(
-      async () => backendBtcyDashboard(backendBody(await backendGet<any>(`${ECOSYSTEM_BASE}/btcy`))),
+      async () => backendBtcyDashboard(unwrapEcosystemBody(await backendGet<any>(`${ECOSYSTEM_BASE}/btcy`))),
       () => mockRequest('btcy.dashboard', () => ({...db.btcyDashboard})),
     );
   },
@@ -4127,19 +4137,57 @@ export const btcyService = {
  */
 const backendEmmmDashboard = (raw: any): EmmmDashboard => {
   const eligibility = raw?.eligibility;
+  const slate = raw?.slate;
+  const portfolio = raw?.portfolio;
+  const accuracy = raw?.accuracy;
+  const ticket = raw?.ticket;
+
+  const display = (value: unknown, fallback = '0'): string =>
+    value === null || value === undefined || value === '' ? fallback : String(value);
+  const money = (value: unknown): string => {
+    if (value === null || value === undefined || value === '') {
+      return '$0';
+    }
+    return typeof value === 'number'
+      ? `$${value.toLocaleString('en-US')}`
+      : String(value).startsWith('$')
+        ? String(value)
+        : `$${value}`;
+  };
+  const percent = (value: unknown): string => {
+    if (value === null || value === undefined || value === '') {
+      return '0%';
+    }
+    const text = String(value);
+    return text.endsWith('%') ? text : `${text}%`;
+  };
   return {
-    slate: {open: false, draw: '—', jackpot: '—', closesIn: '—'},
+    slate: {
+      open: Boolean(slate?.open),
+      draw: String(slate?.draw || '—'),
+      jackpot: String(slate?.jackpot || '—'),
+      closesIn: String(slate?.closesIn || '—'),
+    },
     portfolio: {
-      value: '—',
-      cash: '—',
-      usdt: '—',
+      value: money(portfolio?.value),
+      cash: money(portfolio?.cash),
+      usdt: money(portfolio?.usdt),
       nuggets:
         eligibility?.nuggetBalance == null
-          ? '—'
+          ? '0'
           : Number(eligibility.nuggetBalance).toLocaleString('en-US'),
     },
-    accuracy: {overall: '—', thisWeek: '—', brier: '—'},
-    ticket: {title: '—', matched: 0, total: 0, tier: '—'},
+    accuracy: {
+      overall: percent(accuracy?.overall),
+      thisWeek: percent(accuracy?.thisWeek),
+      brier: display(accuracy?.brier),
+    },
+    ticket: {
+      title: String(ticket?.title || '—'),
+      matched: Number(ticket?.matched || 0),
+      total: Number(ticket?.total || 0),
+      tier: String(ticket?.tier || '—'),
+    },
     promo: eligibility?.eligible
       ? {
           headline: 'You qualify to play on EMMM',
@@ -4155,7 +4203,7 @@ const backendEmmmDashboard = (raw: any): EmmmDashboard => {
 export const emmmService = {
   async dashboard(): Promise<EmmmDashboard> {
     return viaEcosystem(
-      async () => backendEmmmDashboard(backendBody(await backendGet<any>(`${ECOSYSTEM_BASE}/emmm`))),
+      async () => backendEmmmDashboard(unwrapEcosystemBody(await backendGet<any>(`${ECOSYSTEM_BASE}/emmm`))),
       () => mockRequest('emmm.dashboard', () => ({...db.emmmDashboard})),
     );
   },
@@ -4169,19 +4217,67 @@ export const emmmService = {
  * keep the catalogue's descriptive copy and carry no per-user numbers.
  */
 const backendShoperpalDashboard = (raw: any): ShoperpalDashboard => {
-  const base = db.shoperpalDashboard;
-  const monthSpend = nullableNumber(raw?.buyer?.monthSpend);
-  const nuggets = nullableNumber(raw?.buyer?.nuggetBalance);
+  const buyer = raw?.buyer;
+  const supplier = raw?.supplier;
+  const numberOrZero = (value: unknown): number => nullableNumber(value) ?? 0;
+  const usd = (value: unknown): string =>
+    `$${numberOrZero(value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+  const flashEndsIn = (() => {
+    const endsAt = Date.parse(String(buyer?.flash?.endsAt || ''));
+    if (!Number.isFinite(endsAt)) {
+      return '—';
+    }
+    return formatCountdown(Math.max(0, Math.round((endsAt - Date.now()) / 1000)));
+  })();
+  const commission = String(supplier?.commission || '0%');
   return {
-    ...base,
     buyer: {
-      ...base.buyer,
-      monthSpend: monthSpend ?? 0,
+      earnRate: String(buyer?.earnRate || '0 BTCY / $1'),
+      monthSpend: numberOrZero(buyer?.monthSpend),
+      orderCount: numberOrZero(buyer?.orderCount),
       nuggets: {
-        ...base.buyer.nuggets,
-        wallet: nuggets ?? 0,
+        released: numberOrZero(buyer?.nuggets?.released),
+        pending: numberOrZero(buyer?.nuggets?.pending),
+        wallet: numberOrZero(buyer?.nuggets?.wallet),
+        lifetime: numberOrZero(buyer?.nuggets?.lifetime),
       },
+      flash: buyer?.flash
+        ? {title: String(buyer.flash.title || 'Active flash deal'), endsIn: flashEndsIn}
+        : {title: 'No active flash deals', endsIn: '—'},
     },
+    supplier: supplier
+      ? {
+          plan: String(supplier.plan || 'Starter'),
+          productsListed: numberOrZero(supplier.productsListed),
+          productsLimit:
+            supplier.productsLimit == null
+              ? 'Unlimited'
+              : numberOrZero(supplier.productsLimit),
+          commission,
+          aiCredits: {
+            used: numberOrZero(supplier.aiCredits?.used),
+            total: numberOrZero(supplier.aiCredits?.total),
+            resetsIn: `${numberOrZero(supplier.aiCredits?.resetsInDays)} days`,
+          },
+          earnings: {
+            gross: usd(supplier.earnings?.grossEarned),
+            fee: `${usd(supplier.earnings?.platformFeeAmount)} (${commission})`,
+            payout: usd(supplier.earnings?.available),
+          },
+          boosts: {
+            active: numberOrZero(supplier.boosts?.active),
+            daysRemaining: numberOrZero(supplier.boosts?.daysRemaining),
+          },
+        }
+      : {
+          plan: 'No supplier account',
+          productsListed: 0,
+          productsLimit: 0,
+          commission: '0%',
+          aiCredits: {used: 0, total: 0, resetsIn: '0 days'},
+          earnings: {gross: '$0.00', fee: '$0.00 (0%)', payout: '$0.00'},
+          boosts: {active: 0, daysRemaining: 0},
+        },
   };
 };
 
@@ -4190,7 +4286,7 @@ export const shoperpalService = {
     return viaEcosystem(
       async () =>
         backendShoperpalDashboard(
-          backendBody(await backendGet<any>(`${ECOSYSTEM_BASE}/shoperpal`)),
+          unwrapEcosystemBody(await backendGet<any>(`${ECOSYSTEM_BASE}/shoperpal`)),
         ),
       () => mockRequest('shoperpal.dashboard', () => ({...db.shoperpalDashboard})),
     );

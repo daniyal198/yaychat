@@ -51,35 +51,31 @@ const openShoperpal = async (path = '') => {
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
-const LEVEL_EMOJI: Record<string, string> = {Bronze: '🥉', Silver: '🥈', Gold: '🥇'};
-
 const BuyerView = ({d}: {d: ShoperpalDashboard['buyer']}) => {
-  const levelPct = d.monthSpend / d.nextLevelAt;
-  const remaining = d.nextLevelAt - d.monthSpend;
   return (
     <>
       {/* Shopper Level — hero */}
       <View style={styles.hero}>
         <Row style={{justifyContent: 'space-between'}}>
           <YayText variant="heading" color={colors.textOnBrand}>
-            Shopper level
+            Shop to Earn
           </YayText>
           <View style={styles.heroBadge}>
             <YayText variant="micro" color={colors.textOnBrand}>
-              {`${LEVEL_EMOJI[d.level] ?? ''} ${d.level}`}
+              {`${d.orderCount} paid orders`}
             </YayText>
           </View>
         </Row>
         <Spacer size={spacing.sm} />
         <YayText variant="micro" color={SP_INDIGO_SOFT}>
-          CURRENT EARN RATE
+          CURRENT REWARD RATE
         </YayText>
         <YayText variant="display" color={colors.textOnBrand}>
           {d.earnRate}
         </YayText>
         <Spacer size={spacing.xs} />
         <YayText variant="caption" color={SP_INDIGO_SOFT}>
-          {`This month's spend: $${fmt(d.monthSpend)} / $${fmt(d.nextLevelAt)} to ${d.nextLevel}`}
+          {`This month's paid spend: $${fmt(d.monthSpend)}`}
         </YayText>
         <Spacer size={spacing.md} />
         <HubCta
@@ -105,20 +101,15 @@ const BuyerView = ({d}: {d: ShoperpalDashboard['buyer']}) => {
         </Row>
       </Card>
 
-      {/* Level progress */}
-      <SectionHeader title="Level progress" />
+      {/* Monthly activity */}
+      <SectionHeader title="Monthly activity" />
       <Card>
-        <Row style={{justifyContent: 'space-between'}}>
-          <YayText variant="bodyStrong">{`$${fmt(d.monthSpend)} / $${fmt(d.nextLevelAt)}`}</YayText>
-          <Badge label={`$${fmt(remaining)} to ${d.nextLevel}`} tone="brand" />
+        <Row gap={spacing.xs} style={{alignItems: 'stretch'}}>
+          <StatTile label="Paid spend" value={`$${fmt(d.monthSpend)}`} icon="card-outline" />
+          <StatTile label="Paid orders" value={fmt(d.orderCount)} icon="bag-check-outline" tone={colors.success} />
         </Row>
-        <Spacer size={spacing.xs} />
-        <ProgressBar value={levelPct} tone={SP_INDIGO} />
-        <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-          {`Spend $${fmt(remaining)} more this month to reach ${d.nextLevel} and a higher earn rate.`}
-        </YayText>
         <Spacer size={spacing.sm} />
-        <HubCta label="View Levels" background={SP_INDIGO} onPress={() => openShoperpal('levels')} />
+        <HubCta label="View Orders" background={SP_INDIGO} onPress={() => openShoperpal('account/orders')} />
       </Card>
 
       {/* Group buys */}
@@ -250,13 +241,11 @@ export const ShoperpalHubScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      {/* Buyer spend and nugget balance are read from real orders; supplier
-          state has no source in this backend yet. */}
       {live ? (
         <Banner
           tone="info"
           icon="information-circle"
-          text="Buyer spend and nugget balance are live. Supplier figures need the ShoperPal merchant API."
+          text="Connected buyer and supplier data is live from ShoperPal."
         />
       ) : (
         <MockNotice text="Preview — figures are simulated. Live data comes from your ShoperPal account." />

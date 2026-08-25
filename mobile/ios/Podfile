@@ -47,6 +47,22 @@ post_install do |installer|
     :mac_catalyst_enabled => false
   )
 
+  # Apple Clang 21 (Xcode 26) rejects fmt 11.0.2's consteval format strings.
+  # React Native currently vendors that fmt release, so disable consteval in
+  # the installed header until React Native updates its bundled dependency.
+  fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+  if File.exist?(fmt_base)
+    content = File.read(fmt_base)
+    patched = content.gsub(
+      /^(#elif defined\(__cpp_consteval\)\n#  define FMT_USE_CONSTEVAL) 1/,
+      "// Xcode 26 workaround: disable consteval\n\\1 0"
+    )
+    if patched != content
+      File.chmod(0644, fmt_base)
+      File.write(fmt_base, patched)
+    end
+  end
+
   # Enable BUILD_LIBRARY_FOR_DISTRIBUTION for FirebaseAuth (Release only)
   installer.pods_project.targets.each do |target|
     if target.name == 'FirebaseAuth'

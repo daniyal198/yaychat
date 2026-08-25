@@ -30,7 +30,6 @@ mobile/ios/DerivedData/
 mobile/ios/**/*.xcuserstate
 mobile/ios/**/xcuserdata/
 
-backend/cache/
 backend/*.csv
 backend/*.xls
 backend/*.xlsx

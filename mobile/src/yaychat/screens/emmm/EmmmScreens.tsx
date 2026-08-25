@@ -59,16 +59,11 @@ export const EmmmHubScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      {/* EMMM is only partly readable from here: this backend knows the
-          member's nugget eligibility, but the slate, jackpot, ticket, and
-          accuracy live in the EMMM product. Clearing the banner outright once
-          the ecosystem probe succeeds would imply every figure is live, so the
-          live case gets its own, narrower statement. */}
       {live ? (
         <Banner
           tone="info"
           icon="information-circle"
-          text="Your nugget balance and eligibility are live. Slate, ticket, and accuracy figures need the EMMM account API and show as —."
+          text="Connected account data is live. Missing numeric values appear as 0."
         />
       ) : (
         <MockNotice text="Preview — figures are simulated. Live data comes from your EMMM account." />
@@ -161,7 +156,7 @@ export const EmmmHubScreen = ({
                   {`${d.ticket.matched} / ${d.ticket.total}`}
                 </YayText>
               </Row>
-              <ProgressBar value={d.ticket.matched / d.ticket.total} tone={EMMM_ORANGE} />
+              <ProgressBar value={d.ticket.total > 0 ? d.ticket.matched / d.ticket.total : 0} tone={EMMM_ORANGE} />
               <Spacer size={spacing.sm} />
               <HubCta label="Track Ticket" onPress={() => openEmmm('tickets')} />
             </Card>
