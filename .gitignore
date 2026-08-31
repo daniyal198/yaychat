@@ -41,3 +41,6 @@ backend/*.postman_collection.json
 
 # Local iOS build output (DerivedData, .xcarchive, export logs)
 /build/
+
+# Generated store listing assets / screenshots
+/artifacts/
