@@ -173,22 +173,54 @@ const isLocalProfilePicture = (uri: string): boolean =>
 
 const uploadProfilePicture = async (uri: string): Promise<{key: string; publicUrl: string}> => {
   const contentType = profilePictureMimeType(uri);
-  const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
-    params: {fileType: contentType},
-  });
-  const presigned = backendBody(presignedResponse.data);
+
+  // Every failure below is converted to an ApiError. Callers surface errors
+  // through `errorMessage`, which falls back to "Something unexpected
+  // happened." for anything that is not an ApiError — so a raw axios or Blob
+  // failure here used to reach the user as that generic line, hiding both the
+  // server's reason and which of the three steps actually broke.
+  let presigned: any;
+  try {
+    const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
+      params: {fileType: contentType},
+      // A photo upload is a foreground action the user is watching; the default
+      // client timeout is tuned for small JSON calls.
+      timeout: 30000,
+    });
+    presigned = backendBody(presignedResponse.data);
+  } catch (e) {
+    throw toApiError(e);
+  }
   if (!presigned?.url || !presigned?.key) {
     throw new ApiError('Could not prepare the profile-picture upload.', 'server');
   }
-  const localResponse = await fetch(uri);
-  const blob = await localResponse.blob();
-  const uploadResponse = await fetch(presigned.url, {
-    method: 'PUT',
-    headers: {'Content-Type': contentType},
-    body: blob,
-  });
+
+  // Reading the local file is a distinct failure from uploading it: on iOS a
+  // picked asset can resolve to a URI whose bytes are not readable, and
+  // reporting that as an upload failure sends people to check their signal.
+  let blob: Blob;
+  try {
+    const localResponse = await fetch(uri);
+    blob = await localResponse.blob();
+  } catch {
+    throw new ApiError('Could not read the selected picture. Please choose another image.', 'server');
+  }
+
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(presigned.url, {
+      method: 'PUT',
+      headers: {'Content-Type': contentType},
+      body: blob,
+    });
+  } catch {
+    throw new ApiError('Could not upload the profile picture. Check your connection and try again.', 'offline');
+  }
   if (!uploadResponse.ok) {
-    throw new ApiError('Could not upload the profile picture. Please try again.', 'server');
+    throw new ApiError(
+      `Could not upload the profile picture (${uploadResponse.status}). Please try again.`,
+      'server',
+    );
   }
   return {key: presigned.key, publicUrl: String(presigned.url).split('?')[0]};
 };
