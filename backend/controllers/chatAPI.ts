@@ -36,8 +36,25 @@ const btcyChatGroupBonusService = new BtcyChatGroupBonusService();
 // Match your public/global group naming
 const DEFAULT_GLOBAL_GROUP_NAME = "Bitcoin Yay General";
 const groupTopic = (gid: string) => `group_${gid}`;
-type AttachmentFileType = 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file';
-const ALLOWED_FILE_TYPES = new Set<AttachmentFileType>(["image", "document", "video", "pdf", "word", "file"]);
+type AttachmentFileType = 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+const ALLOWED_FILE_TYPES = new Set<AttachmentFileType>(["image", "document", "video", "pdf", "word", "file", "audio"]);
+
+/**
+ * Longest voice note we accept, in seconds.
+ *
+ * A cap belongs on the server as well as in the recorder UI: the duration is
+ * client-supplied, and an unbounded value would render as a nonsense length in
+ * every conversation list it appears in.
+ */
+const MAX_ATTACHMENT_DURATION_SECONDS = 60 * 10;
+
+/** Conversation-list preview for a message that carries only an attachment. */
+const attachmentPreview = (fileType?: AttachmentFileType): string => {
+  if (fileType === "audio") {
+    return "\u{1F3A4} Voice message";
+  }
+  return fileType ? `[${fileType}]` : "[attachment]";
+};
 const GROUP_MODERATION_SCOPE = "group_moderation";
 
 function isAdminRole(role: any): boolean {
@@ -127,13 +144,13 @@ export class ChatController {
       const fileType = (req.query.fileType as string) || "application/octet-stream";
 
       // ✅ Allowed prefixes or types
-      const allowedPrefixes = ["image/", "video/", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+      const allowedPrefixes = ["image/", "video/", "audio/", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
       const isAllowed = allowedPrefixes.some(type => fileType.startsWith(type));
 
       if (!isAllowed) {
         return res.status(400).json({
           status: 400,
-          message: "Invalid file type. Only images, videos, and documents (PDF, DOC, DOCX) are allowed.",
+          message: "Invalid file type. Only images, audio, videos, and documents (PDF, DOC, DOCX) are allowed.",
         });
       }
 
@@ -233,6 +250,7 @@ export class ChatController {
         message: originalMessage,
         fileUrl,
         fileType,
+        durationSeconds,
         replyToMessageId,
         clientId,
       } = req.body;
@@ -292,7 +310,7 @@ export class ChatController {
       );
 
       const senderId = (sender as any).id ?? (sender as any)._id;
-      const attachment = this.normalizeAttachment(fileUrl, fileType);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
       const cleanMessage = leoProfanity.clean(originalMessage || "");
       const messagePayload: any = {
         email: sender.email,
@@ -313,6 +331,7 @@ export class ChatController {
 
       if (attachment.fileUrl) messagePayload.fileUrl = attachment.fileUrl;
       if (attachment.fileType) messagePayload.fileType = attachment.fileType;
+      if (attachment.durationSeconds) messagePayload.durationSeconds = attachment.durationSeconds;
 
       const saved = await chatService.sendMessage(messagePayload);
 
@@ -356,7 +375,7 @@ export class ChatController {
             }
 
             try {
-              const preview = cleanMessage?.slice(0, 120) || (attachment.fileType ? `[${attachment.fileType}]` : "[attachment]");
+              const preview = cleanMessage?.slice(0, 120) || attachmentPreview(attachment.fileType);
 
               // M6 delivery: reaches every device the receiver is signed in on,
               // honours their notification preferences and mutes, and carries the
@@ -429,7 +448,8 @@ export class ChatController {
         groupName,             // optional
         message: originalMsg,  // optional if fileUrl provided
         fileUrl,
-        fileType,              // "image" | "document" | "video"
+        fileType,              // "image" | "document" | "video" | "audio"
+        durationSeconds,       // voice notes, in seconds
         replyToMessageId,
         clientId,
       } = req.body;
@@ -515,7 +535,7 @@ export class ChatController {
       }
 
       // 4) sanitize text
-      const attachment = this.normalizeAttachment(fileUrl, fileType);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
       const cleanMessage = originalMsg ? leoProfanity.clean(originalMsg) : undefined;
 
       // 4) persist the group message
@@ -537,6 +557,7 @@ export class ChatController {
 
       if (attachment.fileUrl) message.fileUrl = attachment.fileUrl;
       if (attachment.fileType) message.fileType = attachment.fileType;
+      if (attachment.durationSeconds) message.durationSeconds = attachment.durationSeconds;
 
       const savedMessage = await chatService.sendMessage(message);
 
@@ -571,7 +592,7 @@ export class ChatController {
               { _id: (targetGroup as any)._id },
               {
                 $set: {
-                  lastMessage: cleanMessage || (attachment.fileType ? `[${attachment.fileType}]` : "[attachment]"),
+                  lastMessage: cleanMessage || attachmentPreview(attachment.fileType),
                   lastMessageAt: new Date(),
                 },
               }
@@ -597,7 +618,7 @@ export class ChatController {
 
           // push notification — fire-and-forget, never sent to the sender
           try {
-            const preview = (cleanMessage ?? (attachment.fileType ? `[${attachment.fileType}]` : "[attachment]")).slice(0, 120);
+            const preview = (cleanMessage ?? attachmentPreview(attachment.fileType)).slice(0, 120);
             let inboxEmails: string[] | undefined;
             if ((blockedBySenders as string[]).length) {
               try {
@@ -684,6 +705,7 @@ export class ChatController {
         message: originalMessage,
         fileUrl,
         fileType,
+        durationSeconds,
       } = req.body;
 
       if (!email) return res.status(400).json({ message: "email is required" });
@@ -725,9 +747,9 @@ export class ChatController {
 
       const senderLower = String(sender.email || "").trim().toLowerCase();
       const senderId = (sender as any).id ?? (sender as any)._id;
-      const attachment = this.normalizeAttachment(fileUrl, fileType);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
       const cleanMessage = originalMessage ? leoProfanity.clean(originalMessage) : undefined;
-      const preview = (cleanMessage || (attachment.fileType ? `[${attachment.fileType}]` : "[attachment]")).slice(0, 120);
+      const preview = (cleanMessage || attachmentPreview(attachment.fileType)).slice(0, 120);
       const broadcastId = randomUUID();
 
       const blockedByRecipients = new Set(
@@ -2778,7 +2800,7 @@ export class ChatController {
 
 
   private buildReplyMetadata(msg: any) {
-    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType);
+    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds);
     return {
       messageId: msg.messageId || String((msg as any)._id),
       email: msg.email,
@@ -2813,7 +2835,7 @@ export class ChatController {
   }
 
   private buildReplySummary(msg: any) {
-    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType);
+    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds);
     return {
       messageId: msg.messageId || String((msg as any)._id),
       email: msg.email,
@@ -2855,8 +2877,9 @@ export class ChatController {
 
   private normalizeAttachment(
     fileUrl: any,
-    fileType: any
-  ): { fileUrl?: string; fileType?: AttachmentFileType } {
+    fileType: any,
+    durationSeconds?: any
+  ): { fileUrl?: string; fileType?: AttachmentFileType; durationSeconds?: number } {
     const normalizedUrl =
       typeof fileUrl === "string" && fileUrl.trim().length > 0
         ? fileUrl.trim()
@@ -2867,7 +2890,22 @@ export class ChatController {
     return {
       fileUrl: normalizedUrl,
       fileType: normalizedType,
+      durationSeconds: this.normalizeDuration(durationSeconds),
     };
+  }
+
+  /**
+   * A playable length, or undefined.
+   *
+   * Rounded to whole seconds and clamped: the value comes from the client, and
+   * a negative or absurd duration would otherwise be stored and rendered as-is.
+   */
+  private normalizeDuration(value: any): number | undefined {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return undefined;
+    }
+    return Math.min(Math.round(parsed), MAX_ATTACHMENT_DURATION_SECONDS);
   }
 
   private normalizeFileType(value: any): AttachmentFileType | undefined {

@@ -64,8 +64,8 @@ export const registerCallHandlers = (io: Server, socket: Socket) => {
   const email = normEmail((socket.data as any).email);
 
   /** What ICE servers this client should use; refreshed per call. */
-  socket.on("call:config", (_: unknown, cb?: (config: unknown) => void) => {
-    cb?.(callConfigFor(email));
+  socket.on("call:config", async (_: unknown, cb?: (config: unknown) => void) => {
+    cb?.(await callConfigFor(email));
   });
 
   /**

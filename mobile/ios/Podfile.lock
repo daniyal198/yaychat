@@ -90,6 +90,7 @@ PODS:
   - hermes-engine (0.78.0):
     - hermes-engine/Pre-built (= 0.78.0)
   - hermes-engine/Pre-built (0.78.0)
+  - JitsiWebRTC (124.0.2)
   - nanopb (3.30910.0):
     - nanopb/decode (= 3.30910.0)
     - nanopb/encode (= 3.30910.0)
@@ -1378,6 +1379,9 @@ PODS:
     - React-Core
   - react-native-tracking-transparency (0.1.2):
     - React
+  - react-native-webrtc (124.0.8):
+    - JitsiWebRTC (~> 124.0.0)
+    - React-Core
   - React-NativeModulesApple (0.78.0):
     - glog
     - hermes-engine
@@ -1668,6 +1672,8 @@ PODS:
   - RecaptchaInterop (101.0.0)
   - RNAppleAuthentication (2.4.1):
     - React-Core
+  - RNAudioRecorderPlayer (3.6.14):
+    - React-Core
   - RNCAsyncStorage (2.1.2):
     - React-Core
   - RNDeviceInfo (14.0.4):
@@ -1921,6 +1927,7 @@ DEPENDENCIES:
   - "react-native-slider (from `../node_modules/@react-native-community/slider`)"
   - react-native-splash-screen (from `../node_modules/react-native-splash-screen`)
   - react-native-tracking-transparency (from `../node_modules/react-native-tracking-transparency`)
+  - react-native-webrtc (from `../node_modules/react-native-webrtc`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-perflogger (from `../node_modules/react-native/ReactCommon/reactperflogger`)
   - React-performancetimeline (from `../node_modules/react-native/ReactCommon/react/performance/timeline`)
@@ -1950,6 +1957,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - "RNAppleAuthentication (from `../node_modules/@invertase/react-native-apple-authentication`)"
+  - RNAudioRecorderPlayer (from `../node_modules/react-native-audio-recorder-player`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNDeviceInfo (from `../node_modules/react-native-device-info`)
   - "RNFBApp (from `../node_modules/@react-native-firebase/app`)"
@@ -1980,6 +1988,7 @@ SPEC REPOS:
     - GoogleUtilities
     - GTMAppAuth
     - GTMSessionFetcher
+    - JitsiWebRTC
     - nanopb
     - PromisesObjC
     - RecaptchaInterop
@@ -2073,6 +2082,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-splash-screen"
   react-native-tracking-transparency:
     :path: "../node_modules/react-native-tracking-transparency"
+  react-native-webrtc:
+    :path: "../node_modules/react-native-webrtc"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-perflogger:
@@ -2131,6 +2142,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   RNAppleAuthentication:
     :path: "../node_modules/@invertase/react-native-apple-authentication"
+  RNAudioRecorderPlayer:
+    :path: "../node_modules/react-native-audio-recorder-player"
   RNCAsyncStorage:
     :path: "../node_modules/@react-native-async-storage/async-storage"
   RNDeviceInfo:
@@ -2179,6 +2192,7 @@ SPEC CHECKSUMS:
   GTMAppAuth: f69bd07d68cd3b766125f7e072c45d7340dea0de
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   hermes-engine: b417d2b2aee3b89b58e63e23a51e02be91dc876d
+  JitsiWebRTC: b47805ab5668be38e7ee60e2258f49badfe8e1d0
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
   RCT-Folly: e78785aa9ba2ed998ea4151e314036f6c49e6d82
@@ -2217,6 +2231,7 @@ SPEC CHECKSUMS:
   react-native-slider: dfbbd90c6bfac9877fac6508ffa6a33ec8b54eaa
   react-native-splash-screen: 4312f786b13a81b5169ef346d76d33bc0c6dc457
   react-native-tracking-transparency: 25ff1ff866e338c137c818bdec20526bb05ffcc1
+  react-native-webrtc: a3173652a7de48afa9f2d6151cb6eef130c04930
   React-NativeModulesApple: b74b4e3004104429461593fe460ad790cc4928c2
   React-perflogger: ab51b7592532a0ea45bf6eed7e6cae14a368b678
   React-performancetimeline: 37192fd1019c3b3b597a877dff12f3af68305c34
@@ -2247,6 +2262,7 @@ SPEC CHECKSUMS:
   ReactCommon: c8fdbc582b98a07daf201cd95c1da75dd029f3ee
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RNAppleAuthentication: b2d8b5ccba86b5b1e55a1a2e858f7ac6d8a21816
+  RNAudioRecorderPlayer: 76b1d9ea2b22bf5ece274c0ff99c341daca42dc4
   RNCAsyncStorage: addfc2cb6511dbe199c56c6b26ede383b6c38919
   RNDeviceInfo: feea80a690d2bde1fe51461cf548039258bd03f2
   RNFBApp: b67ded6e4b0a6c0fee5e4f8e75e3a31567949a08
