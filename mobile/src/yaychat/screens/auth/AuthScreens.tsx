@@ -234,6 +234,7 @@ export const SignInScreen = ({navigation}: AuthProps<'SignIn'>) => {
       )}
       <TextField
         label="Password"
+        accessibilityLabel="Review account password"
         value={password}
         onChangeText={setPassword}
         placeholder="Your password"
