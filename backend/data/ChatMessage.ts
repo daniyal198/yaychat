@@ -12,7 +12,14 @@ export interface ChatMessage {
     lastName: string;
     message?: string;
     fileUrl?: string;
-    fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' ;
+    fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio' ;
+    /**
+     * Length of an audio or video attachment, in seconds.
+     *
+     * Stored on the message so a voice note can render its duration in the
+     * conversation list without downloading the file first.
+     */
+    durationSeconds?: number;
     timestamp?: Date;
     groupId?: string; // For group chats
     isRead?: boolean;
@@ -32,7 +39,8 @@ export interface ChatMessage {
         lastName?: string;
         message?: string;
         fileUrl?: string;
-        fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file';
+        fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+        durationSeconds?: number;
         timestamp?: Date;
     };
     replies?: {
@@ -42,7 +50,8 @@ export interface ChatMessage {
         lastName?: string;
         message?: string;
         fileUrl?: string;
-        fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file';
+        fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+        durationSeconds?: number;
         timestamp?: Date;
     }[];
 }

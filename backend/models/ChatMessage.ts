@@ -16,8 +16,11 @@ const ChatMessageSchema = new Schema({
     fileUrl: String,
     fileType: {
         type: String,
-        enum: ['image', 'document', 'video', 'pdf', 'word', 'file'],
+        enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
     },
+    // Length of an audio/video attachment. Stored alongside the message so a
+    // voice note shows its duration without the client fetching the file.
+    durationSeconds: { type: Number },
     timestamp: {
         type: Date,
         default: Date.now,
@@ -53,8 +56,9 @@ const ChatMessageSchema = new Schema({
         fileUrl: String,
         fileType: {
             type: String,
-            enum: ['image', 'document', 'video', 'pdf', 'word', 'file'],
+            enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
         },
+        durationSeconds: { type: Number },
         timestamp: Date,
     },
     replyCount: { type: Number, default: 0 },
@@ -67,8 +71,9 @@ const ChatMessageSchema = new Schema({
         fileUrl: String,
         fileType: {
             type: String,
-            enum: ['image', 'document', 'video', 'pdf', 'word', 'file'],
+            enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
         },
+        durationSeconds: { type: Number },
         timestamp: Date,
     }],
 

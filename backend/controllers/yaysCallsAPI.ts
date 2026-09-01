@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { yaysCalls } from "../services/yaysCall.service";
-import { callConfigFor, callsEnabled } from "../services/calls/iceServers";
+import { callCapabilities, callConfigFor, callsEnabled } from "../services/calls/iceServers";
 import { CallRecord } from "../data/yaysCalls";
 
 const emailOf = (req: Request): string =>
@@ -56,12 +56,10 @@ export class YaysCallsController {
    * signed-in user by `getIceServers`.
    */
   async getConfig(_req: Request, res: Response) {
-    const config = callConfigFor("anonymous");
+    const capabilities = callCapabilities();
     return res.status(200).json({
       data: {
-        enabled: config.enabled,
-        relayConfigured: config.relayConfigured,
-        ringTimeoutSeconds: config.ringTimeoutSeconds,
+        ...capabilities,
         media: ["audio", "video"],
       },
     });
@@ -75,7 +73,7 @@ export class YaysCallsController {
           .status(503)
           .json({ message: "Calling is not available.", code: "unavailable" });
       }
-      return res.status(200).json({ data: callConfigFor(emailOf(req)) });
+      return res.status(200).json({ data: await callConfigFor(emailOf(req)) });
     } catch (error) {
       return failed(res, error, "ice servers");
     }

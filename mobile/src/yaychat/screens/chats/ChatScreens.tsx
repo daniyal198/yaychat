@@ -11,6 +11,7 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  PermissionsAndroid,
   Platform,
   Pressable,
   RefreshControl,
@@ -61,9 +62,19 @@ import {
   communityService,
   errorMessage,
   featureFlags,
+  uploadVoiceNote,
   userService,
 } from '../../services';
 import {callService} from '../../services/calls/callService';
+import {
+  MAX_VOICE_NOTE_SECONDS,
+  formatDuration,
+  isVoiceNoteAvailable,
+  startPlayback,
+  startRecording,
+  stopPlayback,
+  stopRecording,
+} from '../../services/voice/audio';
 import {navigateToCall} from '../../navigation/navigationRef';
 import {useAction, useAsync} from '../../state/hooks';
 import {useToast, useUnread} from '../../state/AppProviders';
@@ -398,6 +409,14 @@ export const ChatListScreen = ({
           icon="archive-outline"
           title="Archived chats"
           onPress={() => navigation.navigate('ArchivedChats')}
+        />
+        {/* Calls live at the root of the navigator so a ringing call can take
+            over from anywhere, which leaves call history with no entry point of
+            its own. Chats is where people look for it. */}
+        <ListRow
+          icon="call-outline"
+          title="Calls"
+          onPress={() => navigation.getParent()?.navigate('CallHistory')}
         />
         <Divider />
       </View>
@@ -1072,6 +1091,136 @@ const statusIconFor = (status: Message['status']): {icon: string; color: string}
 
 const WAVEFORM_HEIGHTS = [8, 14, 10, 18, 12, 20, 9, 15, 11, 17, 8, 13];
 
+/**
+ * Microphone access.
+ *
+ * iOS prompts on first use through the recorder itself; Android needs the
+ * runtime request made explicitly before recording starts, or `startRecorder`
+ * fails with an opaque native error.
+ */
+const ensureMicPermission = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+  try {
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      {
+        title: 'Microphone access',
+        message: 'YaysApp needs your microphone to record voice messages.',
+        buttonPositive: 'Allow',
+        buttonNegative: 'Not now',
+      },
+    );
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * A voice note that actually plays.
+ *
+ * Playback is exclusive by construction: the engine has one player, so starting
+ * a second note stops the first. Each bubble tracks only whether it is the one
+ * playing, and the shared engine enforces the rest.
+ */
+const VoiceBubble = ({message, mine}: {message: Message; mine: boolean}) => {
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const sub = mine ? colors.brandSoft : colors.textMuted;
+  // The local file while the upload is still in flight, so a note you just
+  // recorded is playable immediately rather than only after it round-trips.
+  const source = message.attachment?.localUri ?? message.attachment?.url;
+  const durationLabel =
+    message.attachment?.durationLabel ??
+    (message.attachment?.durationSeconds
+      ? formatDuration(message.attachment.durationSeconds)
+      : '0:00');
+
+  // Leaving the conversation mid-playback must not leave audio running.
+  useEffect(
+    () => () => {
+      stopPlayback().catch(() => {});
+    },
+    [],
+  );
+
+  const toggle = useCallback(async () => {
+    if (playing) {
+      await stopPlayback();
+      setPlaying(false);
+      setProgress(0);
+      return;
+    }
+    if (!source) {
+      return;
+    }
+    try {
+      await stopPlayback();
+      setPlaying(true);
+      await startPlayback(
+        source,
+        ({currentMs, durationMs}) => {
+          setProgress(durationMs > 0 ? Math.min(1, currentMs / durationMs) : 0);
+        },
+        () => {
+          setPlaying(false);
+          setProgress(0);
+          stopPlayback().catch(() => {});
+        },
+      );
+    } catch {
+      setPlaying(false);
+      setProgress(0);
+    }
+  }, [playing, source]);
+
+  return (
+    <Row gap={spacing.xs}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={playing ? 'Pause voice message' : 'Play voice message'}
+        disabled={!source}
+        onPress={toggle}
+        style={!source ? {opacity: 0.4} : null}>
+        <Ionicons
+          name={playing ? 'pause-circle' : 'play-circle'}
+          size={30}
+          color={mine ? colors.textOnBrand : colors.brand}
+        />
+      </Pressable>
+      <Row gap={2}>
+        {WAVEFORM_HEIGHTS.map((h, i) => {
+          // Bars left of the playhead are filled; the rest stay muted.
+          const played = progress > 0 && i / WAVEFORM_HEIGHTS.length <= progress;
+          return (
+            <View
+              key={i}
+              style={{
+                width: 3,
+                height: h,
+                borderRadius: 2,
+                backgroundColor: played
+                  ? mine
+                    ? colors.textOnBrand
+                    : colors.brandStrong
+                  : mine
+                  ? colors.brandSoft
+                  : colors.brand,
+                opacity: played ? 1 : 0.55,
+              }}
+            />
+          );
+        })}
+      </Row>
+      <YayText variant="micro" color={sub}>
+        {durationLabel}
+      </YayText>
+    </Row>
+  );
+};
+
 const AttachmentBody = ({message, mine}: {message: Message; mine: boolean}) => {
   const fg = mine ? colors.textOnBrand : colors.textPrimary;
   const sub = mine ? colors.brandSoft : colors.textMuted;
@@ -1110,27 +1259,7 @@ const AttachmentBody = ({message, mine}: {message: Message; mine: boolean}) => {
     );
   }
   if (message.kind === 'voice') {
-    return (
-      <Row gap={spacing.xs}>
-        <Ionicons name="play-circle" size={30} color={mine ? colors.textOnBrand : colors.brand} />
-        <Row gap={2}>
-          {WAVEFORM_HEIGHTS.map((h, i) => (
-            <View
-              key={i}
-              style={{
-                width: 3,
-                height: h,
-                borderRadius: 2,
-                backgroundColor: mine ? colors.brandSoft : colors.brand,
-              }}
-            />
-          ))}
-        </Row>
-        <YayText variant="micro" color={sub}>
-          {message.attachment?.durationLabel ?? '0:00'}
-        </YayText>
-      </Row>
-    );
+    return <VoiceBubble message={message} mine={mine} />;
   }
   return <YayText color={fg}>{message.text}</YayText>;
 };
@@ -1375,6 +1504,26 @@ export const ConversationScreen = ({
   const [confirmMsgDelete, setConfirmMsgDelete] = useState<{message: Message; everyone: boolean} | null>(null);
   const [emojiTarget, setEmojiTarget] = useState<'composer' | {message: Message} | null>(null);
   const [attachSheet, setAttachSheet] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordMs, setRecordMs] = useState(0);
+  const [sendingVoice, setSendingVoice] = useState(false);
+  const recordedUri = useRef<string | null>(null);
+  /**
+   * Elapsed milliseconds, mirrored into a ref.
+   *
+   * `finishRecording` is captured into `finishVoiceRef` when recording starts,
+   * so anything it reads from state would be frozen at that moment — the
+   * auto-stop at the cap would then see 0ms and discard the recording as a
+   * mis-tap. The ref is always current.
+   */
+  const recordMsRef = useRef(0);
+  /**
+   * Held in a ref so the recorder's progress callback can stop the recording at
+   * the cap without the callback closing over a stale handler.
+   */
+  const finishVoiceRef = useRef<(() => void) | null>(null);
+  // Resolved once: the native module cannot appear without an app restart.
+  const voiceSupported = useMemo(() => isVoiceNoteAvailable(), []);
   // Multi-select: null = normal mode, a Set = selection mode with those ids.
   const [selectedIds, setSelectedIds] = useState<Set<string> | null>(null);
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
@@ -1829,13 +1978,106 @@ export const ConversationScreen = ({
     });
   };
 
-  const sendAttachment = (kind: 'image' | 'video' | 'file' | 'voice') => {
+  const cancelRecording = useCallback(async () => {
+    finishVoiceRef.current = null;
+    setRecording(false);
+    setRecordMs(0);
+    recordMsRef.current = 0;
+    recordedUri.current = null;
+    await stopRecording();
+  }, []);
+
+  const finishRecording = useCallback(async () => {
+    // Guard: the cap and a tap on Send can both land here.
+    if (!finishVoiceRef.current) {
+      return;
+    }
+    finishVoiceRef.current = null;
+    const elapsedMs = recordMsRef.current;
+    setRecording(false);
+    const uri = (await stopRecording()) ?? recordedUri.current;
+    recordedUri.current = null;
+    recordMsRef.current = 0;
+    setRecordMs(0);
+
+    const seconds = Math.round(elapsedMs / 1000);
+    // Anything shorter than this is a mis-tap, not a message.
+    if (!uri || seconds < 1) {
+      return;
+    }
+
+    setSendingVoice(true);
+    try {
+      const url = await uploadVoiceNote(uri);
+      if (editingMsg) {
+        setEditingMsg(null);
+        setText('');
+      }
+      doSend({
+        text: '',
+        kind: 'voice',
+        attachment: {
+          name: 'Voice message',
+          sizeLabel: '',
+          url,
+          // Kept so the bubble plays from disk before the upload round-trips.
+          localUri: uri,
+          durationSeconds: seconds,
+          durationLabel: formatDuration(seconds),
+        },
+        replyToId: replyTo?.id,
+      });
+      setReplyTo(null);
+    } catch (e) {
+      toast.show(errorMessage(e), 'error');
+    } finally {
+      setSendingVoice(false);
+    }
+  }, [editingMsg, replyTo, doSend, toast]);
+
+  const beginRecording = useCallback(async () => {
+    if (!(await ensureMicPermission())) {
+      toast.show('Microphone access is needed to record a voice message.', 'error');
+      return;
+    }
+    try {
+      recordMsRef.current = 0;
+      setRecordMs(0);
+      finishVoiceRef.current = () => {
+        void finishRecording();
+      };
+      const uri = await startRecording(({currentMs}) => {
+        recordMsRef.current = currentMs;
+        setRecordMs(currentMs);
+        // Stop at the cap rather than recording something the server will
+        // clamp and the user did not intend to send.
+        if (currentMs >= MAX_VOICE_NOTE_SECONDS * 1000) {
+          finishVoiceRef.current?.();
+        }
+      });
+      recordedUri.current = uri;
+      setRecording(true);
+    } catch (e) {
+      finishVoiceRef.current = null;
+      toast.show(errorMessage(e), 'error');
+    }
+  }, [finishRecording, toast]);
+
+  // A conversation left mid-recording must not keep the microphone open.
+  useEffect(
+    () => () => {
+      finishVoiceRef.current = null;
+      stopRecording().catch(() => {});
+    },
+    [],
+  );
+
+  const sendAttachment = (kind: 'image' | 'video' | 'file') => {
     setAttachSheet(false);
     const specs: Record<typeof kind, {text: string; attachment: Message['attachment']}> = {
       image: {text: 'sunset-photo.jpg', attachment: {name: 'sunset-photo.jpg', sizeLabel: '1.1 MB'}},
       video: {text: 'clip.mp4', attachment: {name: 'clip.mp4', sizeLabel: '6.8 MB', durationLabel: '0:31'}},
       file: {text: 'notes.pdf', attachment: {name: 'notes.pdf', sizeLabel: '420 KB'}},
-      voice: {text: 'Voice note', attachment: {name: 'voice-note', sizeLabel: '96 KB', durationLabel: '0:12'}},
     };
     const spec = specs[kind];
     // Attaching cancels an in-progress edit — an attachment is a new message.
@@ -2260,6 +2502,34 @@ export const ConversationScreen = ({
                 ) : null}
                 {/* WhatsApp layout: attach outside the pill, emoji inside it,
                     send as a separate circle. */}
+                {recording ? (
+                  <Row gap={spacing.xs} style={styles.composerRow}>
+                    <IconButton
+                      icon="trash"
+                      size={24}
+                      color={colors.danger}
+                      label="Discard voice message"
+                      onPress={() => void cancelRecording()}
+                    />
+                    <Row gap={spacing.xs} style={styles.recordingField}>
+                      <View style={styles.recordingDot} />
+                      <YayText variant="bodyStrong" color={colors.textPrimary}>
+                        {formatDuration(Math.floor(recordMs / 1000))}
+                      </YayText>
+                      <YayText variant="micro" color={colors.textMuted}>
+                        Recording…
+                      </YayText>
+                    </Row>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Send voice message"
+                      onPress={() => void finishRecording()}>
+                      <Oval size={40}>
+                        <Ionicons name="paper-plane" size={18} color={colors.textOnBrand} />
+                      </Oval>
+                    </Pressable>
+                  </Row>
+                ) : (
                 <Row gap={spacing.xs} style={styles.composerRow}>
                   <IconButton
                     icon="add"
@@ -2288,21 +2558,38 @@ export const ConversationScreen = ({
                       />
                     </View>
                   </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={editingMsg ? 'Save edit' : 'Send'}
-                    disabled={!text.trim()}
-                    onPress={sendText}
-                    style={!text.trim() ? {opacity: 0.4} : null}>
-                    <Oval size={40}>
-                      <Ionicons
-                        name={editingMsg ? 'checkmark' : 'paper-plane'}
-                        size={18}
-                        color={colors.textOnBrand}
-                      />
-                    </Oval>
-                  </Pressable>
+                  {/* With nothing typed the send circle becomes a mic, so a
+                      voice message is one tap rather than a trip through the
+                      attach sheet. Editing always keeps the confirm action. */}
+                  {!text.trim() && !editingMsg && voiceSupported ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Record voice message"
+                      disabled={sendingVoice}
+                      onPress={() => void beginRecording()}
+                      style={sendingVoice ? {opacity: 0.4} : null}>
+                      <Oval size={40}>
+                        <Ionicons name="mic" size={18} color={colors.textOnBrand} />
+                      </Oval>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={editingMsg ? 'Save edit' : 'Send'}
+                      disabled={!text.trim()}
+                      onPress={sendText}
+                      style={!text.trim() ? {opacity: 0.4} : null}>
+                      <Oval size={40}>
+                        <Ionicons
+                          name={editingMsg ? 'checkmark' : 'paper-plane'}
+                          size={18}
+                          color={colors.textOnBrand}
+                        />
+                      </Oval>
+                    </Pressable>
+                  )}
                 </Row>
+                )}
               </View>
               )}
             </View>
@@ -2367,7 +2654,17 @@ export const ConversationScreen = ({
         <ListRow icon="image" title="Photo" chevron={false} onPress={() => sendAttachment('image')} />
         <ListRow icon="videocam" title="Video" chevron={false} onPress={() => sendAttachment('video')} />
         <ListRow icon="document" title="File" chevron={false} onPress={() => sendAttachment('file')} />
-        <ListRow icon="mic" title="Voice note" chevron={false} onPress={() => sendAttachment('voice')} />
+        {voiceSupported ? (
+          <ListRow
+            icon="mic"
+            title="Voice message"
+            chevron={false}
+            onPress={() => {
+              setAttachSheet(false);
+              void beginRecording();
+            }}
+          />
+        ) : null}
         <Divider />
         <ListRow icon="happy" title="Stickers" chevron={false} right={<Badge label="Coming soon" tone="neutral" />} />
         <ListRow icon="film" title="GIFs" chevron={false} right={<Badge label="Coming soon" tone="neutral" />} />
@@ -3361,6 +3658,26 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingLeft: spacing.sm,
     paddingRight: spacing.xxs,
+  },
+  /** The recording bar reuses the composer pill's shape, centred rather than
+      baseline-aligned since it holds a timer instead of a growing input. */
+  recordingField: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 40,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  recordingDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.danger,
   },
   composerInput: {
     flex: 1,

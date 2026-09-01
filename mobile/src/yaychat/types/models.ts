@@ -54,7 +54,18 @@ export interface Message {
   recalled?: boolean;
   /** True when the sender edited the message after sending. */
   edited?: boolean;
-  attachment?: {name: string; sizeLabel: string; durationLabel?: string};
+  attachment?: {
+    name: string;
+    sizeLabel: string;
+    /** `0:14` — shown on voice and video bubbles. */
+    durationLabel?: string;
+    /** Remote URL, once uploaded. Absent for a send still in flight. */
+    url?: string;
+    /** Audio/video length in seconds, as stored on the message. */
+    durationSeconds?: number;
+    /** Local file URI, before upload — lets a voice note play back instantly. */
+    localUri?: string;
+  };
   uploadProgress?: number;
 }
 

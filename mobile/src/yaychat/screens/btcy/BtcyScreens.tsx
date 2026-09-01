@@ -7,7 +7,7 @@
  * upgrades happen inside YaysApp, which keeps rewards and ad revenue in BTCY.
  */
 import React from 'react';
-import {Linking, Pressable, StyleSheet, View} from 'react-native';
+import {Image, Linking, Pressable, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
@@ -30,6 +30,14 @@ import {btcyService} from '../../services';
 import {useAsync} from '../../state/hooks';
 import {useToast} from '../../state/AppProviders';
 import type {RootStackParamList} from '../../types/navigation';
+
+// BTCY character art (Bitcoin Yay illustration pack). Decorative only — never
+// the sole carrier of information, so a slow asset load never hides state.
+const MiningCartArt = require('../../../../assets/img/btcy/mining-cart-hero.png');
+const AlchemyTomeArt = require('../../../../assets/img/btcy/alchemy-tome.png');
+const ReferralsCrewArt = require('../../../../assets/img/btcy/referrals-crew.png');
+const MiningLanternArt = require('../../../../assets/img/btcy/mining-lantern.png');
+const PromoLotteryArt = require('../../../../assets/img/btcy/promo-lottery.png');
 
 const BITCOINYAY_SCHEME = 'bitcoinyay://';
 const BITCOINYAY_SITE = 'https://www.bitcoinyay.com/';
@@ -97,6 +105,13 @@ export const BtcyHubScreen = ({
             <>
               {/* Mining Status — hero */}
               <View style={styles.hero}>
+                <Image
+                  source={MiningCartArt}
+                  style={styles.heroArt}
+                  resizeMode="contain"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
                 <Row style={{justifyContent: 'space-between'}}>
                   <YayText variant="heading" color={colors.textOnBrand}>
                     Mining status
@@ -153,19 +168,30 @@ export const BtcyHubScreen = ({
               {/* Alchemy */}
               <SectionHeader title="Alchemy progress" />
               <Card>
-                <Row style={{justifyContent: 'space-between'}}>
-                  <YayText variant="bodyStrong">
-                    {`${fmt(d.alchemy.current)} / ${fmt(d.alchemy.target)}`}
-                  </YayText>
-                  <Badge label={`${fmt(alchemyLeft)} to go`} tone="brand" />
+                <Row style={{alignItems: 'flex-start'}} gap={spacing.sm}>
+                  <View style={{flex: 1}}>
+                    <Row style={{justifyContent: 'space-between'}}>
+                      <YayText variant="bodyStrong">
+                        {`${fmt(d.alchemy.current)} / ${fmt(d.alchemy.target)}`}
+                      </YayText>
+                      <Badge label={`${fmt(alchemyLeft)} to go`} tone="brand" />
+                    </Row>
+                    <Spacer size={spacing.xs} />
+                    <ProgressBar value={alchemyPct ?? 0} tone={colors.gold} />
+                    <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
+                      {alchemyLeft == null
+                        ? 'Alchemy progress is unavailable right now.'
+                        : `${fmt(alchemyLeft)} nuggets remaining until your next refine.`}
+                    </YayText>
+                  </View>
+                  <Image
+                    source={AlchemyTomeArt}
+                    style={styles.alchemyArt}
+                    resizeMode="contain"
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
                 </Row>
-                <Spacer size={spacing.xs} />
-                <ProgressBar value={alchemyPct ?? 0} tone={colors.gold} />
-                <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                  {alchemyLeft == null
-                    ? 'Alchemy progress is unavailable right now.'
-                    : `${fmt(alchemyLeft)} nuggets remaining until your next refine.`}
-                </YayText>
                 <Spacer size={spacing.sm} />
                 <HubCta label="Open Alchemy" onPress={() => openBitcoinYay('alchemy')} />
               </Card>
@@ -188,6 +214,13 @@ export const BtcyHubScreen = ({
                     ? 'Mining Station Owner — unlocked ✅'
                     : `${referralsLeft} more needed to unlock the Mining Station.`}
                 </YayText>
+                <Image
+                  source={ReferralsCrewArt}
+                  style={styles.referralsArt}
+                  resizeMode="contain"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
               </Card>
 
               {/* Mining Station */}
@@ -220,6 +253,13 @@ export const BtcyHubScreen = ({
                     </YayText>
                   </Row>
                 ))}
+                <Image
+                  source={MiningLanternArt}
+                  style={styles.lanternArt}
+                  resizeMode="contain"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
               </Card>
 
               {/* Watch & Earn */}
@@ -282,6 +322,13 @@ export const BtcyHubScreen = ({
               {/* Promotions */}
               <SectionHeader title="Promotions" />
               <View style={styles.promo}>
+                <Image
+                  source={PromoLotteryArt}
+                  style={styles.promoArt}
+                  resizeMode="contain"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
                 <Row style={{justifyContent: 'space-between'}}>
                   <Badge label="🔥 Limited offer" tone="warning" />
                   <YayText variant="micro" color={colors.textSecondary}>
@@ -344,7 +391,39 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     marginTop: spacing.sm,
+    overflow: 'hidden',
     ...shadows.card,
+  },
+  heroArt: {
+    position: 'absolute',
+    right: -4,
+    bottom: -6,
+    width: 92,
+    height: 114,
+    opacity: 0.92,
+    pointerEvents: 'none',
+  },
+  alchemyArt: {
+    width: 56,
+    height: 54,
+  },
+  referralsArt: {
+    width: 140,
+    height: 81,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+  },
+  lanternArt: {
+    width: 30,
+    height: 41,
+    alignSelf: 'flex-end',
+    marginTop: spacing.sm,
+  },
+  promoArt: {
+    width: 160,
+    height: 84,
+    alignSelf: 'center',
+    marginBottom: spacing.xs,
   },
   liveBadge: {
     flexDirection: 'row',

@@ -13,6 +13,7 @@ import {dataMode} from './dataMode';
 import {parsePhone, toE164 as toE164Phone} from '../utils/phone';
 import {localEngine} from './ai/localEngine';
 import {localCommunities} from './communities/localEngine';
+import {formatDuration, mimeForRecording} from './voice/audio';
 import * as db from './mock/db';
 import {
   AiAssistResult,
@@ -98,7 +99,8 @@ type BackendMessage = {
   lastName?: string;
   message?: string;
   fileUrl?: string;
-  fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file';
+  fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+  durationSeconds?: number;
   timestamp?: string | Date;
   groupId?: string;
   isRead?: boolean;
@@ -171,14 +173,75 @@ const isLocalProfilePicture = (uri: string): boolean =>
 
 const uploadProfilePicture = async (uri: string): Promise<{key: string; publicUrl: string}> => {
   const contentType = profilePictureMimeType(uri);
+
+  // Every failure below is converted to an ApiError. Callers surface errors
+  // through `errorMessage`, which falls back to "Something unexpected
+  // happened." for anything that is not an ApiError — so a raw axios or Blob
+  // failure here used to reach the user as that generic line, hiding both the
+  // server's reason and which of the three steps actually broke.
+  let presigned: any;
+  try {
+    const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
+      params: {fileType: contentType},
+      // A photo upload is a foreground action the user is watching; the default
+      // client timeout is tuned for small JSON calls.
+      timeout: 30000,
+    });
+    presigned = backendBody(presignedResponse.data);
+  } catch (e) {
+    throw toApiError(e);
+  }
+  if (!presigned?.url || !presigned?.key) {
+    throw new ApiError('Could not prepare the profile-picture upload.', 'server');
+  }
+
+  // Reading the local file is a distinct failure from uploading it: on iOS a
+  // picked asset can resolve to a URI whose bytes are not readable, and
+  // reporting that as an upload failure sends people to check their signal.
+  let blob: Blob;
+  try {
+    const localResponse = await fetch(uri);
+    blob = await localResponse.blob();
+  } catch {
+    throw new ApiError('Could not read the selected picture. Please choose another image.', 'server');
+  }
+
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(presigned.url, {
+      method: 'PUT',
+      headers: {'Content-Type': contentType},
+      body: blob,
+    });
+  } catch {
+    throw new ApiError('Could not upload the profile picture. Check your connection and try again.', 'offline');
+  }
+  if (!uploadResponse.ok) {
+    throw new ApiError(
+      `Could not upload the profile picture (${uploadResponse.status}). Please try again.`,
+      'server',
+    );
+  }
+  return {key: presigned.key, publicUrl: String(presigned.url).split('?')[0]};
+};
+
+/**
+ * Upload a recorded voice note and return the URL to attach to the message.
+ *
+ * Same presign-then-PUT path as a profile picture. The content type is read
+ * from the file the recorder actually produced rather than assumed, so S3
+ * stores and later serves it as something playable.
+ */
+export const uploadVoiceNote = async (localUri: string): Promise<string> => {
+  const contentType = mimeForRecording(localUri);
   const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
     params: {fileType: contentType},
   });
   const presigned = backendBody(presignedResponse.data);
-  if (!presigned?.url || !presigned?.key) {
-    throw new ApiError('Could not prepare the profile-picture upload.', 'server');
+  if (!presigned?.url) {
+    throw new ApiError('Could not prepare the voice message upload.', 'server');
   }
-  const localResponse = await fetch(uri);
+  const localResponse = await fetch(localUri);
   const blob = await localResponse.blob();
   const uploadResponse = await fetch(presigned.url, {
     method: 'PUT',
@@ -186,9 +249,11 @@ const uploadProfilePicture = async (uri: string): Promise<{key: string; publicUr
     body: blob,
   });
   if (!uploadResponse.ok) {
-    throw new ApiError('Could not upload the profile picture. Please try again.', 'server');
+    throw new ApiError('Could not send the voice message. Please try again.', 'server');
   }
-  return {key: presigned.key, publicUrl: String(presigned.url).split('?')[0]};
+  // The signed query string is the upload credential; the object itself lives
+  // at the bare URL.
+  return String(presigned.url).split('?')[0];
 };
 
 const backendList = (payload: any): any[] => {
@@ -429,6 +494,10 @@ const backendMessageKind = (m: BackendMessage): Message['kind'] => {
   if (m.fileType === 'document' || m.fileType === 'pdf' || m.fileType === 'word') {
     return 'file';
   }
+  // The server stores the media type; the UI renders a voice note.
+  if (m.fileType === 'audio') {
+    return 'voice';
+  }
   return m.fileType;
 };
 
@@ -438,7 +507,17 @@ const backendAttachment = (m: BackendMessage): Message['attachment'] | undefined
   }
   const rawName = String(m.fileUrl || m.fileType || 'attachment');
   const name = rawName.split('/').pop() || rawName;
-  return {name, sizeLabel: 'Uploaded'};
+  const durationSeconds =
+    typeof m.durationSeconds === 'number' && m.durationSeconds > 0
+      ? m.durationSeconds
+      : undefined;
+  return {
+    name,
+    sizeLabel: 'Uploaded',
+    url: m.fileUrl ? String(m.fileUrl) : undefined,
+    durationSeconds,
+    durationLabel: durationSeconds ? formatDuration(durationSeconds) : undefined,
+  };
 };
 
 const backendMessageToMessage = (m: BackendMessage, meEmail: string): Message => {
@@ -1283,13 +1362,18 @@ const backendChat = {
     const fileType = input.attachment
       ? input.kind === 'image' || input.kind === 'video'
         ? input.kind
+        : input.kind === 'voice'
+        ? 'audio'
         : 'file'
       : undefined;
     const body = {
       email: meEmail,
       message: input.text,
       fileType,
-      fileUrl: input.attachment?.name,
+      // The uploaded URL when there is one; `name` remains the fallback for the
+      // placeholder attachments the demo mode still sends.
+      fileUrl: input.attachment?.url ?? input.attachment?.name,
+      durationSeconds: input.attachment?.durationSeconds,
       replyToMessageId: input.replyToId,
       clientId: input.clientId,
     };
