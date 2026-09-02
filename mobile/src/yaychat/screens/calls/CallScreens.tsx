@@ -7,7 +7,7 @@
  * looking at a call that has already ended on this side.
  */
 import React, {useCallback, useEffect, useState} from 'react';
-import {StyleSheet, View} from 'react-native';
+import {Pressable, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
@@ -215,14 +215,16 @@ export const ActiveCallScreen = ({
               ) : null}
             </Row>
             <Spacer size={spacing.lg} />
-            <Button
-              label="End call"
-              icon="call"
-              kind="danger"
-              onPress={() => {
-                callService.hangUp().catch(() => toast.show('Could not end the call', 'error'));
-              }}
-            />
+            <Row style={styles.controlRow}>
+              <CallActionButton
+                icon="call"
+                label="End call"
+                tone="decline"
+                onPress={() => {
+                  callService.hangUp().catch(() => toast.show('Could not end the call', 'error'));
+                }}
+              />
+            </Row>
           </>
         )}
       </View>
@@ -242,18 +244,71 @@ const CallControl = ({
   onPress: () => void;
 }) => (
   <View style={styles.controlItem}>
-    <View
+    {/* Pressable rather than onTouchEnd: the raw touch handler fires even when
+        the gesture started elsewhere and slid onto the button, and gives no
+        press feedback — on a call screen that means muting yourself by
+        accident with no sign it happened. */}
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{selected: !!active}}
-      style={[styles.controlCircle, active && styles.controlCircleActive]}
-      onTouchEnd={onPress}>
+      hitSlop={8}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.controlCircle,
+        active && styles.controlCircleActive,
+        pressed && {opacity: 0.6},
+      ]}>
       <Ionicons
         name={icon}
-        size={24}
+        size={30}
         color={active ? colors.textOnBrand : colors.textPrimary}
       />
-    </View>
+    </Pressable>
+    <YayText variant="micro" color={colors.textMuted}>
+      {label}
+    </YayText>
+  </View>
+);
+
+/**
+ * The big round answer / decline / hang-up buttons.
+ *
+ * Sized for a phone held at arm's length in a hurry: these are the controls
+ * people reach for without looking, and the previous text buttons were the
+ * same size as everything else on the screen.
+ */
+const CallActionButton = ({
+  icon,
+  label,
+  tone,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  tone: 'accept' | 'decline';
+  onPress: () => void;
+}) => (
+  <View style={styles.controlItem}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={10}
+      onPress={onPress}
+      style={({pressed}) => [
+        styles.actionCircle,
+        {backgroundColor: tone === 'accept' ? colors.success : colors.danger},
+        pressed && {opacity: 0.75},
+      ]}>
+      <Ionicons
+        name={icon}
+        size={36}
+        color={colors.textOnBrand}
+        // A declined/ended call is the same handset icon rotated, which is the
+        // convention every phone uses.
+        style={tone === 'decline' ? {transform: [{rotate: '135deg'}]} : undefined}
+      />
+    </Pressable>
     <YayText variant="micro" color={colors.textMuted}>
       {label}
     </YayText>
@@ -309,20 +364,19 @@ export const IncomingCallScreen = ({
       </View>
 
       <View style={styles.callControls}>
-        <Row gap={spacing.md}>
-          <Button
+        <Row gap={spacing.xl} style={styles.controlRow}>
+          <CallActionButton
+            icon="call"
             label="Decline"
-            icon="close"
-            kind="danger"
-            style={{flex: 1}}
+            tone="decline"
             onPress={() => {
               callService.decline().catch(() => {});
             }}
           />
-          <Button
-            label="Accept"
+          <CallActionButton
             icon="call"
-            style={{flex: 1}}
+            label="Accept"
+            tone="accept"
             onPress={() => {
               callService.accept().catch((e: any) => toast.show(e?.message ?? 'Could not answer', 'error'));
             }}
@@ -451,9 +505,9 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   controlCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surfaceSunken,
@@ -463,6 +517,13 @@ const styles = StyleSheet.create({
   controlCircleActive: {
     backgroundColor: colors.brand,
     borderColor: colors.brand,
+  },
+  actionCircle: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stream: {
     flex: 1,

@@ -1669,6 +1669,8 @@ PODS:
     - React-logger (= 0.78.0)
     - React-perflogger (= 0.78.0)
     - React-utils (= 0.78.0)
+  - ReactNativeIncallManager (4.2.2):
+    - React-Core
   - RecaptchaInterop (101.0.0)
   - RNAppleAuthentication (2.4.1):
     - React-Core
@@ -1956,6 +1958,7 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - ReactNativeIncallManager (from `../node_modules/react-native-incall-manager`)
   - "RNAppleAuthentication (from `../node_modules/@invertase/react-native-apple-authentication`)"
   - RNAudioRecorderPlayer (from `../node_modules/react-native-audio-recorder-player`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
@@ -2140,6 +2143,8 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  ReactNativeIncallManager:
+    :path: "../node_modules/react-native-incall-manager"
   RNAppleAuthentication:
     :path: "../node_modules/@invertase/react-native-apple-authentication"
   RNAudioRecorderPlayer:
@@ -2260,6 +2265,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: f2e81d80afd71a8058589e19d8a134243fa53f17
   ReactCodegen: 299e99fc57c93edc7c5396ef1a39a3a4d494f25d
   ReactCommon: c8fdbc582b98a07daf201cd95c1da75dd029f3ee
+  ReactNativeIncallManager: e7ee5c9ad606788e8bb41267b864e0f4958d8034
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RNAppleAuthentication: b2d8b5ccba86b5b1e55a1a2e858f7ac6d8a21816
   RNAudioRecorderPlayer: 76b1d9ea2b22bf5ece274c0ff99c341daca42dc4
