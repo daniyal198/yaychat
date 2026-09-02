@@ -62,10 +62,16 @@ import {
   communityService,
   errorMessage,
   featureFlags,
+  uploadChatAttachment,
   uploadVoiceNote,
   userService,
 } from '../../services';
 import {callService} from '../../services/calls/callService';
+import {
+  AttachmentKind,
+  chooseChatAttachment,
+  formatSize,
+} from '../../utils/chatAttachment';
 import {
   MAX_VOICE_NOTE_SECONDS,
   formatDuration,
@@ -1507,6 +1513,7 @@ export const ConversationScreen = ({
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
   const [sendingVoice, setSendingVoice] = useState(false);
+  const [sendingAttachment, setSendingAttachment] = useState(false);
   const recordedUri = useRef<string | null>(null);
   /**
    * Elapsed milliseconds, mirrored into a ref.
@@ -1739,14 +1746,15 @@ export const ConversationScreen = ({
     if (!conversation) {
       return;
     }
-    const typing = otherTyping || conversation.typingUserIds.length > 0;
+    // Typing is deliberately NOT reflected here. It toggles with every
+    // keystroke the other person makes, and each toggle re-ran this effect and
+    // handed React Navigation fresh headerTitle/headerRight closures — which
+    // remounts the whole header, avatar and call buttons included. That is the
+    // flicker. The typing line already lives above the composer, where it does
+    // not cost a header remount.
     const displayTitle = !isGroup && otherUser ? otherUser.name : conversation.title;
     const subtitle = isGroup
-      ? typing
-        ? 'typing…'
-        : `${conversation.memberIds.length} members`
-      : typing
-      ? 'typing…'
+      ? `${conversation.memberIds.length} members`
       : otherUser
       ? presenceLabel(otherUser)
       : '';
@@ -1773,7 +1781,7 @@ export const ConversationScreen = ({
               <YayText
                 variant="micro"
                 numberOfLines={1}
-                color={typing || otherUser?.online ? colors.brand : colors.textMuted}>
+                color={otherUser?.online ? colors.brand : colors.textMuted}>
                 {subtitle}
               </YayText>
             ) : null}
@@ -1805,7 +1813,6 @@ export const ConversationScreen = ({
     conversationId,
     isGroup,
     otherUser,
-    otherTyping,
     windowWidth,
     aiInChatEnabled,
     summarizeChatWithAi,
@@ -2072,22 +2079,50 @@ export const ConversationScreen = ({
     [],
   );
 
-  const sendAttachment = (kind: 'image' | 'video' | 'file') => {
-    setAttachSheet(false);
-    const specs: Record<typeof kind, {text: string; attachment: Message['attachment']}> = {
-      image: {text: 'sunset-photo.jpg', attachment: {name: 'sunset-photo.jpg', sizeLabel: '1.1 MB'}},
-      video: {text: 'clip.mp4', attachment: {name: 'clip.mp4', sizeLabel: '6.8 MB', durationLabel: '0:31'}},
-      file: {text: 'notes.pdf', attachment: {name: 'notes.pdf', sizeLabel: '420 KB'}},
-    };
-    const spec = specs[kind];
-    // Attaching cancels an in-progress edit — an attachment is a new message.
-    if (editingMsg) {
-      setEditingMsg(null);
-      setText('');
-    }
-    doSend({text: spec.text, kind, attachment: spec.attachment, replyToId: replyTo?.id});
-    setReplyTo(null);
-  };
+  const sendAttachment = useCallback(
+    async (kind: AttachmentKind) => {
+      setAttachSheet(false);
+      let picked;
+      try {
+        picked = await chooseChatAttachment(kind);
+      } catch (e) {
+        toast.show(e instanceof Error ? e.message : errorMessage(e), 'error');
+        return;
+      }
+      // Cancelling the picker is the most common way this ends; it is not a
+      // failure and must not put a toast on screen.
+      if (!picked) {
+        return;
+      }
+
+      setSendingAttachment(true);
+      try {
+        const url = await uploadChatAttachment(picked.uri, picked.mimeType);
+        // Attaching cancels an in-progress edit — an attachment is a new message.
+        if (editingMsg) {
+          setEditingMsg(null);
+          setText('');
+        }
+        doSend({
+          text: '',
+          kind,
+          attachment: {
+            name: picked.name,
+            sizeLabel: formatSize(picked.size),
+            url,
+            localUri: picked.uri,
+          },
+          replyToId: replyTo?.id,
+        });
+        setReplyTo(null);
+      } catch (e) {
+        toast.show(errorMessage(e), 'error');
+      } finally {
+        setSendingAttachment(false);
+      }
+    },
+    [editingMsg, replyTo, doSend, toast],
+  );
 
   const toggleReaction = async (m: Message, emoji: string) => {
     try {
@@ -2534,9 +2569,15 @@ export const ConversationScreen = ({
                   <IconButton
                     icon="add"
                     size={26}
-                    color={colors.brand}
+                    // Dimmed while an upload is in flight: the picker would
+                    // otherwise open again over a send already in progress.
+                    color={sendingAttachment ? colors.textFaint : colors.brand}
                     label="Attach"
-                    onPress={() => setAttachSheet(true)}
+                    onPress={() => {
+                      if (!sendingAttachment) {
+                        setAttachSheet(true);
+                      }
+                    }}
                   />
                   <View style={styles.composerField}>
                     <TextInput
@@ -2651,9 +2692,9 @@ export const ConversationScreen = ({
         }}
       />
       <BottomSheet visible={attachSheet} onClose={() => setAttachSheet(false)} title="Share something">
-        <ListRow icon="image" title="Photo" chevron={false} onPress={() => sendAttachment('image')} />
-        <ListRow icon="videocam" title="Video" chevron={false} onPress={() => sendAttachment('video')} />
-        <ListRow icon="document" title="File" chevron={false} onPress={() => sendAttachment('file')} />
+        <ListRow icon="image" title="Photo" chevron={false} onPress={() => void sendAttachment('image')} />
+        <ListRow icon="videocam" title="Video" chevron={false} onPress={() => void sendAttachment('video')} />
+        <ListRow icon="document" title="File" chevron={false} onPress={() => void sendAttachment('file')} />
         {voiceSupported ? (
           <ListRow
             icon="mic"

@@ -232,6 +232,59 @@ const uploadProfilePicture = async (uri: string): Promise<{key: string; publicUr
  * from the file the recorder actually produced rather than assumed, so S3
  * stores and later serves it as something playable.
  */
+/**
+ * Upload any chat attachment and return the URL to store on the message.
+ *
+ * Same presign-then-PUT path as a voice note, with the content type supplied
+ * by the picker rather than inferred: a `.dat` or extensionless file still has
+ * a real type the OS knows, and guessing from the name would store it as
+ * something no client will open.
+ */
+export const uploadChatAttachment = async (
+  localUri: string,
+  mimeType: string,
+): Promise<string> => {
+  const contentType = mimeType || 'application/octet-stream';
+  let presigned: any;
+  try {
+    const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
+      params: {fileType: contentType},
+      // Sending a photo or clip is a foreground action the user is watching;
+      // the client default is tuned for small JSON calls.
+      timeout: 30000,
+    });
+    presigned = backendBody(presignedResponse.data);
+  } catch (e) {
+    throw toApiError(e);
+  }
+  if (!presigned?.url) {
+    throw new ApiError('Could not prepare the upload.', 'server');
+  }
+
+  let blob: Blob;
+  try {
+    const localResponse = await fetch(localUri);
+    blob = await localResponse.blob();
+  } catch {
+    throw new ApiError('Could not read that file. Please choose another.', 'server');
+  }
+
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(presigned.url, {
+      method: 'PUT',
+      headers: {'Content-Type': contentType},
+      body: blob,
+    });
+  } catch {
+    throw new ApiError('Upload failed. Check your connection and try again.', 'offline');
+  }
+  if (!uploadResponse.ok) {
+    throw new ApiError(`Upload failed (${uploadResponse.status}). Please try again.`, 'server');
+  }
+  return String(presigned.url).split('?')[0];
+};
+
 export const uploadVoiceNote = async (localUri: string): Promise<string> => {
   const contentType = mimeForRecording(localUri);
   const presignedResponse = await API.get('/api/v1/inex/basic/getS3PresignedUrlForMobile', {
