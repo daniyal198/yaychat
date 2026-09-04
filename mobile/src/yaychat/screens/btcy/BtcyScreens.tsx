@@ -84,6 +84,13 @@ const ratio = (current: number | null, target: number | null): number | null =>
 const remaining = (target: number | null, current: number | null): number | null =>
   target == null || current == null ? null : Math.max(0, target - current);
 
+/** BTCY x YaysApp Ambassador ladder — display labels for the tier the dashboard reports. */
+const AMBASSADOR_TIER_LABEL: Record<'community' | 'growth' | 'elite', string> = {
+  community: 'Community Ambassador',
+  growth: 'Growth Ambassador',
+  elite: 'Elite Ambassador',
+};
+
 export const BtcyHubScreen = ({
   navigation,
 }: NativeStackScreenProps<RootStackParamList, 'BtcyHub'>) => {
@@ -260,6 +267,33 @@ export const BtcyHubScreen = ({
                   accessibilityElementsHidden
                   importantForAccessibility="no"
                 />
+              </Card>
+
+              {/* Ambassador ladder */}
+              <SectionHeader title="Ambassador ladder" />
+              <Card>
+                <Row style={{justifyContent: 'space-between'}}>
+                  <Row gap={spacing.xs}>
+                    <Ionicons
+                      name={d.ambassador.tier ? 'ribbon' : 'ribbon-outline'}
+                      size={18}
+                      color={d.ambassador.tier ? colors.gold : colors.textMuted}
+                    />
+                    <YayText variant="bodyStrong">
+                      {d.ambassador.tier ? AMBASSADOR_TIER_LABEL[d.ambassador.tier] : 'Not yet an Ambassador'}
+                    </YayText>
+                  </Row>
+                  {d.ambassador.nextTierAt != null ? (
+                    <Badge label={`Next: ${d.ambassador.nextTierAt} referrals`} tone="neutral" />
+                  ) : (
+                    <Badge label="TOP TIER" tone="success" />
+                  )}
+                </Row>
+                <Spacer size={spacing.xs} />
+                <YayText variant="caption" color={colors.textMuted}>
+                  25 verified referrals unlocks the Mining Station. 50 adds a bonus, 100 makes you
+                  an Elite Ambassador with priority access to future campaigns.
+                </YayText>
               </Card>
 
               {/* Watch & Earn */}

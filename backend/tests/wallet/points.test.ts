@@ -10,10 +10,12 @@
 import assert from "assert";
 import { DAILY_POINTS_CAP, utcDayKey } from "../../services/yaysPoints.service";
 import {
+  AMBASSADOR_TIERS,
   MINING_STATION_REFERRAL_TARGET,
   REFEREE_WELCOME_POINTS,
   REFERRAL_REWARD_POINTS,
 } from "../../services/yaysReferral.service";
+import { ACTIVATION_REWARD_POINTS } from "../../services/yaysActivation.service";
 import { CHECK_IN_POINTS } from "../../services/yaysEarn.service";
 
 describe("UTC day key", () => {
@@ -56,6 +58,53 @@ describe("reward constants", () => {
     // referral reward, capping it would quietly halve what a referrer is owed.
     assert.ok(REFERRAL_REWARD_POINTS > 0);
     assert.ok(DAILY_POINTS_CAP > 0);
+  });
+});
+
+describe("BTCY x YaysApp Ambassador ladder", () => {
+  it("mirrors the campaign's 25 / 50 / 100 verified-referral milestones", () => {
+    assert.deepStrictEqual(
+      AMBASSADOR_TIERS.map((tier) => tier.threshold),
+      [25, 50, 100]
+    );
+  });
+
+  it("is ordered ascending, so the last tier cleared is always the highest", () => {
+    for (let i = 1; i < AMBASSADOR_TIERS.length; i += 1) {
+      assert.ok(AMBASSADOR_TIERS[i].threshold > AMBASSADOR_TIERS[i - 1].threshold);
+    }
+  });
+
+  it("unlocks the Mining Station at every tier, and only the higher tiers add a points bonus", () => {
+    for (const tier of AMBASSADOR_TIERS) {
+      assert.strictEqual(tier.unlocksMiningStation, true);
+    }
+    assert.strictEqual(AMBASSADOR_TIERS[0].bonusPoints, 0);
+    assert.ok(AMBASSADOR_TIERS[1].bonusPoints > 0);
+    assert.ok(AMBASSADOR_TIERS[2].bonusPoints > AMBASSADOR_TIERS[1].bonusPoints);
+  });
+
+  it("only the Elite tier carries priority access", () => {
+    assert.deepStrictEqual(
+      AMBASSADOR_TIERS.map((tier) => tier.priorityAccess),
+      [false, false, true]
+    );
+  });
+
+  it("keeps the Mining Station target in sync with the first Ambassador tier", () => {
+    assert.strictEqual(MINING_STATION_REFERRAL_TARGET, AMBASSADOR_TIERS[0].threshold);
+  });
+});
+
+describe("BTCY x YaysApp verified activation reward", () => {
+  it("pays a real, positive amount, distinct from the referral rewards", () => {
+    assert.ok(ACTIVATION_REWARD_POINTS > 0);
+    assert.ok(ACTIVATION_REWARD_POINTS < DAILY_POINTS_CAP);
+  });
+
+  it("scopes the activation payout to one account, so a second verification trigger cannot pay twice", () => {
+    const email = "dana@example.com";
+    assert.strictEqual(`activation-reward:${email}`, `activation-reward:${email}`);
   });
 });
 

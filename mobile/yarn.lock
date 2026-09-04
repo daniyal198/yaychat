@@ -7192,6 +7192,11 @@ react-native-confirmation-code-field@^7.4.0:
   resolved "https://registry.npmjs.org/react-native-confirmation-code-field/-/react-native-confirmation-code-field-7.4.0.tgz"
   integrity sha512-Kw7rD0RXi6vZnt0Y67nkSW2wYmZFdnxJ23yxkKm3jqwvSxAvaA1NP3h3MHSPmJd25l0WK/+fjXOeCliDqWZ9rw==
 
+react-native-contacts@^8.0.10:
+  version "8.0.10"
+  resolved "https://registry.npmjs.org/react-native-contacts/-/react-native-contacts-8.0.10.tgz"
+  integrity sha512-9iBRf/YLYSXQxfbPvz43DwXMv0OcHeit37W/313adYJIWz/W8SypqqxmAg9B/Lg1hzD+KYEn+UpljZnwgp78OQ==
+
 react-native-country-picker-modal@^2.0.0:
   version "2.0.0"
   resolved "https://registry.npmjs.org/react-native-country-picker-modal/-/react-native-country-picker-modal-2.0.0.tgz"
@@ -7224,6 +7229,11 @@ react-native-gesture-handler@^2.25.0, "react-native-gesture-handler@>= 2.0.0":
     "@egjs/hammerjs" "^2.0.17"
     hoist-non-react-statics "^3.3.0"
     invariant "^2.2.4"
+
+react-native-incall-manager@^4.2.2:
+  version "4.2.2"
+  resolved "https://registry.npmjs.org/react-native-incall-manager/-/react-native-incall-manager-4.2.2.tgz"
+  integrity sha512-r8zVNIDEFBcceHkmJKKahTiIdK5fu5ohKSAzt3MV+sltlE9bkYLVD0piJ55NfBusDDywPqRJwvdCHZPWdI8iUg==
 
 react-native-is-edge-to-edge@1.1.7:
   version "1.1.7"
@@ -7363,7 +7373,7 @@ react-native-webrtc@^124.0.8:
     base64-js "1.5.1"
     debug "4.3.4"
 
-react-native@*, "react-native@^0.0.0-0 || >=0.65 <1.0", react-native@>=0.57.0, react-native@>=0.59.0, react-native@>=0.60.0, react-native@>=0.64.0, react-native@0.78.0:
+react-native@*, "react-native@^0.0.0-0 || >=0.65 <1.0", react-native@>=0.40.0, react-native@>=0.57.0, react-native@>=0.59.0, react-native@>=0.60.0, react-native@>=0.64.0, react-native@0.78.0:
   version "0.78.0"
   resolved "https://registry.npmjs.org/react-native/-/react-native-0.78.0.tgz"
   integrity sha512-3PO4tNvCN6BdAKcoY70v1sLfxYCmDR4KS1VTY+kIBKy5Qznp27QNxL7zBQjvS6Jp91gc8N82QbysQrfBlwg9gQ==

@@ -1763,6 +1763,42 @@ export class ChatController {
         const notifRes: any = await notificationService.bulkMarkAsRead(notificationIds, reader.email);
         notificationsUpdated = notifRes?.modifiedCount ?? notifRes?.nModified ?? 0;
       }
+
+      /*
+       * 4) tell the *sender* their message was read.
+       *
+       * Without this the read state only reached them on their next history
+       * fetch — which a client triggers when a new message arrives, i.e. when
+       * the reader replies. That is why a second tick used to appear only
+       * once the other person wrote back, and why the mobile client ended up
+       * inferring read state from replies instead of being told about it.
+       *
+       * Scoped to messages actually addressed to the reader, mirroring what
+       * `markDirectMessagesAsReadForEmail` already enforces on the write —
+       * otherwise passing arbitrary ids would let anyone flip someone else's
+       * ticks. Emitting is best-effort: a socket failure must not turn a
+       * successful read into a failed request.
+       */
+      try {
+        const bySender = new Map<string, string[]>();
+        for (const m of msgs as any[]) {
+          const sender = String(m?.email || "").trim().toLowerCase();
+          if (!sender || m?.receiverEmail !== reader.email) continue;
+          const id = String(m?.messageId || m?._id || "");
+          if (!id) continue;
+          bySender.set(sender, [...(bySender.get(sender) ?? []), id]);
+        }
+        for (const [sender, ids] of bySender) {
+          ChatSocketService.emitToUser(sender, "message:read", {
+            messageIds: ids,
+            by: reader.email,
+            readAt: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.error("[chat] could not emit read receipts", error);
+      }
+
       return res.json({ success: true, matchedCount, modifiedCount });
     } catch (error) {
       console.error("Error marking messages as read:", error);

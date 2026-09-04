@@ -13,6 +13,7 @@ import {
   yaysEarn,
 } from "../services/yaysEarn.service";
 import {
+  AMBASSADOR_TIERS,
   InvalidReferralCodeError,
   MINING_STATION_REFERRAL_TARGET,
   REFEREE_WELCOME_POINTS,
@@ -21,6 +22,19 @@ import {
   SelfReferralError,
   yaysReferrals,
 } from "../services/yaysReferral.service";
+import { ACTIVATION_REWARD_POINTS } from "../services/yaysActivation.service";
+import { MAX_CONTACTS_PER_REQUEST, yaysContacts } from "../services/yaysContacts.service";
+
+/** BTCY x YaysApp Ambassador ladder, shaped for the client. */
+const ambassadorLadder = () =>
+  AMBASSADOR_TIERS.map((tier) => ({
+    tier: tier.tier,
+    label: tier.label,
+    verifiedReferralsRequired: tier.threshold,
+    bonusPoints: tier.bonusPoints,
+    unlocksMiningStation: tier.unlocksMiningStation,
+    priorityAccess: tier.priorityAccess,
+  }));
 
 const emailOf = (req: Request): string =>
   String((req as any).user?.email || "").trim().toLowerCase();
@@ -59,10 +73,17 @@ export class YaysWalletController {
         pointsUnit: "IndexxPoints",
         dailyLimit: DAILY_POINTS_CAP,
         checkInPoints: CHECK_IN_POINTS,
+        // BTCY x YaysApp migration & growth campaign.
+        activation: {
+          rewardPoints: ACTIVATION_REWARD_POINTS,
+        },
         referral: {
           referrerReward: REFERRAL_REWARD_POINTS,
           refereeWelcome: REFEREE_WELCOME_POINTS,
           miningStationTarget: MINING_STATION_REFERRAL_TARGET,
+        },
+        ambassador: {
+          tiers: ambassadorLadder(),
         },
       },
     });
@@ -216,13 +237,28 @@ export class YaysWalletController {
         yaysReferrals.statsFor(userLower),
         yaysReferrals.listFor(userLower, 100),
       ]);
+      const currentTier = [...AMBASSADOR_TIERS]
+        .reverse()
+        .find((tier) => stats.active >= tier.threshold);
+      const nextTier = AMBASSADOR_TIERS.find((tier) => stats.active < tier.threshold);
+
       return res.status(200).json({
         data: {
           code: account.referralCode,
           rewardPerReferral: REFERRAL_REWARD_POINTS,
           welcomeBonus: REFEREE_WELCOME_POINTS,
           miningStationTarget: MINING_STATION_REFERRAL_TARGET,
+          activationCompletedAt: account.activationCompletedAt
+            ? account.activationCompletedAt.toISOString()
+            : null,
           stats,
+          ambassador: {
+            tiers: ambassadorLadder(),
+            currentTier: currentTier?.tier ?? null,
+            nextTier: nextTier
+              ? { tier: nextTier.tier, referralsRemaining: nextTier.threshold - stats.active }
+              : null,
+          },
           items: rows.map((referral) => ({
             name: referral.refereeLower.split("@")[0],
             joinedAt: (referral.createdAt ?? new Date()).toISOString(),
@@ -293,6 +329,27 @@ export class YaysWalletController {
       });
     } catch (error) {
       return failed(res, error, "lookup referral code");
+    }
+  }
+
+  /**
+   * "Invite friends" — match a device's phone contacts against YaysApp/Indexx
+   * accounts. Nothing sent here is stored; the response is one round trip.
+   */
+  async matchContacts(req: Request, res: Response) {
+    const userLower = emailOf(req);
+    const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
+    if (contacts.length === 0) {
+      return validation(res, "At least one contact is required.");
+    }
+    if (contacts.length > MAX_CONTACTS_PER_REQUEST) {
+      return validation(res, `Send at most ${MAX_CONTACTS_PER_REQUEST} contacts per request.`);
+    }
+    try {
+      const result = await yaysContacts.match(userLower, contacts);
+      return res.status(200).json({ data: result });
+    } catch (error) {
+      return failed(res, error, "match contacts");
     }
   }
 }

@@ -71,6 +71,7 @@ import {
 import {
   CampaignDetailScreen,
   EarnHomeScreen,
+  InviteContactsScreen,
   ReferralScreen,
   RewardDetailScreen,
   RewardHistoryScreen,
@@ -239,6 +240,7 @@ const EarnNavigator = () => (
     <EarnStack.Screen name="RewardHistory" component={RewardHistoryScreen} options={{title: 'Reward history'}} />
     <EarnStack.Screen name="RewardDetail" component={RewardDetailScreen} options={{title: 'Reward'}} />
     <EarnStack.Screen name="Referral" component={ReferralScreen} options={{title: 'Invite friends'}} />
+    <EarnStack.Screen name="InviteContacts" component={InviteContactsScreen} options={{title: 'Invite friends'}} />
     <EarnStack.Screen name="CampaignDetail" component={CampaignDetailScreen} options={{title: 'Campaign'}} />
     {sharedUtilityScreens(EarnStack)}
   </EarnStack.Navigator>
@@ -251,6 +253,7 @@ const ProfileNavigator = () => (
     <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{title: 'Edit profile'}} />
     <ProfileStack.Screen name="QrProfile" component={QrProfileScreen} options={{title: 'My QR'}} />
     <ProfileStack.Screen name="Contacts" component={ContactsScreen} options={{title: 'Friends'}} />
+    <ProfileStack.Screen name="InviteContacts" component={InviteContactsScreen} options={{title: 'Invite friends'}} />
     <ProfileStack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{title: 'Blocked users'}} />
     <ProfileStack.Screen name="Notifications" component={NotificationsScreen} options={{title: 'Notifications'}} />
     <ProfileStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{title: 'Notifications'}} />

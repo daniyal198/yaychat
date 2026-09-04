@@ -8,7 +8,7 @@ import {
   buildDeepLink,
   knownRoutes,
 } from "../services/notifications/deepLinks";
-import { pushTransportStatus } from "../services/notifications/transports";
+import { pushTransportStatus, webPushConfigured } from "../services/notifications/transports";
 import { DevicePlatform } from "../data/yaysNotifications";
 
 const devices = new PushDeviceService();
@@ -51,6 +51,11 @@ export class YaysNotificationsController {
         transport: pushTransportStatus(),
         routes: knownRoutes(),
         categories: ["messages", "communities", "rewards", "system"],
+        // The public half of the project's VAPID keypair — safe to hand to
+        // anyone, it is what `PushManager.subscribe` needs as its
+        // `applicationServerKey`. Absent entirely when Web Push is not
+        // configured, so the client can tell "off" apart from "not ready yet".
+        webPush: webPushConfigured() ? { vapidPublicKey: process.env.VAPID_PUBLIC_KEY } : null,
       },
     });
   }

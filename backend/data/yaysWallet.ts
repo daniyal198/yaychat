@@ -16,12 +16,21 @@ export type PointsReason =
   | "daily_checkin"
   | "referral_signup"
   | "referral_milestone"
+  | "activation_reward"
+  | "ambassador_bonus"
   | "chat_activity"
   | "community_activity"
   | "campaign"
   | "manual_adjustment"
   | "conversion_debit"
   | "reversal";
+
+/**
+ * BTCY × YaysApp Ambassador ladder — verified-referral tiers from the
+ * migration & growth campaign. Ordered ascending: ambassadorTier always
+ * reflects the highest one reached.
+ */
+export type AmbassadorTier = "community" | "growth" | "elite";
 
 export type LedgerStatus = "pending" | "completed" | "reversed";
 
@@ -71,6 +80,11 @@ export interface PointsAccount extends IModel {
   earnedTodayDate?: string | null;
   /** Stable, shareable invite code. Generated once, never reissued. */
   referralCode: string;
+  /** Set once, the first time verification + official-community join both hold. */
+  activationCompletedAt?: Date | null;
+  /** Highest BTCY × YaysApp Ambassador tier reached, from verified referrals. */
+  ambassadorTier?: AmbassadorTier | null;
+  ambassadorTierAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }

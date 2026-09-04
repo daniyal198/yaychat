@@ -2,8 +2,9 @@
  * Earn tab screens: IndexxPoints home, reward history/detail, referrals, and
  * campaign details. All data is simulated (preview build).
  */
-import React, {useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Clipboard, Pressable, Share, StyleSheet, View} from 'react-native';
+import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
@@ -16,24 +17,36 @@ import {
   Divider,
   EmptyState,
   ListRow,
+  ListSkeleton,
   MockNotice,
   Oval,
   ProgressBar,
   Row,
   Screen,
+  SearchBar,
   SectionHeader,
   Spacer,
   StatTile,
+  StateView,
   TextField,
   YayText,
 } from '../../design/components';
 import {colors, radius, spacing} from '../../design/tokens';
-import {earnService, referralService} from '../../services';
-import type {ReferralSummary} from '../../services';
+import {
+  activationRewardPoints,
+  earnService,
+  errorMessage,
+  inviteService,
+  referralService,
+  rewardAlerts,
+} from '../../services';
+import type {ContactsPermissionStatus, InvitableContact, OnYaysAppContact, ReferralSummary} from '../../services';
 import {useAction, useAsync} from '../../state/hooks';
-import {useToast} from '../../state/AppProviders';
-import type {EarnActivity, EarnSummary, RewardEntry, RewardStatus} from '../../types/models';
+import {useRewardToast, useToast} from '../../state/AppProviders';
+import type {EarnActivity, EarnSummary, RewardEntry, RewardStatus, User} from '../../types/models';
 import type {EarnStackParamList} from '../../types/navigation';
+
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,6 +108,7 @@ export const EarnHomeScreen = ({
   navigation,
 }: NativeStackScreenProps<EarnStackParamList, 'EarnHome'>) => {
   const toast = useToast();
+  const {showReward} = useRewardToast();
   const {data, setData, loading, refreshing, error, offline, reload, refresh} =
     useAsync<HomeData>(async () => {
       const [summary, activities] = await Promise.all([
@@ -105,12 +119,26 @@ export const EarnHomeScreen = ({
     });
   const checkInAction = useAction();
 
+  // Rewards the backend credited while this device was closed — the BTCY x
+  // YaysApp activation reward, a referral qualifying, an Ambassador tier —
+  // get their pop-up here, the first moment there is a screen to show it on.
+  useFocusEffect(
+    useCallback(() => {
+      rewardAlerts.checkForNew().then(rewards => {
+        rewards.forEach((r, i) => setTimeout(() => showReward(r.amount, r.activity), i * 1400));
+      });
+    }, [showReward]),
+  );
+
   const handleCheckIn = async () => {
+    const balanceBefore = data?.summary.balance ?? 0;
     const summary = await checkInAction.perform(
       () => earnService.checkIn(),
       message => toast.show(message, 'error'),
     );
     if (summary) {
+      rewardAlerts.markSeenNow();
+      showReward(Math.max(0, summary.balance - balanceBefore), 'Daily check-in');
       setData(prev =>
         prev
           ? {
@@ -121,7 +149,6 @@ export const EarnHomeScreen = ({
             }
           : prev,
       );
-      toast.show('+20 IndexxPoints', 'success');
     }
   };
 
@@ -538,10 +565,18 @@ const referralSteps = (summary: ReferralSummary): string[] => [
   `They get ${summary.welcomeBonus} IndexxPoints, and you get ${summary.rewardPerReferral} once they send their first message.`,
 ];
 
+const AMBASSADOR_TIER_LABEL: Record<string, string> = {
+  community: 'Community Ambassador',
+  growth: 'Growth Ambassador',
+  elite: 'Elite Ambassador',
+};
+
 export const ReferralScreen = ({
   route,
+  navigation,
 }: NativeStackScreenProps<EarnStackParamList, 'Referral'>) => {
   const toast = useToast();
+  const {showReward} = useRewardToast();
   const {data, loading, refreshing, error, offline, reload, refresh} =
     useAsync<ReferralSummary>(() => referralService.summary());
 
@@ -551,6 +586,17 @@ export const ReferralScreen = ({
   const [enteredCode, setEnteredCode] = useState(route.params?.code ?? '');
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const redeem = useAction();
+
+  // Covers a deep-linked open of this screen that skips the Earn tab, so a
+  // referral/Ambassador reward earned while the app was closed still gets
+  // its pop-up. A no-op if EarnHomeScreen's own check already consumed it.
+  useFocusEffect(
+    useCallback(() => {
+      rewardAlerts.checkForNew().then(rewards => {
+        rewards.forEach((r, i) => setTimeout(() => showReward(r.amount, r.activity), i * 1400));
+      });
+    }, [showReward]),
+  );
 
   const handleShare = async (code: string) => {
     try {
@@ -570,7 +616,8 @@ export const ReferralScreen = ({
     );
     if (result) {
       setEnteredCode('');
-      toast.show(`Invite applied — +${result.welcomeBonus} IndexxPoints`, 'success');
+      rewardAlerts.markSeenNow();
+      showReward(result.welcomeBonus, 'Invite code applied');
       reload();
     }
   };
@@ -605,6 +652,13 @@ export const ReferralScreen = ({
                   onPress={() => handleShare(summary.code)}
                 />
               </Row>
+              <Spacer size={spacing.sm} />
+              <Button
+                label="Invite from contacts"
+                kind="secondary"
+                icon="people"
+                onPress={() => navigation.navigate('InviteContacts')}
+              />
             </Card>
 
             <Row gap={spacing.xs} style={{marginBottom: spacing.sm}}>
@@ -612,6 +666,19 @@ export const ReferralScreen = ({
               <StatTile label="Pending" value={String(summary.stats.pending)} />
               <StatTile label="Points earned" value={String(summary.stats.pointsEarned)} />
             </Row>
+
+            {summary.activationCompletedAt ? (
+              <Banner
+                tone="success"
+                text={`Verified activation reward claimed — +${activationRewardPoints()} IndexxPoints.`}
+              />
+            ) : (
+              <Banner
+                tone="info"
+                text={`Verify your account and join a BTCY community to claim a one-time ${activationRewardPoints()} IndexxPoints activation reward.`}
+              />
+            )}
+            <Spacer size={spacing.sm} />
 
             <SectionHeader title="How it works" />
             <Card>
@@ -627,6 +694,42 @@ export const ReferralScreen = ({
                   </YayText>
                 </Row>
               ))}
+            </Card>
+
+            <SectionHeader title="BTCY x YaysApp Ambassador ladder" />
+            <Card>
+              {summary.ambassador.tiers.map((tier, i) => {
+                const reached =
+                  summary.ambassador.currentTier != null &&
+                  summary.ambassador.tiers.findIndex(t => t.tier === summary.ambassador.currentTier) >= i;
+                return (
+                  <View key={tier.tier}>
+                    {i > 0 ? <Divider /> : null}
+                    <ListRow
+                      title={tier.label}
+                      subtitle={
+                        tier.bonusPoints > 0
+                          ? `${tier.verifiedReferralsRequired} verified referrals — Mining Station + ${tier.bonusPoints} IndexxPoints`
+                          : `${tier.verifiedReferralsRequired} verified referrals — Mining Station Ownership`
+                      }
+                      chevron={false}
+                      icon={reached ? 'ribbon' : 'ribbon-outline'}
+                      iconTone={reached ? colors.brandStrong : colors.textFaint}
+                      right={reached ? <Badge label="REACHED" tone="success" /> : undefined}
+                    />
+                  </View>
+                );
+              })}
+              {summary.ambassador.nextTier ? (
+                <>
+                  <Divider />
+                  <YayText variant="caption" color={colors.textSecondary} style={{padding: spacing.sm}}>
+                    {`${summary.ambassador.nextTier.referralsRemaining} more verified referral${
+                      summary.ambassador.nextTier.referralsRemaining === 1 ? '' : 's'
+                    } to reach ${AMBASSADOR_TIER_LABEL[summary.ambassador.nextTier.tier] ?? 'the next tier'}.`}
+                  </YayText>
+                </>
+              ) : null}
             </Card>
 
             <SectionHeader title="Were you invited?" />
@@ -693,6 +796,224 @@ export const ReferralScreen = ({
           </>
         )}
       </AsyncView>
+    </Screen>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// InviteContactsScreen
+//
+// Two ways to find someone: read the device address book and split it into
+// "already on YaysApp" and "not yet" with an Invite button on the latter, or
+// type a single email and get the same split for just that one address.
+// Registered under both the Earn and Profile stacks (via `Invite from
+// contacts` on the Referral screen, and the Friends list banner), since
+// neither route carries params this needs.
+// ---------------------------------------------------------------------------
+
+export const InviteContactsScreen = () => {
+  const toast = useToast();
+  const [permission, setPermission] = useState<ContactsPermissionStatus | 'checking'>('checking');
+  const [contactsState, setContactsState] = useState<{
+    loading: boolean;
+    error: string | null;
+    onYaysApp: OnYaysAppContact[];
+    invitable: InvitableContact[];
+  }>({loading: false, error: null, onYaysApp: [], invitable: []});
+
+  const loadContacts = useCallback(async () => {
+    setContactsState(s => ({...s, loading: true, error: null}));
+    try {
+      const result = await inviteService.findFromContacts();
+      setContactsState({loading: false, error: null, ...result});
+    } catch (e) {
+      setContactsState(s => ({...s, loading: false, error: errorMessage(e)}));
+    }
+  }, []);
+
+  const refreshPermission = useCallback(async () => {
+    const status = await inviteService.permissionStatus();
+    setPermission(status);
+    if (status === 'granted') {
+      loadContacts();
+    }
+  }, [loadContacts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPermission();
+    }, [refreshPermission]),
+  );
+
+  const handleAllow = async () => {
+    const status = await inviteService.requestPermission();
+    setPermission(status);
+    if (status === 'granted') {
+      loadContacts();
+    } else if (status === 'denied') {
+      toast.show('You can allow contacts access any time from Settings.', 'info');
+    }
+  };
+
+  const handleInvite = async (contact: InvitableContact) => {
+    const target = contact.email || contact.phone || '';
+    try {
+      await Share.share({
+        message: `Join me on YaysApp! ${target ? `Hey ${contact.name}, ` : ''}Download the app: https://yay.chat`,
+      });
+    } catch {
+      toast.show('Could not open share sheet', 'error');
+    }
+  };
+
+  // --- email search --------------------------------------------------------
+
+  const [emailQuery, setEmailQuery] = useState('');
+  const [emailResult, setEmailResult] = useState<
+    {exists: boolean; user?: User} | null
+  >(null);
+  const [emailSearching, setEmailSearching] = useState(false);
+
+  useEffect(() => {
+    const trimmed = emailQuery.trim();
+    if (!EMAIL_LIKE.test(trimmed)) {
+      setEmailResult(null);
+      setEmailSearching(false);
+      return;
+    }
+    setEmailSearching(true);
+    const t = setTimeout(() => {
+      inviteService
+        .lookupEmail(trimmed)
+        .then(setEmailResult)
+        .finally(() => setEmailSearching(false));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [emailQuery]);
+
+  const handleInviteEmail = async () => {
+    const email = emailQuery.trim();
+    try {
+      await Share.share({
+        message: `Join me on YaysApp! Download the app and sign up with ${email}: https://yay.chat`,
+      });
+    } catch {
+      toast.show('Could not open share sheet', 'error');
+    }
+  };
+
+  return (
+    <Screen>
+      <SearchBar value={emailQuery} onChangeText={setEmailQuery} placeholder="Search by email" />
+      {EMAIL_LIKE.test(emailQuery.trim()) ? (
+        <>
+          <Spacer size={spacing.sm} />
+          <Card>
+            {emailSearching ? (
+              <ListSkeleton rows={1} />
+            ) : emailResult?.exists && emailResult.user ? (
+              <ListRow
+                avatarName={emailResult.user.name}
+                avatarImageUri={emailResult.user.profilePic}
+                title={emailResult.user.name}
+                subtitle="Already on YaysApp"
+                chevron={false}
+                right={<Badge label="On YaysApp" tone="success" />}
+              />
+            ) : (
+              <ListRow
+                icon="mail-outline"
+                title={emailQuery.trim()}
+                subtitle="Not on YaysApp yet"
+                chevron={false}
+                right={<Button label="Invite" icon="paper-plane" kind="secondary" onPress={handleInviteEmail} />}
+              />
+            )}
+          </Card>
+        </>
+      ) : null}
+
+      <Spacer size={spacing.md} />
+      <SectionHeader title="From your contacts" />
+
+      {permission === 'checking' ? (
+        <ListSkeleton rows={3} />
+      ) : permission === 'undetermined' ? (
+        <Card style={{alignItems: 'center', paddingVertical: spacing.lg}}>
+          <Ionicons name="people-circle-outline" size={40} color={colors.brand} />
+          <Spacer size={spacing.sm} />
+          <YayText variant="bodyStrong">Find friends already on YaysApp</YayText>
+          <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center', marginTop: spacing.xxs}}>
+            YaysApp checks your contacts against existing accounts. Numbers and emails are matched,
+            never stored or shown to anyone else.
+          </YayText>
+          <Spacer size={spacing.md} />
+          <Button label="Allow contacts access" icon="people" onPress={handleAllow} />
+        </Card>
+      ) : permission === 'denied' || permission === 'unavailable' ? (
+        <Card style={{alignItems: 'center', paddingVertical: spacing.lg}}>
+          <Ionicons name="lock-closed-outline" size={36} color={colors.textMuted} />
+          <Spacer size={spacing.sm} />
+          <YayText variant="bodyStrong">Contacts access is off</YayText>
+          <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center', marginTop: spacing.xxs}}>
+            Turn it on in Settings to find friends already on YaysApp and invite the rest.
+          </YayText>
+          <Spacer size={spacing.md} />
+          <Button label="Open Settings" icon="settings-outline" kind="secondary" onPress={inviteService.openSettings} />
+        </Card>
+      ) : contactsState.loading ? (
+        <ListSkeleton rows={5} />
+      ) : contactsState.error ? (
+        <StateView icon="alert-circle-outline" title="Couldn't read contacts" message={contactsState.error} />
+      ) : contactsState.onYaysApp.length === 0 && contactsState.invitable.length === 0 ? (
+        <EmptyState
+          title="No contacts found"
+          message="Add phone numbers or emails to your contacts to find friends here."
+          icon="people-outline"
+        />
+      ) : (
+        <>
+          {contactsState.onYaysApp.length > 0 ? (
+            <>
+              <Card style={{paddingVertical: spacing.xxs}}>
+                {contactsState.onYaysApp.map((c, i) => (
+                  <View key={c.localId}>
+                    {i > 0 ? <Divider /> : null}
+                    <ListRow
+                      avatarName={c.name}
+                      title={c.name}
+                      subtitle={c.email}
+                      chevron={false}
+                      right={<Badge label="On YaysApp" tone="success" />}
+                    />
+                  </View>
+                ))}
+              </Card>
+              <Spacer size={spacing.md} />
+            </>
+          ) : null}
+
+          {contactsState.invitable.length > 0 ? (
+            <>
+              <SectionHeader title={`Invite (${contactsState.invitable.length})`} />
+              <Card style={{paddingVertical: spacing.xxs}}>
+                {contactsState.invitable.map((c, i) => (
+                  <View key={c.localId}>
+                    {i > 0 ? <Divider /> : null}
+                    <ListRow
+                      avatarName={c.name}
+                      title={c.name}
+                      subtitle={c.phone || c.email}
+                      chevron={false}
+                      right={<Button label="Invite" kind="secondary" onPress={() => handleInvite(c)} />}
+                    />
+                  </View>
+                ))}
+              </Card>
+            </>
+          ) : null}
+        </>
+      )}
     </Screen>
   );
 };

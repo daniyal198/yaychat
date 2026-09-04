@@ -2,7 +2,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {Animated, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import {colors, radius, shadows, spacing} from '../design/tokens';
+import {colors, palette, radius, shadows, spacing} from '../design/tokens';
 import {YayText} from '../design/components';
 import {
   ME_ID,
@@ -55,6 +55,24 @@ interface ToastState {
 
 const ToastContext = createContext<ToastState>({show: () => {}});
 export const useToast = () => useContext(ToastContext);
+
+// ---------------------------------------------------------------------------
+// Reward pop-up
+//
+// A distinct, celebratory pill — "+20  Daily check-in" — for the moment
+// IndexxPoints actually land in the balance, separate from the general-purpose
+// toast above. Fired for actions the user just took (check-in, redeeming an
+// invite code) and, on the Earn tab, for rewards the backend credited while
+// the app was closed (the BTCY x YaysApp activation reward, a referral
+// qualifying, an Ambassador tier) — see `services/rewardAlerts.ts`.
+// ---------------------------------------------------------------------------
+
+interface RewardToastState {
+  showReward: (amount: number, label: string) => void;
+}
+
+const RewardToastContext = createContext<RewardToastState>({showReward: () => {}});
+export const useRewardToast = () => useContext(RewardToastContext);
 
 // ---------------------------------------------------------------------------
 // Network (simulated offline mode)
@@ -116,6 +134,9 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [offline, setOffline] = useState(simulation.offline);
   const [toast, setToast] = useState<{message: string; tone: ToastTone} | null>(null);
+  const [rewardToast, setRewardToast] = useState<{amount: number; label: string} | null>(null);
+  const rewardOpacity = useRef(new Animated.Value(0)).current;
+  const rewardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [backendUnreadByConversation, setBackendUnreadByConversation] = useState<Record<string, number>>({});
   const [localUnreadByConversation, setLocalUnreadByConversation] = useState<Record<string, number>>({});
   const [serverUnreadTotal, setServerUnreadTotal] = useState(0);
@@ -360,6 +381,25 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     [toastOpacity],
   );
 
+  const showReward = useCallback(
+    (amount: number, label: string) => {
+      if (!(amount > 0)) {
+        return;
+      }
+      setRewardToast({amount, label});
+      Animated.spring(rewardOpacity, {toValue: 1, useNativeDriver: true, friction: 7}).start();
+      if (rewardTimer.current) {
+        clearTimeout(rewardTimer.current);
+      }
+      rewardTimer.current = setTimeout(() => {
+        Animated.timing(rewardOpacity, {toValue: 0, duration: 220, useNativeDriver: true}).start(
+          () => setRewardToast(null),
+        );
+      }, 2800);
+    },
+    [rewardOpacity],
+  );
+
   useEffect(() => {
     if (!session) {
       return;
@@ -478,6 +518,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
             setActiveConversation,
           }}>
         <ToastContext.Provider value={{show}}>
+        <RewardToastContext.Provider value={{showReward}}>
           <View style={{flex: 1}}>
             {children}
             {offline ? (
@@ -496,7 +537,25 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
                 </YayText>
               </Animated.View>
             ) : null}
+            {rewardToast ? (
+              <Animated.View
+                style={[
+                  styles.rewardPill,
+                  {opacity: rewardOpacity, transform: [{scale: rewardOpacity}]},
+                ]}
+                pointerEvents="none">
+                <View style={styles.rewardBadge}>
+                  <YayText variant="bodyStrong" color={palette.white}>
+                    {`+${rewardToast.amount}`}
+                  </YayText>
+                </View>
+                <YayText variant="bodyStrong" color={palette.ember200}>
+                  {rewardToast.label}
+                </YayText>
+              </Animated.View>
+            ) : null}
           </View>
+        </RewardToastContext.Provider>
         </ToastContext.Provider>
         </UnreadContext.Provider>
       </NetworkContext.Provider>
@@ -522,6 +581,30 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     ...shadows.raised,
     elevation: 24,
+  },
+  rewardPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 168,
+    zIndex: 1001,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: palette.ink900,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: palette.brown500,
+    paddingVertical: 6,
+    paddingLeft: 6,
+    paddingRight: spacing.md,
+    ...shadows.raised,
+    elevation: 24,
+  },
+  rewardBadge: {
+    backgroundColor: palette.ember400,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
   },
   offlineBar: {
     position: 'absolute',

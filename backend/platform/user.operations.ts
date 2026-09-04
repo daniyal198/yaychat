@@ -126,6 +126,7 @@ import { BtcyLoyaltyAirdrop2026Service } from "../services/btcyLoyaltyAirdrop202
 import { WallstreetInexAirdropRegistrationService } from "../services/wallstreetInexAirdropRegistration.service";
 import { BTCYSocialPostAirdropService } from "../services/btcySocialPostAirdrop.service";
 import { NotificationService } from "../services/notification.service";
+import { yaysActivation } from "../services/yaysActivation.service";
 import jwt from "jsonwebtoken";
 import { format } from "fast-csv";
 const redisClient = createClient({
@@ -4051,6 +4052,13 @@ export class UserOperations extends BaseAPIOperations {
                 }
               );
               if (updateUser) {
+                // BTCY x YaysApp verified-activation reward — fire-and-forget,
+                // must never block the verification response itself.
+                yaysActivation
+                  .tryComplete(email)
+                  .catch((err) =>
+                    console.error("[yays/activation] email verify hook failed", err)
+                  );
                 const message = "Email Verified";
                 return { status: 200, data: message };
               } else {
@@ -15370,6 +15378,17 @@ export class UserOperations extends BaseAPIOperations {
           },
         }
       );
+
+      // BTCY x YaysApp verified-activation reward — fire-and-forget, must
+      // never block the verification response itself.
+      const verifiedEmail = String((user as any).email || "").toLowerCase();
+      if (verifiedEmail) {
+        yaysActivation
+          .tryComplete(verifiedEmail)
+          .catch((err) =>
+            console.error("[yays/activation] phone verify hook failed", err)
+          );
+      }
 
       // Generate auth token
       const tokenResponse = await new JwtAuthUtil().issueToken(user);

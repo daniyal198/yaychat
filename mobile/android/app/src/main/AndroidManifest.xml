@@ -14,6 +14,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Invite friends: matching the address book against existing accounts. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Add these permissions INSIDE the <manifest> tag but OUTSIDE <application> -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />

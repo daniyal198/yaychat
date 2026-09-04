@@ -21,6 +21,14 @@ import {ApiError} from '../client';
 import {dataMode} from '../dataMode';
 import {sharedRealtimeSocket} from '../index';
 import {
+  setMicrophoneMuted,
+  setSpeaker,
+  startInCallAudio,
+  startIncomingRinging,
+  startOutgoingAudio,
+  stopCallAudio,
+} from './audioSession';
+import {
   isRtcAvailable,
   openLocalStream,
   rtc,
@@ -273,6 +281,9 @@ class CallController {
       cameraOff: false,
       speakerOn: media === 'video',
     });
+    // Ringback: without it a placed call is silent, which reads as one that
+    // never went through.
+    startOutgoingAudio(media);
 
     // Open the mic before inviting: a permission denial should fail the call
     // before the other person's phone rings, not after they answer.
@@ -354,6 +365,7 @@ class CallController {
       direction: 'incoming',
       speakerOn: payload?.media === 'video',
     });
+    startIncomingRinging();
   }
 
   async accept(): Promise<void> {
@@ -545,6 +557,9 @@ class CallController {
     stream?.getAudioTracks?.().forEach((track: any) => {
       track.enabled = !muted;
     });
+    // Disabling the track stops it reaching the peer; muting at the session
+    // level also stops the OS treating the mic as live.
+    setMicrophoneMuted(muted);
     this.patch({muted});
   }
 
@@ -561,7 +576,10 @@ class CallController {
   }
 
   toggleSpeaker(): void {
-    this.patch({speakerOn: !this.state.speakerOn});
+    const speakerOn = !this.state.speakerOn;
+    // The flag alone only relabels the button; this is what moves the route.
+    setSpeaker(speakerOn);
+    this.patch({speakerOn});
   }
 
   /** Flip between front and back cameras without renegotiating. */
@@ -597,6 +615,9 @@ class CallController {
       return;
     }
     this.connectedAt = Date.now();
+    // Hands the session from ringing to the call itself and applies the
+    // current speaker route — video calls start on the loudspeaker.
+    startInCallAudio(this.state.media, this.state.speakerOn);
     this.patch({phase: 'connected', durationSeconds: 0});
     this.durationTimer = setInterval(() => {
       if (this.connectedAt) {
@@ -616,6 +637,9 @@ class CallController {
       return;
     }
     this.teardown();
+    // A call that connected and then ended gets silence, the way a phone does;
+    // one that never connected gets the tone that says so.
+    stopCallAudio(reason === 'busy' || reason === 'declined' || reason === 'no_answer');
     this.patch({phase: 'ended', endReason: reason});
   }
 
