@@ -308,7 +308,7 @@ const ConversationRow = ({
     onPress={onPress}
     onLongPress={onLongPress}
     style={({pressed}) => [styles.convoRow, pressed && {backgroundColor: colors.surfaceSunken}]}>
-    <Avatar name={conversation.title} size={48} imageUri={avatarImageUri} />
+    <Avatar name={conversation.title} size={58} imageUri={avatarImageUri} />
     <View style={{flex: 1}}>
       <Row gap={spacing.xxs}>
         <YayText variant="bodyStrong" numberOfLines={1} style={{flexShrink: 1}}>
@@ -1771,8 +1771,8 @@ export const ConversationScreen = ({
             }
             navigation.navigate('ConversationDetails', {conversationId});
           }}
-          style={[styles.conversationHeader, {width: Math.max(96, Math.min(164, windowWidth - 230))}]}>
-          <Avatar name={displayTitle} size={34} imageUri={otherUser?.profilePic} />
+          style={[styles.conversationHeader, {width: Math.max(96, Math.min(164, windowWidth - 236))}]}>
+          <Avatar name={displayTitle} size={40} imageUri={otherUser?.profilePic} />
           <View style={styles.conversationHeaderText}>
             <YayText variant="bodyStrong" numberOfLines={1} ellipsizeMode="tail">
               {displayTitle}

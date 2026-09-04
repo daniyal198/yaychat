@@ -24,6 +24,7 @@ import { YaysCommunityReportService } from "./yaysCommunityReport.service";
 import { ChatGroupService } from "./chatgroups.service";
 import { UserService } from "./user.service";
 import { notificationDelivery } from "./notificationDelivery.service";
+import { yaysActivation } from "./yaysActivation.service";
 import { buildDeepLink } from "./notifications/deepLinks";
 import {
   Capability,
@@ -687,6 +688,15 @@ export class CommunityDirectoryService {
     await this.members.join(communityId, actor.userLower, "member");
     await this.addToChat(community, actor.userLower);
     await this.syncMemberCount(communityId);
+    if (community.officialProduct) {
+      // BTCY x YaysApp verified-activation reward — this is the "joined the
+      // official community" gate. Must never block the join itself.
+      await yaysActivation
+        .tryComplete(actor.userLower)
+        .catch((err) =>
+          console.error("[yays/activation] community join hook failed", err)
+        );
+    }
     return this.detail(actor, communityId);
   }
 

@@ -16,6 +16,9 @@ const pointsAccountSchema = new Schema(
     earnedToday: { type: Number, default: 0 },
     earnedTodayDate: { type: String, default: null },
     referralCode: { type: String, required: true },
+    activationCompletedAt: { type: Date, default: null },
+    ambassadorTier: { type: String, enum: ["community", "growth", "elite"], default: null },
+    ambassadorTierAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

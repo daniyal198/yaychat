@@ -67,6 +67,8 @@ export type EarnStackParamList = {
   RewardDetail: {rewardId: string};
   /** `code` is pre-filled from an invite deep link (`invite/:code`). */
   Referral: {code?: string} | undefined;
+  /** Find friends from contacts, or invite by email — reachable from Earn and from Profile > Friends. */
+  InviteContacts: undefined;
   CampaignDetail: {campaignId: string};
 };
 
@@ -75,6 +77,7 @@ export type ProfileStackParamList = {
   EditProfile: undefined;
   QrProfile: undefined;
   Contacts: undefined;
+  InviteContacts: undefined;
   BlockedUsers: undefined;
   Notifications: undefined;
   NotificationSettings: undefined;

@@ -12,3 +12,14 @@ jest.mock('react-native-config', () => ({
   YAYCHAT_USE_BACKEND: 'false',
 }));
 jest.mock('react-native-vector-icons/Ionicons', () => 'Ionicon');
+jest.mock('react-native-contacts', () => ({
+  __esModule: true,
+  default: {
+    checkPermission: jest.fn(async () => 'undefined'),
+    requestPermission: jest.fn(async () => 'undefined'),
+    getAll: jest.fn(async () => []),
+  },
+  checkPermission: jest.fn(async () => 'undefined'),
+  requestPermission: jest.fn(async () => 'undefined'),
+  getAll: jest.fn(async () => []),
+}));

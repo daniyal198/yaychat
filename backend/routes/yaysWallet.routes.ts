@@ -35,4 +35,7 @@ yaysWalletRouter.get("/earn/rewards/:rewardId", validateAuthHeader, controller.g
 yaysWalletRouter.get("/referrals", validateAuthHeader, controller.getReferralSummary);
 yaysWalletRouter.post("/referrals/redeem", validateAuthHeader, controller.redeemReferral);
 
+// Invite friends — match phone contacts against existing accounts.
+yaysWalletRouter.post("/contacts/match", validateAuthHeader, controller.matchContacts);
+
 export { yaysWalletRouter };

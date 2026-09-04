@@ -431,6 +431,8 @@ export interface BtcyDashboard {
   alchemy: {current: number | null; target: number | null};
   referrals: {active: number; target: number};
   station: {unlocked: boolean; benefits: string[]};
+  /** BTCY x YaysApp Ambassador ladder — `null` tier means not yet a Community Ambassador. */
+  ambassador: {tier: 'community' | 'growth' | 'elite' | null; nextTierAt: number | null};
   watchEarn: {watched: number | null; total: number | null; nuggetsToday: number | null};
   news: {id: ID; tag: string; title: string; detail: string; hot?: boolean}[];
   promo: {headline: string; subtitle: string; endsIn: string};

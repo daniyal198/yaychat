@@ -615,6 +615,7 @@ export const btcyDashboard: BtcyDashboard = {
     unlocked: false,
     benefits: ['Sell Access', 'Premium Rewards', 'Higher Mining Benefits'],
   },
+  ambassador: {tier: null, nextTierAt: 25},
   watchEarn: {watched: 6, total: 10, nuggetsToday: 18},
   news: [
     {id: 'bn_1', tag: 'Update', title: 'Alchemy Reduced', detail: 'The Alchemy threshold drops from 50K to 10K nuggets — refining BTCY just got 5× faster.', hot: true},

@@ -6,7 +6,13 @@ import { AdMiningWatchService } from "./adMiningWatch.service";
 import { ShopOrdersService } from "./shop.order.service";
 import { UserService } from "./user.service";
 import { getNuggetEligibilityForEmmm } from "./emmmNuggetEligibility.service";
-import { yaysReferrals, MINING_STATION_REFERRAL_TARGET } from "./yaysReferral.service";
+import {
+  yaysReferrals,
+  AMBASSADOR_TIERS,
+  MINING_STATION_REFERRAL_TARGET,
+} from "./yaysReferral.service";
+import { PointsAccountService } from "./yaysPoints.service";
+import { AmbassadorTier } from "../data/yaysWallet";
 
 /**
  * Read-only snapshots of the user's state across the Indexx ecosystem.
@@ -46,6 +52,11 @@ export interface BtcySnapshot {
   alchemy: { currentUsd: number | Unavailable; targetUsd: number | Unavailable };
   referrals: { active: number; target: number };
   station: { unlocked: boolean };
+  /** BTCY x YaysApp Ambassador ladder progress. */
+  ambassador: {
+    tier: AmbassadorTier | null;
+    nextTierAt: number | null;
+  };
   watchEarn: {
     watched: number | Unavailable;
     total: number | Unavailable;
@@ -121,9 +132,10 @@ export class YaysEcosystemService {
   private adWatch = new AdMiningWatchService();
   private orders = new ShopOrdersService();
   private users = new UserService();
+  private points = new PointsAccountService();
 
   async btcy(userLower: string): Promise<BtcySnapshot> {
-    const [miningData, balance, pool, streak, adsToday, referralStats] =
+    const [miningData, balance, pool, streak, adsToday, referralStats, pointsAccount] =
       await Promise.all([
         soft("mining", () => this.mining.getMiningData(userLower, BTCY)),
         soft("balance", () =>
@@ -135,6 +147,7 @@ export class YaysEcosystemService {
           this.adWatch.getAdCount(userLower, startOfUtcDay(), new Date())
         ),
         soft("referrals", () => yaysReferrals.statsFor(userLower)),
+        soft("points account", () => this.points.ensure(userLower)),
       ]);
 
     const active = Boolean((miningData as any)?.isMiningActive);
@@ -172,6 +185,11 @@ export class YaysEcosystemService {
       },
       referrals: { active: activeReferrals, target: MINING_STATION_REFERRAL_TARGET },
       station: { unlocked: activeReferrals >= MINING_STATION_REFERRAL_TARGET },
+      ambassador: {
+        tier: (pointsAccount as any)?.ambassadorTier ?? null,
+        nextTierAt:
+          AMBASSADOR_TIERS.find((tier) => activeReferrals < tier.threshold)?.threshold ?? null,
+      },
       watchEarn: {
         watched: adsToday,
         // The daily ad allowance is a station-owner setting with no read path

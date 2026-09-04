@@ -532,7 +532,7 @@ export const QrProfileScreen = (_props: ProfileProps<'QrProfile'>) => {
 // ContactsScreen
 // ---------------------------------------------------------------------------
 
-export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
+export const ContactsScreen = ({navigation}: ProfileProps<'Contacts'>) => {
   const toast = useToast();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<User | null>(null);
@@ -551,7 +551,7 @@ export const ContactsScreen = (_props: ProfileProps<'Contacts'>) => {
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <SearchBar value={query} onChangeText={setQuery} placeholder="Search friends" />
       <Spacer size={spacing.sm} />
-      <Pressable onPress={() => toast.show('Invites open in a later milestone.')}>
+      <Pressable onPress={() => navigation.navigate('InviteContacts')}>
         <Banner
           tone="success"
           icon="person-add"

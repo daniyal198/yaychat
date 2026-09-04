@@ -6,6 +6,7 @@
  * docs/yaychat-mock-api-contracts.md).
  */
 import Config from 'react-native-config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {io, Socket} from 'socket.io-client';
 import API, {baseAPIURL} from '../../services/api';
 import {ApiError, delay, mockRequest, secureTokenStore} from './client';
@@ -14,6 +15,7 @@ import {parsePhone, toE164 as toE164Phone} from '../utils/phone';
 import {localEngine} from './ai/localEngine';
 import {localCommunities} from './communities/localEngine';
 import {formatDuration, mimeForRecording} from './voice/audio';
+import {deviceContacts} from './deviceContacts';
 import * as db from './mock/db';
 import {
   AiAssistResult,
@@ -3630,12 +3632,31 @@ const REWARDS_BASE = '/api/v1/yays/wallet';
 let rewardsBackendAvailable: boolean | null = BACKEND_ENABLED ? null : false;
 let rewardsProbe: Promise<boolean> | null = null;
 
+/** One rung of the BTCY x YaysApp Ambassador ladder. */
+export interface AmbassadorTierRule {
+  tier: 'community' | 'growth' | 'elite';
+  label: string;
+  verifiedReferralsRequired: number;
+  bonusPoints: number;
+  unlocksMiningStation: boolean;
+  priorityAccess: boolean;
+}
+
+const DEFAULT_AMBASSADOR_TIERS: AmbassadorTierRule[] = [
+  {tier: 'community', label: 'Community Ambassador', verifiedReferralsRequired: 25, bonusPoints: 0, unlocksMiningStation: true, priorityAccess: false},
+  {tier: 'growth', label: 'Growth Ambassador', verifiedReferralsRequired: 50, bonusPoints: 500, unlocksMiningStation: true, priorityAccess: false},
+  {tier: 'elite', label: 'Elite Ambassador', verifiedReferralsRequired: 100, bonusPoints: 1500, unlocksMiningStation: true, priorityAccess: true},
+];
+
 /** Reward rules from the backend; the local defaults mirror the server's. */
 let rewardsConfig = {
   pointsUnit: 'IndexxPoints',
   dailyLimit: 500,
   checkInPoints: 20,
-  referral: {referrerReward: 250, refereeWelcome: 100, miningStationTarget: 5},
+  // BTCY x YaysApp migration & growth campaign — see backend README-btcy-x-yaysapp-migration-reward.md.
+  activation: {rewardPoints: 50},
+  referral: {referrerReward: 250, refereeWelcome: 100, miningStationTarget: 25},
+  ambassador: {tiers: DEFAULT_AMBASSADOR_TIERS},
 };
 
 /** Test hook — forgets the rewards probe. */
@@ -3656,10 +3677,25 @@ async function probeRewardsBackend(): Promise<boolean> {
     try {
       const payload = backendBody(await backendGet<any>(`${REWARDS_BASE}/config`));
       if (payload) {
+        const tiers: AmbassadorTierRule[] = Array.isArray(payload.ambassador?.tiers)
+          ? payload.ambassador.tiers.map((t: any, i: number) => ({
+              tier: t?.tier ?? DEFAULT_AMBASSADOR_TIERS[i]?.tier ?? 'community',
+              label: String(t?.label ?? DEFAULT_AMBASSADOR_TIERS[i]?.label ?? ''),
+              verifiedReferralsRequired: Number(t?.verifiedReferralsRequired) || 0,
+              bonusPoints: Number(t?.bonusPoints) || 0,
+              unlocksMiningStation: Boolean(t?.unlocksMiningStation),
+              priorityAccess: Boolean(t?.priorityAccess),
+            }))
+          : rewardsConfig.ambassador.tiers;
         rewardsConfig = {
           pointsUnit: String(payload.pointsUnit || rewardsConfig.pointsUnit),
           dailyLimit: Number(payload.dailyLimit ?? rewardsConfig.dailyLimit),
           checkInPoints: Number(payload.checkInPoints ?? rewardsConfig.checkInPoints),
+          activation: {
+            rewardPoints: Number(
+              payload.activation?.rewardPoints ?? rewardsConfig.activation.rewardPoints,
+            ),
+          },
           referral: {
             referrerReward: Number(
               payload.referral?.referrerReward ?? rewardsConfig.referral.referrerReward,
@@ -3672,6 +3708,7 @@ async function probeRewardsBackend(): Promise<boolean> {
                 rewardsConfig.referral.miningStationTarget,
             ),
           },
+          ambassador: {tiers},
         };
       }
       rewardsBackendAvailable = true;
@@ -3883,6 +3920,85 @@ export const earnService = {
 };
 
 // ---------------------------------------------------------------------------
+// Reward alerts
+//
+// Some IndexxPoints land while nobody tapped anything in this session — the
+// BTCY x YaysApp activation reward, a referral qualifying, an Ambassador
+// tier bonus — credited from a backend event with no request/response moment
+// to pop a reward toast from. This diffs reward history against the newest
+// entry the client has already shown a pop-up for, so those still get their
+// celebratory moment the next time the Earn tab opens, without re-showing
+// ones a screen already surfaced itself. Screens that show their own pop-up
+// synchronously (check-in, redeeming a code) call `markSeenNow()` right after,
+// so this diff does not also fire for the same event a moment later.
+// ---------------------------------------------------------------------------
+
+const LAST_SEEN_REWARD_KEY = 'yaysapp.rewards.lastSeenAt';
+let lastSeenRewardAt: string | null = null;
+let lastSeenRewardLoaded = false;
+
+const loadLastSeenRewardAt = async (): Promise<string | null> => {
+  if (lastSeenRewardLoaded) {
+    return lastSeenRewardAt;
+  }
+  try {
+    lastSeenRewardAt = await AsyncStorage.getItem(LAST_SEEN_REWARD_KEY);
+  } catch {
+    lastSeenRewardAt = null;
+  }
+  lastSeenRewardLoaded = true;
+  return lastSeenRewardAt;
+};
+
+const advanceRewardMarker = (iso: string) => {
+  lastSeenRewardAt = iso;
+  lastSeenRewardLoaded = true;
+  AsyncStorage.setItem(LAST_SEEN_REWARD_KEY, iso).catch(() => undefined);
+};
+
+export const rewardAlerts = {
+  /** Call right after a screen shows its own pop-up for an earn it triggered directly. */
+  markSeenNow(): void {
+    advanceRewardMarker(new Date().toISOString());
+  },
+
+  /**
+   * Rewards credited since the marker was last advanced, oldest first so
+   * pop-ups appear in the order they were earned. Advances the marker to the
+   * newest one returned, so a second call (a fast re-focus) returns nothing.
+   *
+   * The very first call on a device anchors the marker to "now" instead of
+   * returning anything — otherwise a member's entire reward history would
+   * replay as a flood of pop-ups the first time this shipped to their app.
+   */
+  async checkForNew(): Promise<{activity: string; amount: number}[]> {
+    const since = await loadLastSeenRewardAt();
+    if (!since) {
+      advanceRewardMarker(new Date().toISOString());
+      return [];
+    }
+    let entries: RewardEntry[];
+    try {
+      entries = await earnService.history();
+    } catch {
+      return [];
+    }
+    // `history()` is newest-first, matching the ledger it reads from.
+    const fresh = entries.filter(
+      e => e.status === 'completed' && e.amount > 0 && e.createdAt > since,
+    );
+    if (fresh.length === 0) {
+      return [];
+    }
+    advanceRewardMarker(fresh[0].createdAt);
+    return fresh
+      .slice()
+      .reverse()
+      .map(e => ({activity: e.activity, amount: e.amount}));
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Referrals
 // ---------------------------------------------------------------------------
 
@@ -3891,42 +4007,86 @@ export interface ReferralSummary {
   rewardPerReferral: number;
   welcomeBonus: number;
   miningStationTarget: number;
+  /** Set once this account has cleared the BTCY x YaysApp activation reward. */
+  activationCompletedAt: string | null;
   stats: {total: number; pending: number; active: number; pointsEarned: number};
+  ambassador: {
+    tiers: AmbassadorTierRule[];
+    currentTier: 'community' | 'growth' | 'elite' | null;
+    nextTier: {tier: string; referralsRemaining: number} | null;
+  };
   items: {name: string; joinedAt: string; reward: number; status: RewardStatus}[];
 }
 
-const localReferralSummary = (): ReferralSummary => ({
-  code: db.earnSummary.referralCode,
-  rewardPerReferral: rewardsConfig.referral.referrerReward,
-  welcomeBonus: rewardsConfig.referral.refereeWelcome,
-  miningStationTarget: rewardsConfig.referral.miningStationTarget,
-  stats: {
-    total: db.earnSummary.referrals.length,
-    pending: db.earnSummary.referrals.filter(r => r.status === 'pending').length,
-    active: db.earnSummary.referrals.filter(r => r.status === 'completed').length,
-    pointsEarned: db.earnSummary.referrals
-      .filter(r => r.status === 'completed')
-      .reduce((sum, r) => sum + r.reward, 0),
-  },
-  items: db.earnSummary.referrals.map(r => ({...r})),
-});
+const ambassadorProgress = (active: number) => {
+  const tiers = rewardsConfig.ambassador.tiers;
+  const current = [...tiers].reverse().find(t => active >= t.verifiedReferralsRequired) ?? null;
+  const next = tiers.find(t => active < t.verifiedReferralsRequired) ?? null;
+  return {
+    tiers,
+    currentTier: current?.tier ?? null,
+    nextTier: next
+      ? {tier: next.tier, referralsRemaining: next.verifiedReferralsRequired - active}
+      : null,
+  };
+};
+
+const localReferralSummary = (): ReferralSummary => {
+  const active = db.earnSummary.referrals.filter(r => r.status === 'completed').length;
+  return {
+    code: db.earnSummary.referralCode,
+    rewardPerReferral: rewardsConfig.referral.referrerReward,
+    welcomeBonus: rewardsConfig.referral.refereeWelcome,
+    miningStationTarget: rewardsConfig.referral.miningStationTarget,
+    activationCompletedAt: null,
+    stats: {
+      total: db.earnSummary.referrals.length,
+      pending: db.earnSummary.referrals.filter(r => r.status === 'pending').length,
+      active,
+      pointsEarned: db.earnSummary.referrals
+        .filter(r => r.status === 'completed')
+        .reduce((sum, r) => sum + r.reward, 0),
+    },
+    ambassador: ambassadorProgress(active),
+    items: db.earnSummary.referrals.map(r => ({...r})),
+  };
+};
+
+/** BTCY x YaysApp verified activation reward, from the live config once probed. */
+export const activationRewardPoints = (): number => rewardsConfig.activation.rewardPoints;
 
 export const referralService = {
   async summary(): Promise<ReferralSummary> {
     return viaRewards(
       async () => {
         const payload = backendBody(await backendGet<any>(`${REWARDS_BASE}/referrals`));
+        const active = Number(payload?.stats?.active) || 0;
         return {
           code: String(payload?.code || ''),
           rewardPerReferral: Number(payload?.rewardPerReferral) || 0,
           welcomeBonus: Number(payload?.welcomeBonus) || 0,
-          miningStationTarget: Number(payload?.miningStationTarget) || 5,
+          miningStationTarget: Number(payload?.miningStationTarget) || 25,
+          activationCompletedAt: payload?.activationCompletedAt
+            ? String(payload.activationCompletedAt)
+            : null,
           stats: {
             total: Number(payload?.stats?.total) || 0,
             pending: Number(payload?.stats?.pending) || 0,
-            active: Number(payload?.stats?.active) || 0,
+            active,
             pointsEarned: Number(payload?.stats?.pointsEarned) || 0,
           },
+          ambassador: payload?.ambassador
+            ? {
+                tiers: rewardsConfig.ambassador.tiers,
+                currentTier: payload.ambassador.currentTier ?? null,
+                nextTier: payload.ambassador.nextTier
+                  ? {
+                      tier: String(payload.ambassador.nextTier.tier),
+                      referralsRemaining: Number(payload.ambassador.nextTier.referralsRemaining) || 0,
+                    }
+                  : null,
+              }
+            : ambassadorProgress(active),
           items: (payload?.items || []).map((item: any) => ({
             name: String(item?.name || 'Friend'),
             joinedAt: String(item?.joinedAt || new Date().toISOString()),
@@ -4000,6 +4160,128 @@ export const referralService = {
           return {welcomeBonus: bonus, balance: db.earnSummary.balance};
         }),
     );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Invite friends
+//
+// Two ways in: read the device address book and split it into people already
+// on YaysApp versus people to invite, or type a single email and get the same
+// split for just that one address. Nothing read from the device is stored —
+// contacts are matched for one request and the response is what the screen
+// keeps.
+// ---------------------------------------------------------------------------
+
+export type {ContactsPermissionStatus} from './deviceContacts';
+
+export interface OnYaysAppContact {
+  localId: string;
+  name: string;
+  email: string;
+}
+
+export interface InvitableContact {
+  localId: string;
+  name: string;
+  phone?: string;
+  email?: string;
+}
+
+export const inviteService = {
+  permissionStatus: () => deviceContacts.permissionStatus(),
+  requestPermission: () => deviceContacts.requestPermission(),
+  openSettings: () => deviceContacts.openSettings(),
+
+  /**
+   * Read the device contact list and match it against YaysApp/Indexx
+   * accounts. If matching fails — offline, or a deployment that predates the
+   * route — everyone still shows up as invitable rather than the screen
+   * going empty; the only thing lost is the "already here" split.
+   */
+  async findFromContacts(): Promise<{onYaysApp: OnYaysAppContact[]; invitable: InvitableContact[]}> {
+    const contacts = await deviceContacts.readAll();
+    if (contacts.length === 0) {
+      return {onYaysApp: [], invitable: []};
+    }
+    const asInvitable = (): InvitableContact[] =>
+      contacts.map(c => ({localId: c.localId, name: c.name, phone: c.phones[0], email: c.emails[0]}));
+
+    if (!BACKEND_ENABLED) {
+      return mockRequest('invite.findFromContacts', () => {
+        const byEmail = new Map(db.users.map(u => [u.email?.toLowerCase(), u]));
+        const onYaysApp: OnYaysAppContact[] = [];
+        const invitable: InvitableContact[] = [];
+        for (const c of contacts) {
+          const match = c.emails.map(e => byEmail.get(e.toLowerCase())).find(Boolean);
+          if (match) {
+            onYaysApp.push({localId: c.localId, name: match.name, email: match.email || ''});
+          } else {
+            invitable.push({localId: c.localId, name: c.name, phone: c.phones[0], email: c.emails[0]});
+          }
+        }
+        return {onYaysApp, invitable};
+      });
+    }
+
+    // Mirrors the server's own cap (`MAX_CONTACTS_PER_REQUEST`) — a real
+    // address book can hold more than one request's worth, so it's chunked
+    // here rather than silently truncated to the first batch.
+    const CONTACTS_BATCH_SIZE = 500;
+    const onYaysApp: OnYaysAppContact[] = [];
+    const matchedIds = new Set<string>();
+    try {
+      for (let i = 0; i < contacts.length; i += CONTACTS_BATCH_SIZE) {
+        const batch = contacts.slice(i, i + CONTACTS_BATCH_SIZE);
+        const payload = backendBody(
+          await backendPost<any>('/api/v1/yays/wallet/contacts/match', {
+            contacts: batch.map(c => ({localId: c.localId, name: c.name, phones: c.phones, emails: c.emails})),
+          }),
+        );
+        for (const m of payload?.matched || []) {
+          const localId = String(m.localId);
+          matchedIds.add(localId);
+          onYaysApp.push({localId, name: String(m.name || m.email || 'Friend'), email: String(m.email || '')});
+        }
+      }
+      const invitable = contacts
+        .filter(c => !matchedIds.has(c.localId))
+        .map(c => ({localId: c.localId, name: c.name, phone: c.phones[0], email: c.emails[0]}));
+      return {onYaysApp, invitable};
+    } catch {
+      // A batch partway through failed (offline, or a deployment predating
+      // the route) — fall back cleanly rather than reporting a half-matched
+      // contact list as final.
+      return {onYaysApp: [], invitable: asInvitable()};
+    }
+  },
+
+  /**
+   * Whether a typed email already has a YaysApp/Indexx account. Any failure —
+   * not found, offline, backend error — resolves to "no account", which is
+   * the safe default for an invite screen: worst case it offers to invite
+   * someone who is already a member, not the reverse.
+   */
+  async lookupEmail(email: string): Promise<{exists: boolean; user?: User}> {
+    const trimmed = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(trimmed)) {
+      return {exists: false};
+    }
+    if (!BACKEND_ENABLED) {
+      return mockRequest('invite.lookupEmail', () => {
+        const user = db.users.find(u => u.email?.toLowerCase() === trimmed);
+        return user ? {exists: true, user} : {exists: false};
+      });
+    }
+    try {
+      const payload = await backendGet<any>(
+        `/api/v1/inex/user/getUserByEmail/${encodeURIComponent(trimmed)}`,
+      );
+      const user = backendUserToUser(backendBody(payload), trimmed);
+      return user?.email ? {exists: true, user} : {exists: false};
+    } catch {
+      return {exists: false};
+    }
   },
 };
 
@@ -4230,11 +4512,17 @@ const backendBtcyDashboard = (raw: any): BtcyDashboard => ({
   },
   referrals: {
     active: Number(raw?.referrals?.active) || 0,
-    target: Number(raw?.referrals?.target) || 5,
+    target: Number(raw?.referrals?.target) || 25,
   },
   station: {
     unlocked: Boolean(raw?.station?.unlocked),
     benefits: db.btcyDashboard.station.benefits,
+  },
+  ambassador: {
+    tier: (['community', 'growth', 'elite'] as const).includes(raw?.ambassador?.tier)
+      ? raw.ambassador.tier
+      : null,
+    nextTierAt: nullableNumber(raw?.ambassador?.nextTierAt),
   },
   watchEarn: {
     watched: nullableNumber(raw?.watchEarn?.watched),

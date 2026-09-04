@@ -8,12 +8,14 @@ import {
   communityService,
   aiService,
   earnService,
+  inviteService,
   userService,
   walletService,
   simulation,
   setSimulatedOffline,
   ME_ID,
 } from '../src/yaychat/services';
+import {deviceContacts} from '../src/yaychat/services/deviceContacts';
 
 beforeAll(() => {
   simulation.latencyMs = 0;
@@ -443,6 +445,38 @@ describe('earnService', () => {
     const history = await earnService.history();
     expect(history[0].activity).toBe('Daily check-in');
     expect(history[0].status).toBe('completed');
+  });
+});
+
+describe('inviteService', () => {
+  it('finds an existing account by email, case-insensitively', async () => {
+    const result = await inviteService.lookupEmail('AMARA@example.com');
+    expect(result.exists).toBe(true);
+    expect(result.user?.name).toBe('Amara Okafor');
+  });
+
+  it('reports no account for an email nobody has', async () => {
+    const result = await inviteService.lookupEmail('nobody-here@example.com');
+    expect(result.exists).toBe(false);
+    expect(result.user).toBeUndefined();
+  });
+
+  it('never calls the backend for a query that is not a full email address', async () => {
+    const result = await inviteService.lookupEmail('amara');
+    expect(result.exists).toBe(false);
+  });
+
+  it('never returns an empty contact list as an error', async () => {
+    // The device address book is empty in this environment (no native
+    // permission to grant) — that must read as "nothing to invite", not fail.
+    const result = await inviteService.findFromContacts();
+    expect(result).toEqual({onYaysApp: [], invitable: []});
+  });
+});
+
+describe('deviceContacts permission mapping', () => {
+  it('keeps "never asked" distinct from "denied"', async () => {
+    expect(await deviceContacts.permissionStatus()).toBe('undetermined');
   });
 });
 
