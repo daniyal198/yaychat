@@ -352,6 +352,14 @@ export const ChatListScreen = ({
   const [filter, setFilter] = useState<ChatFilter>('All');
   const [sheetConvo, setSheetConvo] = useState<Conversation | null>(null);
   const [confirmDeleteConvo, setConfirmDeleteConvo] = useState<Conversation | null>(null);
+  /**
+   * The FAB used to jump straight into NewChat (Direct mode), leaving group
+   * creation reachable only via a small segmented-tabs toggle on that screen
+   * — easy to never notice. The web portal exposes "New chat" and "New
+   * group" as two distinct actions (a pencil icon plus a menu item); this
+   * sheet mirrors that split without needing a second screen.
+   */
+  const [composeSheet, setComposeSheet] = useState(false);
   const {data, loading, refreshing, error, offline, reload, refresh} = useAsync(
     () => chatService.listConversations(filter === 'Unread' ? 'all' : FILTER_MAP[filter]),
     [filter],
@@ -412,6 +420,12 @@ export const ChatListScreen = ({
           ))}
         </Row>
         <ListRow
+          icon="people-outline"
+          title="Contacts"
+          subtitle="From your phone"
+          onPress={() => navigation.navigate('InviteContacts')}
+        />
+        <ListRow
           icon="archive-outline"
           title="Archived chats"
           onPress={() => navigation.navigate('ArchivedChats')}
@@ -460,13 +474,35 @@ export const ChatListScreen = ({
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="New chat"
-        onPress={() => navigation.navigate('NewChat')}
+        accessibilityLabel="Compose"
+        onPress={() => setComposeSheet(true)}
         style={({pressed}) => [styles.fab, pressed && {opacity: 0.85}]}>
         <Oval size={52}>
           <Ionicons name="create" size={24} color={colors.textOnBrand} />
         </Oval>
       </Pressable>
+      <BottomSheet visible={composeSheet} onClose={() => setComposeSheet(false)}>
+        <ListRow
+          icon="chatbubble-outline"
+          title="New chat"
+          subtitle="Message one friend"
+          chevron={false}
+          onPress={() => {
+            setComposeSheet(false);
+            navigation.navigate('NewChat');
+          }}
+        />
+        <ListRow
+          icon="people-outline"
+          title="New group"
+          subtitle="Start a conversation with several friends"
+          chevron={false}
+          onPress={() => {
+            setComposeSheet(false);
+            navigation.navigate('NewChat', {group: true});
+          }}
+        />
+      </BottomSheet>
       <BottomSheet
         visible={sheetConvo != null}
         onClose={() => setSheetConvo(null)}
@@ -1772,7 +1808,7 @@ export const ConversationScreen = ({
             navigation.navigate('ConversationDetails', {conversationId});
           }}
           style={[styles.conversationHeader, {width: Math.max(96, Math.min(164, windowWidth - 236))}]}>
-          <Avatar name={displayTitle} size={40} imageUri={otherUser?.profilePic} />
+          <Avatar name={displayTitle} size={46} imageUri={otherUser?.profilePic} />
           <View style={styles.conversationHeaderText}>
             <YayText variant="bodyStrong" numberOfLines={1} ellipsizeMode="tail">
               {displayTitle}

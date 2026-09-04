@@ -198,6 +198,7 @@ const ChatsNavigator = () => (
     <ChatsStack.Screen name="SharedMedia" component={SharedMediaScreen} options={{title: 'Shared media'}} />
     <ChatsStack.Screen name="ForwardMessage" component={ForwardMessageScreen} options={{title: 'Forward to', presentation: 'modal'}} />
     <ChatsStack.Screen name="ContactProfile" component={ContactProfileScreen} options={{title: 'Profile'}} />
+    <ChatsStack.Screen name="InviteContacts" component={InviteContactsScreen} options={{title: 'Contacts'}} />
     {sharedUtilityScreens(ChatsStack)}
   </ChatsStack.Navigator>
 );

@@ -38,6 +38,8 @@ export type ChatsStackParamList = {
   SharedMedia: {conversationId: string};
   ForwardMessage: {conversationId: string; messageId: string};
   ContactProfile: {userId: string};
+  /** Phone address book, split into "already on YaysApp" and "invite the rest" — same screen Earn and Profile use. */
+  InviteContacts: undefined;
 };
 
 export type CommunitiesStackParamList = {
