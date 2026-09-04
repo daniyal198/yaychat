@@ -102,6 +102,8 @@ type BackendMessage = {
   message?: string;
   fileUrl?: string;
   fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+  /** The sender's own name for the file — "Report.docx" — not the opaque S3 key in `fileUrl`. */
+  fileName?: string;
   durationSeconds?: number;
   timestamp?: string | Date;
   groupId?: string;
@@ -560,8 +562,12 @@ const backendAttachment = (m: BackendMessage): Message['attachment'] | undefined
   if (!m.fileUrl && !m.fileType) {
     return undefined;
   }
-  const rawName = String(m.fileUrl || m.fileType || 'attachment');
-  const name = rawName.split('/').pop() || rawName;
+  // `fileName` is the sender's own name for the file. Older messages sent
+  // before the backend stored it fall back to the S3 key's basename, which is
+  // a real but ugly filename rather than nothing.
+  const trimmedFileName = m.fileName?.trim();
+  const rawName = trimmedFileName || String(m.fileUrl || m.fileType || 'attachment');
+  const name = trimmedFileName || rawName.split('/').pop() || rawName;
   const durationSeconds =
     typeof m.durationSeconds === 'number' && m.durationSeconds > 0
       ? m.durationSeconds
@@ -1428,6 +1434,9 @@ const backendChat = {
       // The uploaded URL when there is one; `name` remains the fallback for the
       // placeholder attachments the demo mode still sends.
       fileUrl: input.attachment?.url ?? input.attachment?.name,
+      // The device's own file name — "Report.docx" — kept separate from the
+      // URL above, which is an opaque S3 key and was never fit to show anyone.
+      fileName: input.attachment?.name,
       durationSeconds: input.attachment?.durationSeconds,
       replyToMessageId: input.replyToId,
       clientId: input.clientId,

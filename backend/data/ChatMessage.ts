@@ -13,6 +13,8 @@ export interface ChatMessage {
     message?: string;
     fileUrl?: string;
     fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio' ;
+    /** The name the sender's device gave the file — "Q3 Report.docx", not the S3 key it's stored under. */
+    fileName?: string;
     /**
      * Length of an audio or video attachment, in seconds.
      *
@@ -40,6 +42,7 @@ export interface ChatMessage {
         message?: string;
         fileUrl?: string;
         fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+        fileName?: string;
         durationSeconds?: number;
         timestamp?: Date;
     };
@@ -51,6 +54,7 @@ export interface ChatMessage {
         message?: string;
         fileUrl?: string;
         fileType?: 'image' | 'document' | 'video' | 'pdf' | 'word' | 'file' | 'audio';
+        fileName?: string;
         durationSeconds?: number;
         timestamp?: Date;
     }[];

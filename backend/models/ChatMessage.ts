@@ -18,6 +18,9 @@ const ChatMessageSchema = new Schema({
         type: String,
         enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
     },
+    // The sender's own file name — "Q3 Report.docx" — kept separate from
+    // fileUrl, which is an opaque S3 key and was never fit to show anyone.
+    fileName: String,
     // Length of an audio/video attachment. Stored alongside the message so a
     // voice note shows its duration without the client fetching the file.
     durationSeconds: { type: Number },
@@ -58,6 +61,7 @@ const ChatMessageSchema = new Schema({
             type: String,
             enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
         },
+        fileName: String,
         durationSeconds: { type: Number },
         timestamp: Date,
     },
@@ -73,6 +77,7 @@ const ChatMessageSchema = new Schema({
             type: String,
             enum: ['image', 'document', 'video', 'pdf', 'word', 'file', 'audio'],
         },
+        fileName: String,
         durationSeconds: { type: Number },
         timestamp: Date,
     }],
