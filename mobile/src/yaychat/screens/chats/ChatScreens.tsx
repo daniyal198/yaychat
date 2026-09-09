@@ -406,71 +406,84 @@ export const ChatListScreen = ({
     refresh();
   };
 
+  // Search, filters and the Contacts / Archived / Calls shortcuts scroll away
+  // with the conversations rather than staying pinned, the way WhatsApp's list
+  // behaves — so a long list gets the whole screen instead of the third that
+  // was left under a fixed header.
+  const listHeader = (
+    <View style={{paddingTop: spacing.sm, gap: spacing.sm}}>
+      <Pressable accessibilityRole="button" onPress={() => navigation.navigate('ChatSearch')}>
+        <View pointerEvents="none">
+          <SearchBar value="" onChangeText={() => {}} placeholder="Search messages" />
+        </View>
+      </Pressable>
+      <Row gap={spacing.xs}>
+        {(['All', 'Unread', 'Groups'] as ChatFilter[]).map(f => (
+          <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
+        ))}
+      </Row>
+      <ListRow
+        icon="people-outline"
+        title="Contacts"
+        subtitle="From your phone"
+        onPress={() => navigation.navigate('InviteContacts')}
+      />
+      <ListRow
+        icon="archive-outline"
+        title="Archived chats"
+        onPress={() => navigation.navigate('ArchivedChats')}
+      />
+      {/* Calls live at the root of the navigator so a ringing call can take
+          over from anywhere, which leaves call history with no entry point of
+          its own. Chats is where people look for it. */}
+      <ListRow
+        icon="call-outline"
+        title="Calls"
+        onPress={() => navigation.getParent()?.navigate('CallHistory')}
+      />
+      <Divider />
+    </View>
+  );
+
   return (
     <Screen scroll={false} padded={false}>
-      <View style={{paddingHorizontal: spacing.md, paddingTop: spacing.sm, gap: spacing.sm}}>
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('ChatSearch')}>
-          <View pointerEvents="none">
-            <SearchBar value="" onChangeText={() => {}} placeholder="Search messages" />
-          </View>
-        </Pressable>
-        <Row gap={spacing.xs}>
-          {(['All', 'Unread', 'Groups'] as ChatFilter[]).map(f => (
-            <Chip key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
-          ))}
-        </Row>
-        <ListRow
-          icon="people-outline"
-          title="Contacts"
-          subtitle="From your phone"
-          onPress={() => navigation.navigate('InviteContacts')}
-        />
-        <ListRow
-          icon="archive-outline"
-          title="Archived chats"
-          onPress={() => navigation.navigate('ArchivedChats')}
-        />
-        {/* Calls live at the root of the navigator so a ringing call can take
-            over from anywhere, which leaves call history with no entry point of
-            its own. Chats is where people look for it. */}
-        <ListRow
-          icon="call-outline"
-          title="Calls"
-          onPress={() => navigation.getParent()?.navigate('CallHistory')}
-        />
-        <Divider />
-      </View>
       <View style={{flex: 1, paddingHorizontal: spacing.md}}>
-        <AsyncView
-          loading={loading}
-          error={error}
-          offline={offline}
-          onRetry={reload}
+        {/* One list, always mounted, so the header survives every state. Put
+            the loading / offline / error / empty views in `ListEmptyComponent`
+            instead of wrapping the list, or a member with no chats yet would
+            lose Contacts, Archived and Calls along with the conversations. */}
+        <FlatList
           data={conversationsWithLocalUnread}
-          isEmpty={conversationsWithLocalUnread.length === 0}
-          emptyTitle={filter === 'All' ? 'No chats yet' : `No ${filter.toLowerCase()} chats`}
-          emptyMessage="Start a conversation with a friend to see it here."
-          emptyAction={{label: 'Start a chat', onPress: () => navigation.navigate('NewChat')}}>
-          {conversations => (
-            <FlatList
-              data={conversations}
-              keyExtractor={c => c.id}
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />
+          keyExtractor={c => c.id}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={
+            <AsyncView
+              loading={loading}
+              error={error}
+              offline={offline}
+              onRetry={reload}
+              data={conversationsWithLocalUnread}
+              isEmpty
+              emptyTitle={filter === 'All' ? 'No chats yet' : `No ${filter.toLowerCase()} chats`}
+              emptyMessage="Start a conversation with a friend to see it here."
+              emptyAction={{label: 'Start a chat', onPress: () => navigation.navigate('NewChat')}}>
+              {() => null}
+            </AsyncView>
+          }
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />
+          }
+          contentContainerStyle={{paddingBottom: spacing.xxxl * 2}}
+          renderItem={({item}) => (
+            <ConversationRow
+              conversation={item}
+              onPress={() =>
+                navigation.navigate('Conversation', {conversationId: item.id})
               }
-              contentContainerStyle={{paddingBottom: spacing.xxxl * 2}}
-              renderItem={({item}) => (
-                <ConversationRow
-                  conversation={item}
-                  onPress={() =>
-                    navigation.navigate('Conversation', {conversationId: item.id})
-                  }
-                  onLongPress={() => setSheetConvo(item)}
-                />
-              )}
+              onLongPress={() => setSheetConvo(item)}
             />
           )}
-        </AsyncView>
+        />
       </View>
       <Pressable
         accessibilityRole="button"
