@@ -202,6 +202,9 @@ export class NotificationDeliveryService {
       ...(request.data || {}),
       notificationId: String((record as any)?._id || ""),
       category: request.category,
+      // Foreground FCM messages are rendered by the app, so carry the same
+      // sound decision the OS applies when the app is backgrounded.
+      sound: preference.sounds ? "1" : "0",
       ...(link
         ? {
             deepLinkRoute: link.route,

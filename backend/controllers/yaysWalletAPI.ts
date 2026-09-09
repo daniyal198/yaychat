@@ -23,6 +23,15 @@ import {
   yaysReferrals,
 } from "../services/yaysReferral.service";
 import { ACTIVATION_REWARD_POINTS } from "../services/yaysActivation.service";
+import {
+  ConversionAmountError,
+  ConversionFailedError,
+  CONVERSION_REFERENCE_NUGGETS,
+  CONVERSION_REFERENCE_POINTS,
+  MIN_CONVERSION_POINTS,
+  NUGGETS_PER_POINT,
+  yaysConversion,
+} from "../services/yaysConversion.service";
 import { MAX_CONTACTS_PER_REQUEST, yaysContacts } from "../services/yaysContacts.service";
 
 /** BTCY x YaysApp Ambassador ladder, shaped for the client. */
@@ -84,6 +93,15 @@ export class YaysWalletController {
         },
         ambassador: {
           tiers: ambassadorLadder(),
+        },
+        // IndexxPoints → BTCY Nuggets. Sent with the rest of the rules so the
+        // Convert screen can state the rate before the first quote lands.
+        conversion: {
+          targetUnit: "BTCY Nuggets",
+          nuggetsPerPoint: NUGGETS_PER_POINT,
+          referencePoints: CONVERSION_REFERENCE_POINTS,
+          referenceNuggets: CONVERSION_REFERENCE_NUGGETS,
+          minimumPoints: MIN_CONVERSION_POINTS,
         },
       },
     });
@@ -224,6 +242,74 @@ export class YaysWalletController {
       });
     } catch (error) {
       return failed(res, error, "reward");
+    }
+  }
+
+  // --- convert: IndexxPoints -> BTCY Nuggets --------------------------------
+
+  /**
+   * Price a conversion without committing it.
+   *
+   * `points` is optional: with none, this is the Convert screen's initial load
+   * — the rules plus both balances.
+   */
+  async getConversionQuote(req: Request, res: Response) {
+    try {
+      const points = asInt(req.query.points, 0);
+      return res
+        .status(200)
+        .json({ data: await yaysConversion.quote(emailOf(req), points) });
+    } catch (error) {
+      return failed(res, error, "conversion quote");
+    }
+  }
+
+  /**
+   * Spend IndexxPoints for BTCY Nuggets.
+   *
+   * The client sends an idempotency key so a double tap or a retry after a
+   * dropped response resolves to the one conversion rather than spending the
+   * points again.
+   */
+  async convertPoints(req: Request, res: Response) {
+    const userLower = emailOf(req);
+    const idempotencyKey = String(
+      req.body?.idempotencyKey || req.headers["x-idempotency-key"] || ""
+    ).trim();
+    if (!idempotencyKey) {
+      return validation(res, "An idempotency key is required.");
+    }
+    try {
+      const result = await yaysConversion.convert({
+        userLower,
+        points: asInt(req.body?.points, 0),
+        idempotencyKey,
+      });
+      return res.status(200).json({ data: result });
+    } catch (error) {
+      if (error instanceof ConversionAmountError) {
+        return validation(res, error.message);
+      }
+      if (error instanceof InsufficientPointsError) {
+        return validation(res, error.message);
+      }
+      if (error instanceof ConversionFailedError) {
+        // 503, not 500: the member's balance is intact and retrying later is
+        // the right move, which a generic server error would not tell them.
+        return res.status(503).json({ message: error.message, code: "unavailable" });
+      }
+      return failed(res, error, "convert");
+    }
+  }
+
+  async getConversionHistory(req: Request, res: Response) {
+    try {
+      const limit = Math.min(Math.max(asInt(req.query.limit, 25), 1), 100);
+      const skip = Math.max(asInt(req.query.skip, 0), 0);
+      const items = await yaysConversion.history(emailOf(req), limit, skip);
+      return res.status(200).json({ data: { items } });
+    } catch (error) {
+      return failed(res, error, "conversion history");
     }
   }
 

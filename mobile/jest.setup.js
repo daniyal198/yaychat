@@ -23,3 +23,15 @@ jest.mock('react-native-contacts', () => ({
   requestPermission: jest.fn(async () => 'undefined'),
   getAll: jest.fn(async () => []),
 }));
+jest.mock('react-native-image-crop-picker', () => ({
+  __esModule: true,
+  default: {
+    openPicker: jest.fn(),
+    openCamera: jest.fn(),
+    // Tests that exercise the profile-photo flow hand back the same path, so
+    // the crop step is a no-op rather than a native call.
+    openCropper: jest.fn(async ({path}) => ({path, mime: 'image/jpeg'})),
+    clean: jest.fn(async () => undefined),
+    cleanSingle: jest.fn(async () => undefined),
+  },
+}));

@@ -2393,6 +2393,16 @@ export const ConversationScreen = ({
                 keyboardShouldPersistTaps="handled"
                 onEndReached={loadOlderMessages}
                 onEndReachedThreshold={0.2}
+                // The composer's draft lives in this same component, so every
+                // keystroke re-renders the screen and — because `renderItem`
+                // is an inline closure — every mounted row with it. Capping
+                // how many rows are mounted at once is what keeps a long,
+                // busy conversation responsive while typing (BUG-009).
+                initialNumToRender={15}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                windowSize={11}
+                removeClippedSubviews
                 ListFooterComponent={
                   loadingOlder ? (
                     <YayText

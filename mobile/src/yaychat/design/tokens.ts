@@ -119,6 +119,20 @@ export const OVAL_SOURCE = require('../../../assets/oval.png');
 // Native aspect ratio of the cropped oval artwork (width / height).
 export const OVAL_ASPECT = 1133 / 1052;
 
+/**
+ * Geometry of the silhouette inside oval.png, measured from the artwork's
+ * alpha channel: a true ellipse centered in the 1133x1052 frame with semi-axes
+ * 627 x 450, tilted 38.3 degrees. Photos (profile pictures) are clipped to this
+ * exact ellipse so a DP fills the whole oval instead of sitting inside it.
+ */
+export const OVAL_GEOMETRY = {
+  viewBoxWidth: 1133,
+  viewBoxHeight: 1052,
+  rx: 627,
+  ry: 450,
+  rotation: -38.3,
+} as const;
+
 export const radius = {
   xs: 8,
   sm: 12,

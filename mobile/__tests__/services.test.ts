@@ -9,13 +9,18 @@ import {
   aiService,
   earnService,
   inviteService,
+  socialService,
   userService,
   walletService,
+  conversionService,
+  conversionKey,
   simulation,
   setSimulatedOffline,
   ME_ID,
+  mapBtcyDashboard,
 } from '../src/yaychat/services';
 import {deviceContacts} from '../src/yaychat/services/deviceContacts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 beforeAll(() => {
   simulation.latencyMs = 0;
@@ -481,11 +486,124 @@ describe('deviceContacts permission mapping', () => {
 });
 
 describe('wallet previews', () => {
-  it('only exposes preview data', async () => {
+  it('never offers a movement it cannot perform', async () => {
+    // Everything YaysApp does not own is view-only. IndexxPoints are the one
+    // exception — the balance this app is authoritative for, and the only one
+    // it can actually move (into BTCY Nuggets, via the bridge).
     const assets = await walletService.assets();
-    expect(assets.every(a => a.preview)).toBe(true);
+    expect(assets.filter(a => a.symbol !== 'IXXP').every(a => a.preview)).toBe(true);
+    expect(assets.find(a => a.symbol === 'IXXP')?.preview).toBe(false);
     const txs = await walletService.transactions();
     expect(txs.every(t => t.status === 'preview')).toBe(true);
+  });
+
+  it('gives every row a distinct identity, so two BTCY networks stay two rows', async () => {
+    const assets = await walletService.assets();
+    const ids = assets.map(a => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every(Boolean)).toBe(true);
+  });
+
+  it('shows the nugget balance next to the points balance', async () => {
+    // The complaint this answers: the wallet listed points and crypto but not
+    // the mined Nuggets, so it never added up to what BTCY reported.
+    const assets = await walletService.assets();
+    expect(assets.find(a => a.symbol === 'NUG')).toBeTruthy();
+    expect(assets.find(a => a.symbol === 'IXXP')).toBeTruthy();
+  });
+});
+
+describe('IndexxPoints → BTCY Nuggets bridge', () => {
+  it('prices the rule as stated: 1,000 points buy 2,000 nuggets', async () => {
+    const quote = await conversionService.quote(1000);
+    expect(quote.nuggets).toBe(2000);
+    expect(quote.nuggetsPerPoint).toBe(2);
+    expect(quote.eligible).toBe(true);
+  });
+
+  it('refuses anything under the 100-point minimum', async () => {
+    const quote = await conversionService.quote(99);
+    expect(quote.eligible).toBe(false);
+    expect(quote.reason).toContain('100');
+    await expect(conversionService.convert(99)).rejects.toMatchObject({code: 'validation'});
+  });
+
+  it('refuses more points than the member holds', async () => {
+    const quote = await conversionService.quote(999999);
+    expect(quote.eligible).toBe(false);
+    await expect(conversionService.convert(999999)).rejects.toMatchObject({
+      code: 'validation',
+    });
+  });
+
+  it('moves both balances, and the wallet then adds up', async () => {
+    const before = await conversionService.quote(0);
+    const result = await conversionService.convert(500);
+
+    expect(result.pointsSpent).toBe(500);
+    expect(result.nuggetsCredited).toBe(1000);
+    expect(result.pointsBalance).toBe(before.pointsBalance - 500);
+    expect(result.nuggetBalance).toBe(before.nuggetBalance + 1000);
+
+    // The wallet is the same numbers, not a second copy that can drift.
+    const assets = await walletService.assets();
+    expect(assets.find(a => a.symbol === 'IXXP')?.balance).toBe(result.pointsBalance);
+    expect(assets.find(a => a.symbol === 'NUG')?.balance).toBe(result.nuggetBalance);
+  });
+
+  it('records the conversion in reward history so the points are accounted for', async () => {
+    const history = await earnService.history();
+    expect(history[0].activity).toBe('Converted to BTCY Nuggets');
+    expect(history[0].amount).toBe(500);
+  });
+
+  it('mints a distinct idempotency key per attempt', () => {
+    expect(conversionKey()).not.toBe(conversionKey());
+  });
+});
+
+describe('BTCY dashboard mapping', () => {
+  it('maps the authenticated backend contract without substituting preview figures', () => {
+    const dashboard = mapBtcyDashboard({
+      hasAccount: true,
+      mining: {active: true, ratePerHour: 4.5, endsInSeconds: 7260},
+      portfolio: {nuggets: 0, withdraw: 7, tokens: 12},
+      alchemy: {current: null, target: 10000},
+      referrals: {active: 3, target: 25},
+      station: {unlocked: false},
+      ambassador: {tier: null, nextTierAt: 25},
+      watchEarn: {watched: 0, total: 10, rewardAmount: 10},
+    });
+
+    expect(dashboard.mining?.speed).toBe('4.5 BTCY/hr');
+    expect(dashboard.mining?.endsIn).toBe('2h 1m');
+    expect(dashboard.portfolio).toMatchObject({nuggets: 0, withdraw: 7, tokens: 12});
+    expect(dashboard.alchemy).toMatchObject({target: 10000, unit: 'BTCY'});
+    expect(dashboard.alchemy?.current).toBeUndefined();
+    expect(dashboard.watchEarn?.rewardAmount).toBe(10);
+  });
+
+  it('maps the deployed data-only BTCY response and infers the account', () => {
+    const dashboard = mapBtcyDashboard({
+      data: {
+        mining: {active: true, speed: 1.5, plan: 'Free', endsInSeconds: 0},
+        portfolio: {nuggets: 4599.21, withdraw: 32798, tokens: 67119.8},
+        alchemy: {currentUsd: 500, targetUsd: 500},
+        referrals: {active: 0, target: 5},
+        station: {unlocked: false},
+        watchEarn: {watched: 0, total: null, nuggetsToday: null},
+      },
+    });
+
+    expect(dashboard.hasAccount).toBe(true);
+    expect(dashboard.mining?.speed).toBe('1.5×');
+    expect(dashboard.mining?.plan).toBe('Free');
+    expect(dashboard.portfolio).toMatchObject({
+      nuggets: 4599.21,
+      withdraw: 32798,
+      tokens: 67119.8,
+    });
+    expect(dashboard.alchemy).toMatchObject({current: 500, target: 500, unit: 'USD'});
   });
 });
 
@@ -499,5 +617,51 @@ describe('transport simulation', () => {
     simulation.failNextRequest = 'server';
     await expect(chatService.listConversations()).rejects.toMatchObject({code: 'server'});
     await expect(chatService.listConversations()).resolves.toBeTruthy();
+  });
+});
+
+describe('socialService', () => {
+  // Pinned deliberately: changing it orphans every link already on a device.
+  const STORAGE_KEY = 'yaysapp.social.accounts.v1';
+
+  afterEach(async () => {
+    await socialService.resetLinks();
+  });
+
+  it('writes a saved link to storage', async () => {
+    const linked = await socialService.toggle('s_facebook');
+    expect(linked.connected).toBe(true);
+    expect(linked.handle).toBeTruthy();
+
+    const stored = JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '{}');
+    expect(stored.s_facebook).toEqual({connected: true, handle: linked.handle});
+  });
+
+  it('restores a saved link on the next launch', async () => {
+    // resetLinks clears the hydration memo, so the next read rehydrates from
+    // storage exactly the way a cold launch does.
+    await socialService.resetLinks();
+    await AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({s_facebook: {connected: true, handle: '@fromlastlaunch'}}),
+    );
+
+    const account = await socialService.account('s_facebook');
+    expect(account.connected).toBe(true);
+    expect(account.handle).toBe('@fromlastlaunch');
+  });
+
+  it('drops the handle when the link is removed', async () => {
+    await socialService.toggle('s_facebook');
+    const removed = await socialService.toggle('s_facebook');
+    expect(removed.connected).toBe(false);
+    expect(removed.handle).toBeUndefined();
+
+    const stored = JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '{}');
+    expect(stored.s_facebook).toEqual({connected: false});
+  });
+
+  it('rejects an unknown platform', async () => {
+    await expect(socialService.account('s_nope')).rejects.toBeInstanceOf(ApiError);
   });
 });

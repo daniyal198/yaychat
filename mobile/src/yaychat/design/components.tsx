@@ -23,10 +23,18 @@ import {
   ViewStyle,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Svg, {
+  ClipPath,
+  Defs,
+  Ellipse,
+  G,
+  Image as SvgImage,
+} from 'react-native-svg';
 import {
   avatarColorFor,
   colors,
   OVAL_ASPECT,
+  OVAL_GEOMETRY,
   OVAL_SOURCE,
   palette,
   radius,
@@ -124,6 +132,149 @@ export const Oval = ({
         </View>
       )}
     </View>
+  );
+};
+
+let ovalClipSeq = 0;
+
+/**
+ * A tiny bleed past the oval's bounding box.
+ *
+ * The clip edge is anti-aliased, so a photo sized to exactly meet it can still
+ * leave a hairline of whatever sits underneath — which on an avatar is the
+ * tinted placeholder oval, and reads as a grey rim around the picture.
+ */
+const OVAL_IMAGE_OVERSCAN = 1.02;
+
+/**
+ * Aspect ratios already resolved, keyed by uri.
+ *
+ * A chat list mounts the same handful of avatars over and over as it scrolls,
+ * and an unresolved ratio falls back to the fit that leaves the oval's tips
+ * bare — so without this the grey crescents flash back on every recycle.
+ * Ratios are immutable per uri, so the entry never needs invalidating.
+ */
+const ovalImageAspects = new Map<string, number>();
+
+/**
+ * A photo clipped to the brand oval silhouette: the image covers the whole
+ * oval (cropped, never letterboxed or distorted) instead of sitting in a
+ * smaller shape inside it. Used for every profile picture.
+ *
+ * The cover rectangle is computed here from the photo's own proportions rather
+ * than delegated to `preserveAspectRatio="slice"`. The declarative version
+ * left the oval's tips uncovered — the placeholder tint showed through as grey
+ * crescents — so the geometry is done explicitly and the image is handed exact
+ * dimensions it cannot reinterpret.
+ */
+export const OvalImage = ({
+  uri,
+  width,
+  height,
+  label,
+  background,
+  style,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  label?: string;
+  /** Tint shown under the photo while it loads. Clipped to the same ellipse. */
+  background?: string;
+  style?: ViewStyle | ViewStyle[];
+}) => {
+  // Clip-path ids share one document per platform, so each instance needs its
+  // own or several avatars on a screen would clip through the same path.
+  const clipId = useRef(`ovalClip${(ovalClipSeq += 1)}`).current;
+  const {viewBoxWidth: vw, viewBoxHeight: vh, rx, ry, rotation} = OVAL_GEOMETRY;
+
+  // The photo's aspect ratio, which only the decoded image knows. Null until
+  // it resolves, and on failure it stays null and the slice fallback applies.
+  const [aspect, setAspect] = useState<number | null>(
+    () => ovalImageAspects.get(uri) ?? null,
+  );
+  useEffect(() => {
+    const known = ovalImageAspects.get(uri);
+    if (known) {
+      setAspect(known);
+      return;
+    }
+    let cancelled = false;
+    setAspect(null);
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (w > 0 && h > 0) {
+          ovalImageAspects.set(uri, w / h);
+          if (!cancelled) {
+            setAspect(w / h);
+          }
+        }
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
+
+  // Cover: scale so the *smaller* overflow wins, then centre. Because the box
+  // is given the photo's exact ratio, `preserveAspectRatio="none"` cannot
+  // distort it — it just stops the renderer refitting what is already right.
+  let box: {x: number; y: number; width: number; height: number} = {
+    x: 0,
+    y: 0,
+    width: vw,
+    height: vh,
+  };
+  if (aspect) {
+    const scale = Math.max(vw / aspect, vh) * OVAL_IMAGE_OVERSCAN;
+    const w = aspect * scale;
+    box = {x: (vw - w) / 2, y: (vh - scale) / 2, width: w, height: scale};
+  }
+
+  return (
+    <Svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${vw} ${vh}`}
+      style={style as ViewStyle}
+      accessibilityLabel={label}>
+      <Defs>
+        <ClipPath id={clipId}>
+          <Ellipse
+            cx={vw / 2}
+            cy={vh / 2}
+            rx={rx}
+            ry={ry}
+            transform={`rotate(${rotation} ${vw / 2} ${vh / 2})`}
+          />
+        </ClipPath>
+      </Defs>
+      <G clipPath={`url(#${clipId})`}>
+        {/* The placeholder lives inside the clip, not behind the SVG. Painted
+            as a separate layer underneath, its own anti-aliased edge peeked
+            out past the photo as a coloured rim around the oval. */}
+        {background ? (
+          <Ellipse
+            cx={vw / 2}
+            cy={vh / 2}
+            rx={rx}
+            ry={ry}
+            transform={`rotate(${rotation} ${vw / 2} ${vh / 2})`}
+            fill={background}
+          />
+        ) : null}
+        <SvgImage
+          href={{uri}}
+          x={box.x}
+          y={box.y}
+          width={box.width}
+          height={box.height}
+          preserveAspectRatio={aspect ? 'none' : 'xMidYMid slice'}
+        />
+      </G>
+    </Svg>
   );
 };
 
@@ -568,28 +719,19 @@ export const Avatar = ({
     .join('')
     .toUpperCase();
   if (imageUri) {
-    const imageHeight = Math.round(size * 0.76);
-    const imageWidth = Math.round(imageHeight * OVAL_ASPECT);
+    const ovalWidth = Math.round(size * OVAL_ASPECT);
     return (
-      <View style={{width: Math.round(size * OVAL_ASPECT), height: size}}>
-        <Oval size={size} color={color ?? avatarColorFor(name)}>
-          <View
-            style={[
-              styles.avatarImageFrame,
-              {
-                width: imageWidth,
-                height: imageHeight,
-                borderRadius: imageHeight / 2,
-              },
-            ]}>
-            <Image
-              source={{uri: imageUri}}
-              style={styles.avatarImage}
-              resizeMode="cover"
-              accessibilityLabel={`${name} profile picture`}
-            />
-          </View>
-        </Oval>
+      <View style={{width: ovalWidth, height: size}}>
+        {/* One shape, not two: the silhouette and the placeholder are both
+            drawn by the SVG, so nothing can show at the photo's edge. */}
+        <OvalImage
+          uri={imageUri}
+          width={ovalWidth}
+          height={size}
+          label={`${name} profile picture`}
+          background={color ?? avatarColorFor(name)}
+          style={styles.avatarOvalLayer}
+        />
         {online !== undefined ? (
           <Oval
             size={11}
@@ -754,10 +896,15 @@ export const Banner = ({
   text,
   tone = 'info',
   icon,
+  actionLabel,
+  onAction,
 }: {
   text: string;
   tone?: 'info' | 'warning' | 'danger' | 'success';
   icon?: string;
+  /** Renders a tappable affordance under the text. Needs `onAction`. */
+  actionLabel?: string;
+  onAction?: () => void;
 }) => {
   const toneMap = {
     info: {bg: colors.infoSoft, fg: colors.info, defaultIcon: 'information-circle'},
@@ -769,9 +916,22 @@ export const Banner = ({
   return (
     <View style={[styles.banner, {backgroundColor: t.bg}]}>
       <Ionicons name={icon ?? t.defaultIcon} size={18} color={t.fg} />
-      <YayText variant="caption" color={t.fg} style={{flex: 1}}>
-        {text}
-      </YayText>
+      <View style={{flex: 1}}>
+        <YayText variant="caption" color={t.fg}>
+          {text}
+        </YayText>
+        {actionLabel && onAction ? (
+          <Pressable
+            onPress={onAction}
+            accessibilityRole="button"
+            hitSlop={8}
+            style={({pressed}) => [{marginTop: spacing.xxs}, pressed && {opacity: 0.6}]}>
+            <YayText variant="caption" color={t.fg} style={{textDecorationLine: 'underline'}}>
+              {actionLabel}
+            </YayText>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 };
@@ -1374,13 +1534,10 @@ const styles = StyleSheet.create({
     right: -2,
     bottom: -1,
   },
-  avatarImageFrame: {
-    overflow: 'hidden',
-    backgroundColor: colors.surfaceSunken,
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
+  avatarOvalLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   badge: {
     borderRadius: radius.pill,

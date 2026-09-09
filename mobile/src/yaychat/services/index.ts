@@ -16,6 +16,7 @@ import {localEngine} from './ai/localEngine';
 import {localCommunities} from './communities/localEngine';
 import {formatDuration, mimeForRecording} from './voice/audio';
 import {deviceContacts} from './deviceContacts';
+import {notificationSoundService} from './notificationSounds';
 import * as db from './mock/db';
 import {
   AiAssistResult,
@@ -53,6 +54,9 @@ import {
   SettingsState,
   SocialAccount,
   User,
+  ConversionQuote,
+  ConversionResult,
+  ConversionRules,
   WalletAsset,
   WalletTransaction,
 } from '../types/models';
@@ -1293,11 +1297,75 @@ const pageMessages = (all: Message[], cursor?: string): Page<Message> => {
 const sortMessagesByCreatedAt = (messages: Message[]): Message[] =>
   [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+/**
+ * Per-conversation mute/archive state for backend-served chats.
+ *
+ * Both backend mappers hardcode `muted: false, archived: false` — neither the
+ * message nor the group payload carries the field — and `setArchived` had no
+ * endpoint behind it at all. So both switches moved, wrote nothing durable,
+ * and were back to off the next time Details loaded. Holding the answer on the
+ * device makes the controls behave and survive a relaunch; the mute write
+ * still goes to the server so it syncs once the API can read it back.
+ */
+const CHAT_FLAGS_KEY = 'yaysapp.chat.flags.v1';
+
+type ChatFlags = {muted?: boolean; archived?: boolean};
+
+let chatFlags: Record<string, ChatFlags> | null = null;
+let chatFlagsLoad: Promise<Record<string, ChatFlags>> | null = null;
+
+const loadChatFlags = (): Promise<Record<string, ChatFlags>> => {
+  if (chatFlags) {
+    return Promise.resolve(chatFlags);
+  }
+  if (!chatFlagsLoad) {
+    chatFlagsLoad = AsyncStorage.getItem(CHAT_FLAGS_KEY)
+      .then(raw => {
+        chatFlags = raw ? (JSON.parse(raw) as Record<string, ChatFlags>) : {};
+        return chatFlags;
+      })
+      .catch(() => {
+        chatFlags = {};
+        return chatFlags;
+      });
+  }
+  return chatFlagsLoad;
+};
+
+const setChatFlag = async (
+  conversationId: string,
+  key: keyof ChatFlags,
+  value: boolean,
+): Promise<void> => {
+  const flags = await loadChatFlags();
+  flags[conversationId] = {...flags[conversationId], [key]: value};
+  await AsyncStorage.setItem(CHAT_FLAGS_KEY, JSON.stringify(flags)).catch(() => undefined);
+};
+
+const withChatFlags = (
+  flags: Record<string, ChatFlags>,
+  conversation: Conversation,
+): Conversation => {
+  const stored = flags[conversation.id];
+  if (!stored) {
+    return conversation;
+  }
+  return {
+    ...conversation,
+    muted: stored.muted ?? conversation.muted,
+    archived: stored.archived ?? conversation.archived,
+  };
+};
+
+/** Test hook — forgets the stored flags and the in-memory cache. */
+export const resetChatFlags = async (): Promise<void> => {
+  chatFlags = null;
+  chatFlagsLoad = null;
+  await AsyncStorage.removeItem(CHAT_FLAGS_KEY).catch(() => undefined);
+};
+
 const backendChat = {
   async listConversations(filter: 'all' | 'unread' | 'groups' | 'archived' = 'all'): Promise<Conversation[]> {
-    if (filter === 'archived') {
-      return [];
-    }
     const meEmail = await backendSessionEmail();
     const [latestPayload, groupsPayload, summary] = await Promise.all([
       withFallback(
@@ -1320,22 +1388,32 @@ const backendChat = {
       return backendGroupConversation(g, meEmail, unreadForGroup(summary, gid));
     });
 
-    const list = filter === 'groups' ? groupConversations : [...directConversations, ...groupConversations];
+    const flags = await loadChatFlags();
+    const all = [...directConversations, ...groupConversations].map(c => withChatFlags(flags, c));
+
+    // Archiving promises "hide this chat from your main list", so it has to
+    // come out of every other filter as well as have a list of its own —
+    // previously the archived tab was hardcoded empty.
+    if (filter === 'archived') {
+      return sortConversations(all.filter(c => c.archived));
+    }
+    const active = all.filter(c => !c.archived);
+    const list = filter === 'groups' ? active.filter(c => c.type === 'group') : active;
     return sortConversations(filter === 'unread' ? list.filter(c => c.unreadCount > 0) : list);
   },
 
   async getConversation(id: string): Promise<Conversation> {
     const meEmail = await backendSessionEmail();
-    const summary = await backendUnreadSummary(meEmail);
+    const [summary, flags] = await Promise.all([
+      backendUnreadSummary(meEmail),
+      loadChatFlags(),
+    ]);
     if (isBackendDirectId(id)) {
       const peer = directPeerFromId(id);
       const peerName = await backendPeerName(peer);
-      return backendDirectConversation(
-        peer,
-        meEmail,
-        undefined,
-        unreadForPeer(summary, peer),
-        peerName,
+      return withChatFlags(
+        flags,
+        backendDirectConversation(peer, meEmail, undefined, unreadForPeer(summary, peer), peerName),
       );
     }
     if (isBackendGroupId(id)) {
@@ -1345,7 +1423,7 @@ const backendChat = {
       if (!group) {
         throw new ApiError('Conversation not found.', 'not_found');
       }
-      return backendGroupConversation(group, meEmail, unreadForGroup(summary, gid));
+      return withChatFlags(flags, backendGroupConversation(group, meEmail, unreadForGroup(summary, gid)));
     }
     throw new ApiError('Conversation not found.', 'not_found');
   },
@@ -1566,12 +1644,16 @@ const backendChat = {
   },
 
   async setMuted(conversationId: string, muted: boolean): Promise<void> {
+    // Stored first: the server has no way to hand this back on a later read,
+    // so the device copy is what makes the switch stay where the user put it.
+    await setChatFlag(conversationId, 'muted', muted);
     const meEmail = await backendSessionEmail();
     await backendPost('/api/v1/chat/mute', {email: meEmail, chatId: conversationId, newState: muted});
   },
 
-  async setArchived(_conversationId: string, _archived: boolean): Promise<void> {
-    return undefined;
+  /** No server endpoint exists yet, so archiving is per-device. */
+  async setArchived(conversationId: string, archived: boolean): Promise<void> {
+    await setChatFlag(conversationId, 'archived', archived);
   },
 
   async setPinned(_conversationId: string, _pinned: boolean): Promise<void> {
@@ -3420,6 +3502,38 @@ const backendTicket = (raw: any): SupportTicket => ({
     : [],
 });
 
+/**
+ * Both AI settings payloads used to be cast straight from the wire
+ * (`body as AiUsage`), so a deployment that omitted or renamed a field handed
+ * the screen `undefined` and the first `costUsd.toFixed(2)` threw during
+ * render — an unhandled render throw terminates the app in a release build,
+ * which is what made opening AI settings look like a hard crash. Mapped the
+ * way every other backend payload in this file is instead.
+ */
+const backendAiUsage = (raw: any): AiUsage => ({
+  usedRequests: Number(raw?.usedRequests) || 0,
+  totalRequests: Number(raw?.totalRequests) || 0,
+  plan: String(raw?.plan || 'free'),
+  planLabel: String(raw?.planLabel || 'Free'),
+  tokensIn: Number(raw?.tokensIn) || 0,
+  tokensOut: Number(raw?.tokensOut) || 0,
+  costUsd: Number(raw?.costUsd) || 0,
+  costCapUsd: Number(raw?.costCapUsd) || 0,
+  resetsAt: String(raw?.resetsAt || new Date().toISOString()),
+});
+
+/**
+ * Consent defaults to "not shared" on anything the server did not say, so a
+ * malformed payload can never read as broader permission than was granted.
+ */
+const backendAiConsent = (raw: any): AiConsent => ({
+  shareChatContent: raw?.shareChatContent === true,
+  shareCommunityContent: raw?.shareCommunityContent === true,
+  saveHistory: raw?.saveHistory === true,
+  personalization: raw?.personalization === true,
+  acceptedAt: raw?.acceptedAt ? String(raw.acceptedAt) : null,
+});
+
 export const aiService = {
   /** Tool tiles for the hub. Refreshed by `loadCatalog()`. */
   tools: (): AiTool[] => aiCatalog.tools,
@@ -3439,14 +3553,14 @@ export const aiService = {
 
   async usage(): Promise<AiUsage> {
     return viaAi(
-      async () => backendBody(await backendGet<any>(`${AI_BASE}/usage`)) as AiUsage,
+      async () => backendAiUsage(backendBody(await backendGet<any>(`${AI_BASE}/usage`))),
       () => localEngine.usage(),
     );
   },
 
   async consent(): Promise<AiConsent> {
     return viaAi(
-      async () => backendBody(await backendGet<any>(`${AI_BASE}/consent`)) as AiConsent,
+      async () => backendAiConsent(backendBody(await backendGet<any>(`${AI_BASE}/consent`))),
       () => localEngine.consent(),
     );
   },
@@ -3454,7 +3568,7 @@ export const aiService = {
   async updateConsent(patch: Partial<AiConsent>): Promise<AiConsent> {
     return viaAi(
       async () =>
-        backendBody(await backendPost<any>(`${AI_BASE}/consent`, patch)) as AiConsent,
+        backendAiConsent(backendBody(await backendPost<any>(`${AI_BASE}/consent`, patch))),
       () => localEngine.updateConsent(patch),
     );
   },
@@ -3666,6 +3780,15 @@ let rewardsConfig = {
   activation: {rewardPoints: 50},
   referral: {referrerReward: 250, refereeWelcome: 100, miningStationTarget: 25},
   ambassador: {tiers: DEFAULT_AMBASSADOR_TIERS},
+  // IndexxPoints -> BTCY Nuggets. Mirrors the server's own constants; the
+  // probe below replaces them with whatever the deployment actually applies,
+  // so a campaign rate change does not need an app release.
+  conversion: {
+    nuggetsPerPoint: 2,
+    referencePoints: 1000,
+    referenceNuggets: 2000,
+    minimumPoints: 100,
+  },
 };
 
 /** Test hook — forgets the rewards probe. */
@@ -3718,6 +3841,20 @@ async function probeRewardsBackend(): Promise<boolean> {
             ),
           },
           ambassador: {tiers},
+          conversion: {
+            nuggetsPerPoint: Number(
+              payload.conversion?.nuggetsPerPoint ?? rewardsConfig.conversion.nuggetsPerPoint,
+            ),
+            referencePoints: Number(
+              payload.conversion?.referencePoints ?? rewardsConfig.conversion.referencePoints,
+            ),
+            referenceNuggets: Number(
+              payload.conversion?.referenceNuggets ?? rewardsConfig.conversion.referenceNuggets,
+            ),
+            minimumPoints: Number(
+              payload.conversion?.minimumPoints ?? rewardsConfig.conversion.minimumPoints,
+            ),
+          },
         };
       }
       rewardsBackendAvailable = true;
@@ -4302,13 +4439,21 @@ export const inviteService = {
 // cannot move it yet. Screens must keep send/convert disabled for those.
 // ---------------------------------------------------------------------------
 
-const backendWalletAsset = (raw: any): WalletAsset => ({
-  symbol: String(raw?.symbol || '—'),
-  name: String(raw?.name || raw?.symbol || 'Asset'),
-  balance: Number(raw?.balance) || 0,
-  fiatValue: Number(raw?.fiatValue) || 0,
-  preview: raw?.preview !== false,
-});
+const backendWalletAsset = (raw: any): WalletAsset => {
+  const symbol = String(raw?.symbol || '—');
+  const network = raw?.network ? String(raw.network) : undefined;
+  return {
+    // Falls back to symbol+network for a deployment that predates the id, so
+    // two BTCY rows still list as two rows rather than overwriting each other.
+    id: String(raw?.id || (network ? `${symbol}-${network}` : symbol)),
+    symbol,
+    name: String(raw?.name || raw?.symbol || 'Asset'),
+    network,
+    balance: Number(raw?.balance) || 0,
+    fiatValue: Number(raw?.fiatValue) || 0,
+    preview: raw?.preview !== false,
+  };
+};
 
 const WALLET_TX_STATUS: Record<string, WalletTransaction['status']> = {
   completed: 'preview',
@@ -4336,7 +4481,16 @@ export const walletService = {
         const payload = backendBody(await backendGet<any>(`${REWARDS_BASE}/assets`));
         return (payload?.items || []).map(backendWalletAsset);
       },
-      () => mockRequest('wallet.assets', () => db.walletAssets.map(a => ({...a}))),
+      () =>
+        mockRequest('wallet.assets', () =>
+          // The points row is the same balance the Earn tab spends and the
+          // bridge converts, so it is read from there rather than duplicated —
+          // otherwise a preview conversion would leave the two screens
+          // disagreeing about how many points the member has.
+          db.walletAssets.map(a =>
+            a.symbol === 'IXXP' ? {...a, balance: db.earnSummary.balance} : {...a},
+          ),
+        ),
     );
   },
 
@@ -4371,6 +4525,186 @@ export const walletService = {
 };
 
 // ---------------------------------------------------------------------------
+// Convert — IndexxPoints into BTCY Nuggets
+//
+// The one bridge out of a YaysApp balance and into a Bitcoin Yay one. The rate
+// and the floor are the server's (`rewardRules().conversion`); this module
+// quotes them back rather than restating them, so the number on the button is
+// always the number the backend will apply.
+//
+// Every conversion carries an idempotency key. The key belongs to the user's
+// *attempt*, not to the request, so a retry after a timeout resolves to the
+// conversion that may already have happened instead of spending twice.
+// ---------------------------------------------------------------------------
+
+export const conversionKey = (): string =>
+  `cv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+/** The rules, with no network call — what the Convert screen opens with. */
+export const conversionRules = (): ConversionRules => ({...rewardsConfig.conversion});
+
+const localNuggetRow = () => db.walletAssets.find(a => a.symbol === 'NUG');
+
+/**
+ * Price a conversion locally, against the same rules the server applies.
+ * Used for the preview build, and for the live screen's per-keystroke echo so
+ * the figure updates without a round trip.
+ */
+export const priceConversion = (
+  points: number,
+  pointsBalance: number,
+  nuggetBalance: number,
+): ConversionQuote => {
+  const rules = conversionRules();
+  const requested = Math.floor(Number(points) || 0);
+  const base = {
+    ...rules,
+    points: Math.max(0, requested),
+    nuggets: requested > 0 ? requested * rules.nuggetsPerPoint : 0,
+    pointsBalance,
+    nuggetBalance,
+  };
+  if (requested <= 0) {
+    return {...base, eligible: false, reason: 'Enter how many IndexxPoints to convert.'};
+  }
+  if (requested < rules.minimumPoints) {
+    return {
+      ...base,
+      eligible: false,
+      reason: `The smallest conversion is ${rules.minimumPoints.toLocaleString('en-US')} IndexxPoints.`,
+    };
+  }
+  if (requested > pointsBalance) {
+    return {
+      ...base,
+      eligible: false,
+      reason: `You have ${pointsBalance.toLocaleString('en-US')} IndexxPoints.`,
+    };
+  }
+  return {...base, eligible: true, reason: null};
+};
+
+const backendConversionQuote = (raw: any): ConversionQuote => {
+  const rules = conversionRules();
+  return {
+    points: Number(raw?.points) || 0,
+    nuggets: Number(raw?.nuggets) || 0,
+    nuggetsPerPoint: Number(raw?.rate ?? raw?.nuggetsPerPoint) || rules.nuggetsPerPoint,
+    referencePoints: Number(raw?.referencePoints) || rules.referencePoints,
+    referenceNuggets: Number(raw?.referenceNuggets) || rules.referenceNuggets,
+    minimumPoints: Number(raw?.minimumPoints ?? rules.minimumPoints),
+    pointsBalance: Number(raw?.pointsBalance) || 0,
+    nuggetBalance: Number(raw?.nuggetBalance) || 0,
+    eligible: Boolean(raw?.eligible),
+    reason: raw?.reason ? String(raw.reason) : null,
+  };
+};
+
+const backendConversionResult = (raw: any): ConversionResult => ({
+  id: String(raw?.id || db.nextId('cv')),
+  status: raw?.status === 'failed' ? 'failed' : 'completed',
+  pointsSpent: Number(raw?.pointsSpent) || 0,
+  nuggetsCredited: Number(raw?.nuggetsCredited) || 0,
+  rate: Number(raw?.rate) || conversionRules().nuggetsPerPoint,
+  pointsBalance: Number(raw?.pointsBalance) || 0,
+  nuggetBalance: Number(raw?.nuggetBalance) || 0,
+  createdAt: String(raw?.createdAt || new Date().toISOString()),
+  duplicate: Boolean(raw?.duplicate),
+});
+
+export const conversionService = {
+  rules: conversionRules,
+
+  /** What `points` buys, checked against the live balances. */
+  async quote(points: number): Promise<ConversionQuote> {
+    return viaRewards(
+      async () =>
+        backendConversionQuote(
+          backendBody(
+            await backendGet<any>(`${REWARDS_BASE}/convert/quote`, {
+              points: Math.max(0, Math.floor(points || 0)),
+            }),
+          ),
+        ),
+      () =>
+        mockRequest('convert.quote', () =>
+          priceConversion(points, db.earnSummary.balance, localNuggetRow()?.balance ?? 0),
+        ),
+    );
+  },
+
+  /**
+   * Spend points for nuggets.
+   *
+   * `key` identifies the attempt: pass the same one when retrying a request
+   * whose outcome you did not see, and the server returns the original
+   * conversion rather than making a second one.
+   */
+  async convert(points: number, key: string = conversionKey()): Promise<ConversionResult> {
+    return viaRewards(
+      async () =>
+        backendConversionResult(
+          backendBody(
+            await backendPost<any>(`${REWARDS_BASE}/convert`, {
+              points: Math.floor(points || 0),
+              idempotencyKey: key,
+            }),
+          ),
+        ),
+      () =>
+        mockRequest('convert.convert', () => {
+          const nuggetRow = localNuggetRow();
+          const quote = priceConversion(
+            points,
+            db.earnSummary.balance,
+            nuggetRow?.balance ?? 0,
+          );
+          if (!quote.eligible) {
+            throw new ApiError(quote.reason || 'That amount cannot be converted.', 'validation');
+          }
+          db.earnSummary.balance -= quote.points;
+          if (nuggetRow) {
+            nuggetRow.balance += quote.nuggets;
+          }
+          db.rewardHistory.unshift({
+            id: db.nextId('r'),
+            activity: 'Converted to BTCY Nuggets',
+            amount: quote.points,
+            unit: 'IndexxPoints',
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+            note: `${quote.points.toLocaleString('en-US')} IndexxPoints → ${quote.nuggets.toLocaleString('en-US')} BTCY Nuggets`,
+          });
+          return {
+            id: db.nextId('cv'),
+            status: 'completed' as const,
+            pointsSpent: quote.points,
+            nuggetsCredited: quote.nuggets,
+            rate: quote.nuggetsPerPoint,
+            pointsBalance: db.earnSummary.balance,
+            nuggetBalance: nuggetRow?.balance ?? quote.nuggets,
+            createdAt: new Date().toISOString(),
+            duplicate: false,
+          };
+        }),
+    );
+  },
+
+  /** Past conversions, newest first. */
+  async history(limit = 25): Promise<ConversionResult[]> {
+    return viaRewards(
+      async () => {
+        const payload = backendBody(
+          await backendGet<any>(`${REWARDS_BASE}/convert/history`, {limit}),
+        );
+        return (payload?.items || []).map(backendConversionResult);
+      },
+      () => mockRequest('convert.history', () => []),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Ecosystem
 // ---------------------------------------------------------------------------
 
@@ -4394,12 +4728,65 @@ export const ecosystemService = {
 // Social accounts
 // ---------------------------------------------------------------------------
 
+const SOCIAL_ACCOUNTS_KEY = 'yaysapp.social.accounts.v1';
+
+/**
+ * Whether linking a platform runs a real authorization.
+ *
+ * A real link needs an OAuth app per provider plus a backend callback that can
+ * exchange the code — neither is deployed. Until they are, a "connection" is a
+ * record this device keeps, and every surface that offers one has to say so
+ * rather than showing a button that looks like it signs you in.
+ */
+export const socialLinkingIsLive = (): boolean => false;
+
+type StoredSocialLink = {connected: boolean; handle?: string};
+
+/**
+ * Link state used to live only in the in-memory fixture, so every relaunch
+ * showed the account disconnected again and testers reasonably read that as
+ * the connect action failing.
+ */
+let socialHydration: Promise<void> | null = null;
+
+const hydrateSocialAccounts = (): Promise<void> => {
+  if (!socialHydration) {
+    socialHydration = AsyncStorage.getItem(SOCIAL_ACCOUNTS_KEY)
+      .then(raw => {
+        if (!raw) {
+          return;
+        }
+        const stored = JSON.parse(raw) as Record<string, StoredSocialLink>;
+        db.socialAccounts.forEach(account => {
+          const link = stored[account.id];
+          if (!link) {
+            return;
+          }
+          account.connected = Boolean(link.connected);
+          account.handle = link.connected ? link.handle : undefined;
+        });
+      })
+      .catch(() => undefined);
+  }
+  return socialHydration;
+};
+
+const persistSocialAccounts = (): void => {
+  const stored: Record<string, StoredSocialLink> = {};
+  db.socialAccounts.forEach(account => {
+    stored[account.id] = {connected: account.connected, handle: account.handle};
+  });
+  AsyncStorage.setItem(SOCIAL_ACCOUNTS_KEY, JSON.stringify(stored)).catch(() => undefined);
+};
+
 export const socialService = {
   async accounts(): Promise<SocialAccount[]> {
+    await hydrateSocialAccounts();
     return mockRequest('social.accounts', () => db.socialAccounts.map(a => ({...a})));
   },
 
   async account(id: string): Promise<SocialAccount> {
+    await hydrateSocialAccounts();
     return mockRequest('social.account', () => {
       const account = db.socialAccounts.find(a => a.id === id);
       if (!account) {
@@ -4409,8 +4796,13 @@ export const socialService = {
     });
   },
 
-  /** Connects a disconnected platform (mock OAuth) or disconnects a linked one. */
+  /**
+   * Records a link for a disconnected platform, or drops the link on a
+   * connected one. The record survives relaunch; it is not an authorization —
+   * see `socialLinkingIsLive`.
+   */
   async toggle(id: string): Promise<SocialAccount> {
+    await hydrateSocialAccounts();
     return mockRequest('social.toggle', () => {
       const account = db.socialAccounts.find(a => a.id === id);
       if (!account) {
@@ -4423,8 +4815,19 @@ export const socialService = {
         account.connected = true;
         account.handle = `@${db.userById(db.ME_ID).name.replace(/\s+/g, '').toLowerCase()}`;
       }
+      persistSocialAccounts();
       return {...account};
     });
+  },
+
+  /** Test hook — forgets the stored links and the hydration promise. */
+  async resetLinks(): Promise<void> {
+    socialHydration = null;
+    db.socialAccounts.forEach(account => {
+      account.connected = false;
+      account.handle = undefined;
+    });
+    await AsyncStorage.removeItem(SOCIAL_ACCOUNTS_KEY).catch(() => undefined);
   },
 };
 
@@ -4500,54 +4903,179 @@ const formatCountdown = (seconds: number | null): string => {
 /**
  * Map the backend's BTCY snapshot onto the dashboard shape.
  *
- * Editorial content — news items and the promo banner — has no backend source,
- * so it comes from the bundled catalogue rather than being fabricated per user.
- * Account figures never do: an unreadable one stays null and renders as "—".
+ * Account figures are never filled from the preview catalogue: an unreadable
+ * value stays null and renders as an em dash.
  */
-const backendBtcyDashboard = (raw: any): BtcyDashboard => ({
-  mining: {
-    active: Boolean(raw?.mining?.active),
-    speed:
-      raw?.mining?.speed == null ? '—' : `${Number(raw.mining.speed).toLocaleString('en-US')}×`,
-    endsIn: formatCountdown(nullableNumber(raw?.mining?.endsInSeconds)),
-  },
-  portfolio: {
-    nuggets: nullableNumber(raw?.portfolio?.nuggets),
-    tokens: nullableNumber(raw?.portfolio?.tokens),
-  },
-  alchemy: {
-    current: nullableNumber(raw?.alchemy?.currentUsd),
-    target: nullableNumber(raw?.alchemy?.targetUsd),
-  },
-  referrals: {
-    active: Number(raw?.referrals?.active) || 0,
-    target: Number(raw?.referrals?.target) || 25,
-  },
-  station: {
-    unlocked: Boolean(raw?.station?.unlocked),
-    benefits: db.btcyDashboard.station.benefits,
-  },
-  ambassador: {
-    tier: (['community', 'growth', 'elite'] as const).includes(raw?.ambassador?.tier)
-      ? raw.ambassador.tier
-      : null,
-    nextTierAt: nullableNumber(raw?.ambassador?.nextTierAt),
-  },
-  watchEarn: {
-    watched: nullableNumber(raw?.watchEarn?.watched),
-    total: nullableNumber(raw?.watchEarn?.total),
-    nuggetsToday: nullableNumber(raw?.watchEarn?.nuggetsToday),
-  },
-  news: db.btcyDashboard.news,
-  promo: db.btcyDashboard.promo,
-});
+export const mapBtcyDashboard = (payload: any): BtcyDashboard => {
+  // The deployed BTCY endpoint returns `{data: snapshot}` without the legacy
+  // `{status, data}` envelope. Accept both forms so a valid account is not
+  // mistaken for an empty one merely because `hasAccount` is not present.
+  const raw =
+    payload?.data && !payload?.mining && !payload?.portfolio
+      ? payload.data
+      : payload;
+  const hasSnapshot = Boolean(
+    raw &&
+      (raw.mining ||
+        raw.portfolio ||
+        raw.alchemy ||
+        raw.referrals ||
+        raw.station ||
+        raw.watchEarn),
+  );
+  const alchemyUsesUsd =
+    raw?.alchemy?.currentUsd != null || raw?.alchemy?.targetUsd != null;
+  const miningSpeed =
+    raw?.mining?.speed != null
+      ? `${Number(raw.mining.speed).toLocaleString('en-US')}×`
+      : raw?.mining?.ratePerHour != null
+        ? `${Number(raw.mining.ratePerHour).toLocaleString('en-US')} BTCY/hr`
+        : undefined;
+  const optionalNumber = (value: unknown): number | undefined =>
+    nullableNumber(value) ?? undefined;
+
+  return {
+    hasAccount:
+      typeof raw?.hasAccount === 'boolean' ? raw.hasAccount : hasSnapshot,
+    mining: raw?.mining
+      ? {
+          active:
+            typeof raw.mining.active === 'boolean' ? raw.mining.active : undefined,
+          speed: miningSpeed,
+          endsIn:
+            raw.mining.endsInSeconds == null
+              ? undefined
+              : formatCountdown(optionalNumber(raw.mining.endsInSeconds) ?? null),
+          plan: raw.mining.plan ? String(raw.mining.plan) : undefined,
+          streakDays: optionalNumber(raw.mining.streakDays),
+        }
+      : undefined,
+    portfolio: raw?.portfolio
+      ? {
+          nuggets: optionalNumber(raw.portfolio.nuggets),
+          withdraw: optionalNumber(raw.portfolio.withdraw),
+          tokens: optionalNumber(raw.portfolio.tokens),
+        }
+      : undefined,
+    alchemy: raw?.alchemy
+      ? {
+          current: optionalNumber(raw.alchemy.current ?? raw.alchemy.currentUsd),
+          target: optionalNumber(raw.alchemy.target ?? raw.alchemy.targetUsd),
+          unit: alchemyUsesUsd ? 'USD' : 'BTCY',
+        }
+      : undefined,
+    referrals: raw?.referrals
+      ? {
+          active: optionalNumber(raw.referrals.active),
+          target: optionalNumber(raw.referrals.target),
+        }
+      : undefined,
+    station: raw?.station
+      ? {
+          unlocked:
+            typeof raw.station.unlocked === 'boolean' ? raw.station.unlocked : undefined,
+        }
+      : undefined,
+    ambassador: raw?.ambassador
+      ? {
+          tier: (['community', 'growth', 'elite'] as const).includes(raw.ambassador.tier)
+            ? raw.ambassador.tier
+            : undefined,
+          nextTierAt: optionalNumber(raw.ambassador.nextTierAt),
+        }
+      : undefined,
+    watchEarn: raw?.watchEarn
+      ? {
+          watched: optionalNumber(raw.watchEarn.watched),
+          total: optionalNumber(raw.watchEarn.total),
+          rewardAmount: optionalNumber(
+            raw.watchEarn.rewardAmount ?? raw.watchEarn.nuggetsToday,
+          ),
+        }
+      : undefined,
+  };
+};
+
+const btcyLiveNuggets = (balance: any, mining: any): number | undefined => {
+  const transferable = nullableNumber(balance?.transferableBalance);
+  const unverified = nullableNumber(balance?.unverifiedBalance);
+  if (transferable == null && unverified == null) return undefined;
+
+  const base = (transferable ?? 0) + (unverified ?? 0);
+  const rate = Math.max(0, nullableNumber(mining?.miningRate) ?? 0);
+  const startValue = mining?.sessionStartTime ?? mining?.lastClaimTime;
+  const startMs = startValue ? new Date(startValue).getTime() : NaN;
+  if (!mining?.isMiningActive || rate <= 0 || !Number.isFinite(startMs)) return base;
+
+  const explicitEndMs = mining?.sessionEndTime
+    ? new Date(mining.sessionEndTime).getTime()
+    : NaN;
+  const endMs = Number.isFinite(explicitEndMs)
+    ? explicitEndMs
+    : startMs + 6 * 60 * 60 * 1000;
+  const elapsedHours = Math.max(0, Math.min(Date.now(), endMs) - startMs) / 3_600_000;
+  return base + elapsedHours * rate;
+};
+
+const btcyEndsInSeconds = (mining: any): number | undefined => {
+  const startValue = mining?.sessionStartTime ?? mining?.lastClaimTime;
+  const startMs = startValue ? new Date(startValue).getTime() : NaN;
+  if (!mining?.isMiningActive || !Number.isFinite(startMs)) return undefined;
+  const explicitEndMs = mining?.sessionEndTime
+    ? new Date(mining.sessionEndTime).getTime()
+    : NaN;
+  const endMs = Number.isFinite(explicitEndMs)
+    ? explicitEndMs
+    : startMs + 6 * 60 * 60 * 1000;
+  return Math.max(0, Math.round((endMs - Date.now()) / 1000));
+};
 
 export const btcyService = {
   async dashboard(): Promise<BtcyDashboard> {
-    return viaEcosystem(
-      async () => backendBtcyDashboard(backendBody(await backendGet<any>(`${ECOSYSTEM_BASE}/btcy`))),
-      () => mockRequest('btcy.dashboard', () => ({...db.btcyDashboard})),
-    );
+    try {
+      const email = await backendSessionEmail();
+      const encodedEmail = encodeURIComponent(email);
+      const [balanceResult, miningResult, withdrawResult, tokenResult] =
+        await Promise.allSettled([
+          backendGet<any>(`/api/v1/mining/getUserMiningBalance/BTCY/${encodedEmail}`),
+          backendGet<any>(`/api/v1/mining/getMiningStatus/BTCY/${encodedEmail}`),
+          backendGet<any>(`/api/v1/inex/user/getUserWallet/${encodedEmail}/BTCY/Stellar`),
+          backendGet<any>(
+            `/api/v1/inex/user/getUserWallet/${encodedEmail}/BTCY/${encodeURIComponent('Ying Yang Chain')}`,
+          ),
+        ]);
+      const results = [balanceResult, miningResult, withdrawResult, tokenResult];
+      if (results.every(result => result.status === 'rejected')) {
+        throw (balanceResult as PromiseRejectedResult).reason;
+      }
+      const fulfilled = (result: PromiseSettledResult<any>) =>
+        result.status === 'fulfilled' ? backendBody(result.value) : undefined;
+      const balance = fulfilled(balanceResult);
+      const mining = fulfilled(miningResult);
+      const withdrawWallet = fulfilled(withdrawResult);
+      const tokenWallet = fulfilled(tokenResult);
+      const dashboard = mapBtcyDashboard({
+        hasAccount: Boolean(balance || mining || withdrawWallet || tokenWallet),
+        mining: mining
+          ? {
+              active: Boolean(mining.isMiningActive),
+              speed: nullableNumber(mining.miningRate),
+              plan: mining.miningPlan,
+              endsInSeconds: btcyEndsInSeconds(mining),
+            }
+          : undefined,
+        portfolio: {
+          nuggets: btcyLiveNuggets(balance, mining),
+          withdraw: nullableNumber(withdrawWallet?.coinBalance ?? withdrawWallet?.balance),
+          tokens: nullableNumber(tokenWallet?.coinBalance ?? tokenWallet?.balance),
+        },
+      });
+      dataMode.set('ecosystem', true);
+      return dashboard;
+    } catch (error) {
+      dataMode.set('ecosystem', false);
+      throw error;
+    }
   },
 };
 
@@ -4764,8 +5292,43 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   mutedConversationIds: [],
 };
 
-/** Local mirror used while the deployment does not serve M6 yet. */
+/**
+ * Local mirror used while the deployment does not serve M6 yet.
+ *
+ * Persisted, because in-memory is why the notification category switches
+ * "did not save" (BUG-005): with the M6 routes undeployed every write landed
+ * here and every relaunch reset it to the defaults.
+ */
+const NOTIFICATION_PREFS_KEY = 'yaysapp.notificationPreferences.v1';
+
 let localPreferences: NotificationPreferences = {...DEFAULT_PREFERENCES};
+let preferencesHydration: Promise<void> | null = null;
+
+const hydratePreferences = (): Promise<void> => {
+  if (!preferencesHydration) {
+    preferencesHydration = AsyncStorage.getItem(NOTIFICATION_PREFS_KEY)
+      .then(raw => {
+        if (raw) {
+          localPreferences = backendPreferences({...DEFAULT_PREFERENCES, ...JSON.parse(raw)});
+        }
+      })
+      .catch(() => undefined);
+  }
+  return preferencesHydration;
+};
+
+const persistPreferences = async (): Promise<void> => {
+  await AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(localPreferences)).catch(
+    () => undefined,
+  );
+};
+
+/** Test hook — drops the stored preferences and the hydration cache. */
+export const resetStoredNotificationPreferences = async (): Promise<void> => {
+  localPreferences = {...DEFAULT_PREFERENCES};
+  preferencesHydration = null;
+  await AsyncStorage.removeItem(NOTIFICATION_PREFS_KEY).catch(() => undefined);
+};
 
 const backendPreferences = (raw: any): NotificationPreferences => ({
   messages: raw?.messages !== false,
@@ -4836,6 +5399,7 @@ export const notificationService = {
   // --- preferences ---------------------------------------------------------
 
   async preferences(): Promise<NotificationPreferences> {
+    await hydratePreferences();
     return viaNotifications(
       async () =>
         backendPreferences(backendBody(await backendGet<any>(`${NOTIFICATIONS_BASE}/preferences`))),
@@ -4846,7 +5410,8 @@ export const notificationService = {
   async updatePreferences(
     patch: Partial<NotificationPreferences>,
   ): Promise<NotificationPreferences> {
-    return viaNotifications(
+    await hydratePreferences();
+    const updated = await viaNotifications(
       async () =>
         backendPreferences(
           backendBody(await backendPost<any>(`${NOTIFICATIONS_BASE}/preferences`, patch as any)),
@@ -4860,6 +5425,13 @@ export const notificationService = {
         return {...localPreferences};
       },
     );
+    // Kept on disk either way: when the server answered this is a cache that
+    // makes the next cold start show the right values before the fetch lands,
+    // and when it did not it is the only copy there is.
+    localPreferences = updated;
+    await persistPreferences();
+    notificationSoundService.setEnabled(updated.sounds);
+    return updated;
   },
 
   /** Mute or unmute one conversation's notifications. */
@@ -4878,6 +5450,7 @@ export const notificationService = {
         const set = new Set(localPreferences.mutedConversationIds);
         muted ? set.add(conversationId) : set.delete(conversationId);
         localPreferences = {...localPreferences, mutedConversationIds: Array.from(set)};
+        void persistPreferences();
         return {...localPreferences};
       },
     );
@@ -5015,13 +5588,59 @@ export const telemetryTransport = {
 // Settings
 // ---------------------------------------------------------------------------
 
+/**
+ * Settings lived only in `db.settings` — the in-memory mock database — so
+ * every privacy and community switch was forgotten the moment the process
+ * died. The switch moved, the write "succeeded", and the next launch showed
+ * the old value: exactly the "does not save" that was reported against
+ * Privacy (BUG-006) and Community settings (BUG-007).
+ */
+const SETTINGS_KEY = 'yaysapp.settings.v1';
+
+let settingsHydration: Promise<void> | null = null;
+
+const hydrateSettings = (): Promise<void> => {
+  if (!settingsHydration) {
+    settingsHydration = AsyncStorage.getItem(SETTINGS_KEY)
+      .then(raw => {
+        if (!raw) {
+          return;
+        }
+        const stored = JSON.parse(raw);
+        // Merged one section at a time so a stored record written by an older
+        // build keeps whatever new sections this build added.
+        Object.keys(db.settings).forEach(section => {
+          const key = section as keyof SettingsState;
+          const value = stored?.[key];
+          if (value && typeof value === 'object' && typeof db.settings[key] === 'object') {
+            Object.assign(db.settings[key] as object, value);
+          } else if (value !== undefined && value !== null) {
+            (db.settings as unknown as Record<string, unknown>)[key] = value;
+          }
+        });
+      })
+      .catch(() => undefined);
+  }
+  return settingsHydration;
+};
+
 export const settingsService = {
   async get(): Promise<SettingsState> {
+    await hydrateSettings();
     return mockRequest('settings.get', () => JSON.parse(JSON.stringify(db.settings)), {latencyMs: 150});
   },
 
   async update(next: SettingsState): Promise<SettingsState> {
+    await hydrateSettings();
     Object.assign(db.settings, next);
-    return JSON.parse(JSON.stringify(db.settings));
+    const saved = JSON.parse(JSON.stringify(db.settings));
+    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(saved)).catch(() => undefined);
+    return saved;
   },
+};
+
+/** Test hook — drops the stored settings and the hydration cache. */
+export const resetStoredSettings = async (): Promise<void> => {
+  settingsHydration = null;
+  await AsyncStorage.removeItem(SETTINGS_KEY).catch(() => undefined);
 };

@@ -450,6 +450,7 @@ describe('push on a build without Firebase', () => {
 
   it('returns a working cleanup from every subscription', () => {
     expect(() => pushNotificationService.subscribeForegroundChatMessages(() => {})()).not.toThrow();
+    expect(() => pushNotificationService.subscribeForegroundNotifications(() => {})()).not.toThrow();
     expect(() => pushNotificationService.subscribeNotificationOpens(() => {})()).not.toThrow();
   });
 

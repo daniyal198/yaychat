@@ -12,6 +12,12 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		846BFC692DE36EA300AB68B3 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 846BFC682DE36EA300AB68B3 /* StoreKit.framework */; };
+		A10000000000000000000001 /* NotificationSound.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* NotificationSound.m */; };
+		A10000000000000000000002 /* yays_message.wav in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* yays_message.wav */; };
+		A10000000000000000000003 /* yays_reward.wav in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* yays_reward.wav */; };
+		A10000000000000000000004 /* yays_event.wav in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* yays_event.wav */; };
+		A10000000000000000000005 /* yays_call.wav in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* yays_call.wav */; };
+		A10000000000000000000006 /* incallmanager_ringtone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000016 /* incallmanager_ringtone.mp3 */; };
 		CD023475F7CC6E1165946661 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -38,6 +44,12 @@
 		84FA9A042DBCB1310004989D /* yaysapp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = yaysapp.entitlements; path = yaysapp/yaysapp.entitlements; sourceTree = "<group>"; };
 		85BD1F6D85B04ECE8387B871 /* FontAwesome5_Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = FontAwesome5_Regular.ttf; path = "../node_modules/react-native-vector-icons/Fonts/FontAwesome5_Regular.ttf"; sourceTree = "<group>"; };
 		94B5DA5AAA223DF6E3D8A5B7 /* Pods-yaysapp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-yaysapp.debug.xcconfig"; path = "Target Support Files/Pods-yaysapp/Pods-yaysapp.debug.xcconfig"; sourceTree = "<group>"; };
+		A10000000000000000000011 /* NotificationSound.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = NotificationSound.m; path = yaysapp/NotificationSound.m; sourceTree = "<group>"; };
+		A10000000000000000000012 /* yays_message.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = yays_message.wav; path = yaysapp/yays_message.wav; sourceTree = "<group>"; };
+		A10000000000000000000013 /* yays_reward.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = yays_reward.wav; path = yaysapp/yays_reward.wav; sourceTree = "<group>"; };
+		A10000000000000000000014 /* yays_event.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = yays_event.wav; path = yaysapp/yays_event.wav; sourceTree = "<group>"; };
+		A10000000000000000000015 /* yays_call.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = yays_call.wav; path = yaysapp/yays_call.wav; sourceTree = "<group>"; };
+		A10000000000000000000016 /* incallmanager_ringtone.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = incallmanager_ringtone.mp3; path = yaysapp/incallmanager_ringtone.mp3; sourceTree = "<group>"; };
 		A14955124D73406E93B8C579 /* MaterialIcons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = MaterialIcons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/MaterialIcons.ttf"; sourceTree = "<group>"; };
 		ADB41C6732984D83BBF5F588 /* EvilIcons.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = EvilIcons.ttf; path = "../node_modules/react-native-vector-icons/Fonts/EvilIcons.ttf"; sourceTree = "<group>"; };
 		B4564E8C80FA46EB8B4DB5E6 /* Entypo.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = Entypo.ttf; path = "../node_modules/react-native-vector-icons/Fonts/Entypo.ttf"; sourceTree = "<group>"; };
@@ -65,6 +77,12 @@
 		13B07FAE1A68108700A75B9A /* yaysapp */ = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000011 /* NotificationSound.m */,
+				A10000000000000000000012 /* yays_message.wav */,
+				A10000000000000000000013 /* yays_reward.wav */,
+				A10000000000000000000014 /* yays_event.wav */,
+				A10000000000000000000015 /* yays_call.wav */,
+				A10000000000000000000016 /* incallmanager_ringtone.mp3 */,
 				84FA9A042DBCB1310004989D /* yaysapp.entitlements */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
@@ -211,6 +229,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000002 /* yays_message.wav in Resources */,
+				A10000000000000000000003 /* yays_reward.wav in Resources */,
+				A10000000000000000000004 /* yays_event.wav in Resources */,
+				A10000000000000000000005 /* yays_call.wav in Resources */,
+				A10000000000000000000006 /* incallmanager_ringtone.mp3 in Resources */,
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				CD023475F7CC6E1165946661 /* PrivacyInfo.xcprivacy in Resources */,
@@ -312,6 +335,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001 /* NotificationSound.m in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

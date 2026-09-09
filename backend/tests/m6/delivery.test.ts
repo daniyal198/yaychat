@@ -20,6 +20,8 @@ import {
 } from "../../data/yaysNotifications";
 import {
   StubPushTransport,
+  androidChannelFor,
+  bundledSoundFor,
   resetPushTransport,
 } from "../../services/notifications/transports";
 
@@ -227,6 +229,24 @@ describe("M6 delivery, executed", () => {
     const h = new Harness([device("d1")], basePreference({ sounds: false }));
     await h.service().deliver(request());
     assert.strictEqual(h.transport.sent[0].sound, false);
+    assert.strictEqual(h.transport.sent[0].data.sound, "0");
+  });
+
+  it("selects audible channels and bundled sounds for every notification kind", () => {
+    const payload = (category: string, type = "notification") => ({
+      data: { category, type },
+      sound: true,
+    });
+    assert.strictEqual(androidChannelFor(payload("messages")), "yays_messages_v2");
+    assert.strictEqual(androidChannelFor(payload("communities")), "yays_communities_v2");
+    assert.strictEqual(androidChannelFor(payload("rewards")), "yays_rewards_v2");
+    assert.strictEqual(androidChannelFor(payload("system")), "yays_events_v2");
+    assert.strictEqual(androidChannelFor(payload("messages", "call")), "yays_calls_v2");
+    assert.strictEqual(androidChannelFor({ data: { category: "rewards" }, sound: false }), "yays_silent_v2");
+    assert.strictEqual(bundledSoundFor(payload("messages")), "yays_message");
+    assert.strictEqual(bundledSoundFor(payload("rewards")), "yays_reward");
+    assert.strictEqual(bundledSoundFor(payload("system")), "yays_event");
+    assert.strictEqual(bundledSoundFor(payload("messages", "call")), "yays_call");
   });
 
   it("disables a device whose token the transport rejects", async () => {

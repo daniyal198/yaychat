@@ -118,6 +118,8 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   WalletOverview: undefined;
   WalletTransactions: undefined;
+  /** IndexxPoints → BTCY Nuggets. Reachable from the wallet, Earn, and the BTCY hub. */
+  ConvertPoints: undefined;
   PaymentMethods: undefined;
   PaymentMethodConnect: {methodId: string};
   TransactionDetail: {transactionId: string};

@@ -116,8 +116,16 @@ export interface Referral extends IModel {
 
 /** A crypto or fiat holding shown in the wallet, read from Indexx. */
 export interface WalletAssetView {
+  /**
+   * Stable row identity. `symbol` alone is not unique — BTCY is held on two
+   * networks at once (Stellar for withdrawals, Ying Yang Chain for tokens),
+   * and a list keyed on the symbol collapses them into one row.
+   */
+  id: string;
   symbol: string;
   name: string;
+  /** Chain the balance sits on, when it sits on one. */
+  network?: string;
   balance: number;
   fiatValue: number;
   /**
