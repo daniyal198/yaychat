@@ -210,45 +210,51 @@ export const ExploreHomeScreen = ({
         )}
       </AsyncView>
 
-      {/* Social linking */}
-      <SectionHeader title="Connect your socials" />
-      <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.sm}}>
-        Link your accounts to invite friends, share wins, and unlock rewards.
-      </YayText>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{gap: spacing.md, paddingRight: spacing.md}}>
-        {socials.map(s => {
-          return (
-            <Pressable
-              key={s.id}
-              accessibilityRole="button"
-              accessibilityLabel={
-                s.connected ? `${s.name}, linked as ${s.handle}` : `Connect ${s.name}`
-              }
-              onPress={() => navigation.navigate('SocialConnect', {socialId: s.id})}
-              style={({pressed}) => [styles.social, pressed && {opacity: 0.6}]}>
-              <View>
-                <View style={[styles.socialCircle, {backgroundColor: s.brandColor}]}>
-                  <Ionicons name={s.icon} size={26} color={colors.textOnBrand} />
-                </View>
-                {s.connected ? (
-                  <View style={styles.socialCheck}>
-                    <Ionicons name="checkmark" size={11} color={colors.textOnBrand} />
+      {/* Social linking — hidden until provider OAuth exists. A tile that
+          can only fake a connection is worse than no tile; the portal is
+          gated on the same flag. */}
+      {socialLinkingIsLive() ? (
+        <>
+        <SectionHeader title="Connect your socials" />
+        <YayText variant="caption" color={colors.textMuted} style={{marginBottom: spacing.sm}}>
+          Link your accounts to invite friends, share wins, and unlock rewards.
+        </YayText>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{gap: spacing.md, paddingRight: spacing.md}}>
+          {socials.map(s => {
+            return (
+              <Pressable
+                key={s.id}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  s.connected ? `${s.name}, linked as ${s.handle}` : `Connect ${s.name}`
+                }
+                onPress={() => navigation.navigate('SocialConnect', {socialId: s.id})}
+                style={({pressed}) => [styles.social, pressed && {opacity: 0.6}]}>
+                <View>
+                  <View style={[styles.socialCircle, {backgroundColor: s.brandColor}]}>
+                    <Ionicons name={s.icon} size={26} color={colors.textOnBrand} />
                   </View>
-                ) : null}
-              </View>
-              <YayText variant="micro" color={colors.textSecondary} style={{marginTop: spacing.xxs}}>
-                {s.name}
-              </YayText>
-              <YayText variant="micro" color={s.connected ? colors.success : colors.textFaint}>
-                {s.connected ? 'Linked' : 'Connect'}
-              </YayText>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+                  {s.connected ? (
+                    <View style={styles.socialCheck}>
+                      <Ionicons name="checkmark" size={11} color={colors.textOnBrand} />
+                    </View>
+                  ) : null}
+                </View>
+                <YayText variant="micro" color={colors.textSecondary} style={{marginTop: spacing.xxs}}>
+                  {s.name}
+                </YayText>
+                <YayText variant="micro" color={s.connected ? colors.success : colors.textFaint}>
+                  {s.connected ? 'Linked' : 'Connect'}
+                </YayText>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        </>
+      ) : null}
 
       <Spacer size={spacing.md} />
       <Banner

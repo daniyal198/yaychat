@@ -218,20 +218,29 @@ export const OvalImage = ({
     };
   }, [uri]);
 
-  // Cover: scale so the *smaller* overflow wins, then centre. Because the box
-  // is given the photo's exact ratio, `preserveAspectRatio="none"` cannot
-  // distort it — it just stops the renderer refitting what is already right.
-  let box: {x: number; y: number; width: number; height: number} = {
-    x: 0,
-    y: 0,
-    width: vw,
-    height: vh,
+  // Cover a target box, centred, at the photo's own ratio. Because the result
+  // carries that exact ratio, `preserveAspectRatio="none"` cannot distort it —
+  // it just stops the renderer refitting what is already right.
+  const coverBox = (targetW: number, targetH: number) => {
+    const scale = Math.max(targetW / (aspect as number), targetH) * OVAL_IMAGE_OVERSCAN;
+    const w = (aspect as number) * scale;
+    return {x: (vw - w) / 2, y: (vh - scale) / 2, width: w, height: scale};
   };
-  if (aspect) {
-    const scale = Math.max(vw / aspect, vh) * OVAL_IMAGE_OVERSCAN;
-    const w = aspect * scale;
-    box = {x: (vw - w) / 2, y: (vh - scale) / 2, width: w, height: scale};
-  }
+
+  const full = {x: 0, y: 0, width: vw, height: vh};
+  // Foreground: covers the oval's bounding box — the least cropping that can
+  // still fill the shape.
+  const box = aspect ? coverBox(vw, vh) : full;
+  // Backdrop: the same photo zoomed to cover the major axis end to end.
+  //
+  // Profile pictures are very often circular artwork on a transparent square,
+  // and a circle inscribed in the bounding box cannot reach a *tilted* oval's
+  // tips — the corners stayed empty and the placeholder tint showed through as
+  // crescents. Rather than crop every photo harder to hide that, the gap is
+  // filled with a zoomed copy of the same image, so the colour bleeding into
+  // the tips is the picture's own. Fully opaque photos cover this completely
+  // and never pay for it.
+  const backdrop = aspect ? coverBox(2 * rx, 2 * rx) : null;
 
   return (
     <Svg
@@ -263,6 +272,16 @@ export const OvalImage = ({
             ry={ry}
             transform={`rotate(${rotation} ${vw / 2} ${vh / 2})`}
             fill={background}
+          />
+        ) : null}
+        {backdrop ? (
+          <SvgImage
+            href={{uri}}
+            x={backdrop.x}
+            y={backdrop.y}
+            width={backdrop.width}
+            height={backdrop.height}
+            preserveAspectRatio="none"
           />
         ) : null}
         <SvgImage
