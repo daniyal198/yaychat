@@ -56,6 +56,8 @@
 	<string>YaysApp uses the camera for video calls and for photos you choose to send in chats.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>YaysApp uses the microphone for voice and video calls and for voice notes you record.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>YaysApp opens your photo library so you can pick a profile picture and crop it before saving.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>YaysApp checks your contacts against existing accounts so you can find friends who are already here and invite the ones who aren't. Numbers and emails are matched, never stored.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

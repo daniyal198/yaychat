@@ -250,6 +250,7 @@ export class ChatController {
         message: originalMessage,
         fileUrl,
         fileType,
+        fileName,
         durationSeconds,
         replyToMessageId,
         clientId,
@@ -310,7 +311,7 @@ export class ChatController {
       );
 
       const senderId = (sender as any).id ?? (sender as any)._id;
-      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds, fileName);
       const cleanMessage = leoProfanity.clean(originalMessage || "");
       const messagePayload: any = {
         email: sender.email,
@@ -331,6 +332,7 @@ export class ChatController {
 
       if (attachment.fileUrl) messagePayload.fileUrl = attachment.fileUrl;
       if (attachment.fileType) messagePayload.fileType = attachment.fileType;
+      if (attachment.fileName) messagePayload.fileName = attachment.fileName;
       if (attachment.durationSeconds) messagePayload.durationSeconds = attachment.durationSeconds;
 
       const saved = await chatService.sendMessage(messagePayload);
@@ -449,6 +451,7 @@ export class ChatController {
         message: originalMsg,  // optional if fileUrl provided
         fileUrl,
         fileType,              // "image" | "document" | "video" | "audio"
+        fileName,
         durationSeconds,       // voice notes, in seconds
         replyToMessageId,
         clientId,
@@ -535,7 +538,7 @@ export class ChatController {
       }
 
       // 4) sanitize text
-      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds, fileName);
       const cleanMessage = originalMsg ? leoProfanity.clean(originalMsg) : undefined;
 
       // 4) persist the group message
@@ -557,6 +560,7 @@ export class ChatController {
 
       if (attachment.fileUrl) message.fileUrl = attachment.fileUrl;
       if (attachment.fileType) message.fileType = attachment.fileType;
+      if (attachment.fileName) message.fileName = attachment.fileName;
       if (attachment.durationSeconds) message.durationSeconds = attachment.durationSeconds;
 
       const savedMessage = await chatService.sendMessage(message);
@@ -705,6 +709,7 @@ export class ChatController {
         message: originalMessage,
         fileUrl,
         fileType,
+        fileName,
         durationSeconds,
       } = req.body;
 
@@ -747,7 +752,7 @@ export class ChatController {
 
       const senderLower = String(sender.email || "").trim().toLowerCase();
       const senderId = (sender as any).id ?? (sender as any)._id;
-      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds);
+      const attachment = this.normalizeAttachment(fileUrl, fileType, durationSeconds, fileName);
       const cleanMessage = originalMessage ? leoProfanity.clean(originalMessage) : undefined;
       const preview = (cleanMessage || attachmentPreview(attachment.fileType)).slice(0, 120);
       const broadcastId = randomUUID();
@@ -773,6 +778,7 @@ export class ChatController {
 
         if (attachment.fileUrl) messagePayload.fileUrl = attachment.fileUrl;
         if (attachment.fileType) messagePayload.fileType = attachment.fileType;
+        if (attachment.fileName) messagePayload.fileName = attachment.fileName;
 
         return messagePayload;
       });
@@ -2836,7 +2842,7 @@ export class ChatController {
 
 
   private buildReplyMetadata(msg: any) {
-    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds);
+    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds, msg?.fileName);
     return {
       messageId: msg.messageId || String((msg as any)._id),
       email: msg.email,
@@ -2845,6 +2851,7 @@ export class ChatController {
       message: (msg.message ?? '').slice(0, 200),
       ...(attachment.fileUrl ? { fileUrl: attachment.fileUrl } : {}),
       ...(attachment.fileType ? { fileType: attachment.fileType } : {}),
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
       timestamp: msg.timestamp ?? new Date(),
     };
   }
@@ -2871,7 +2878,7 @@ export class ChatController {
   }
 
   private buildReplySummary(msg: any) {
-    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds);
+    const attachment = this.normalizeAttachment(msg?.fileUrl, msg?.fileType, msg?.durationSeconds, msg?.fileName);
     return {
       messageId: msg.messageId || String((msg as any)._id),
       email: msg.email,
@@ -2880,6 +2887,7 @@ export class ChatController {
       message: (msg.message ?? '').slice(0, 200),
       ...(attachment.fileUrl ? { fileUrl: attachment.fileUrl } : {}),
       ...(attachment.fileType ? { fileType: attachment.fileType } : {}),
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
       timestamp: msg.timestamp ?? new Date(),
     };
   }
@@ -2914,8 +2922,9 @@ export class ChatController {
   private normalizeAttachment(
     fileUrl: any,
     fileType: any,
-    durationSeconds?: any
-  ): { fileUrl?: string; fileType?: AttachmentFileType; durationSeconds?: number } {
+    durationSeconds?: any,
+    fileName?: any
+  ): { fileUrl?: string; fileType?: AttachmentFileType; durationSeconds?: number; fileName?: string } {
     const normalizedUrl =
       typeof fileUrl === "string" && fileUrl.trim().length > 0
         ? fileUrl.trim()
@@ -2927,6 +2936,12 @@ export class ChatController {
       fileUrl: normalizedUrl,
       fileType: normalizedType,
       durationSeconds: this.normalizeDuration(durationSeconds),
+      // The client's own name for the file, not the opaque S3 key — capped so
+      // a pathological value cannot bloat the message document.
+      fileName:
+        typeof fileName === "string" && fileName.trim().length > 0
+          ? fileName.trim().slice(0, 255)
+          : undefined,
     };
   }
 

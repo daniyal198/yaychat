@@ -140,8 +140,11 @@ describe('AsyncView', () => {
 describe('ListRow and Badge', () => {
   it('renders a selected profile picture instead of initials', () => {
     const tree = render(<Avatar name="Test User" imageUri="file:///profile.jpg" />);
-    const image = tree.root.findByProps({accessibilityLabel: 'Test User profile picture'});
-    expect(image.props.source).toEqual({uri: 'file:///profile.jpg'});
+    const svg = tree.root.findByProps({accessibilityLabel: 'Test User profile picture'});
+    // The photo fills the whole oval: clipped to the oval silhouette and
+    // cover-fitted ("slice") rather than inset in a smaller shape.
+    const image = svg.findByProps({preserveAspectRatio: 'xMidYMid slice'});
+    expect(image.props.href).toEqual({uri: 'file:///profile.jpg'});
     expect(textContent(tree)).not.toContain('TU');
   });
 

@@ -9,11 +9,13 @@ import {
   analytics,
   authService,
   chatService,
+  notificationService,
   onOfflineChange,
   simulation,
   telemetryTransport,
 } from '../services';
 import {pushNotificationService} from '../services/pushNotifications';
+import {notificationSoundService} from '../services/notificationSounds';
 import {telemetry} from '../services/telemetry';
 import {callService} from '../services/calls/callService';
 import {navigateToCall, navigateToDeepLink} from '../navigation/navigationRef';
@@ -307,6 +309,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
   // changes (opening a chat clears its unread count in the store).
   useEffect(() => {
     if (!session) {
+      notificationSoundService.setEnabled(true);
       setBackendUnreadByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
       setLocalUnreadByConversation(prev => (Object.keys(prev).length > 0 ? {} : prev));
       setServerUnreadTotal(prev => (prev === 0 ? prev : 0));
@@ -315,6 +318,14 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
     }
     let mounted = true;
     let unsubscribePushTokenRefresh: (() => void) | undefined;
+    notificationService
+      .preferences()
+      .then(preferences => {
+        if (mounted) {
+          notificationSoundService.setEnabled(preferences.sounds);
+        }
+      })
+      .catch(() => {});
     pushNotificationService
       .registerForSession(session)
       .then(unsubscribe => {
@@ -386,6 +397,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       if (!(amount > 0)) {
         return;
       }
+      notificationSoundService.play('reward');
       setRewardToast({amount, label});
       Animated.spring(rewardOpacity, {toValue: 1, useNativeDriver: true, friction: 7}).start();
       if (rewardTimer.current) {
@@ -405,7 +417,25 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       return;
     }
 
-    return pushNotificationService.subscribeForegroundChatMessages(message => {
+    return pushNotificationService.subscribeForegroundNotifications(message => {
+      if (message.category === 'calls') {
+        // The call socket owns the looping ringtone and its stop lifecycle.
+        return;
+      }
+      if (message.sound) {
+        const soundKind =
+          message.category === 'rewards'
+            ? 'reward'
+            : message.category === 'communities'
+            ? 'community'
+            : message.category === 'messages'
+            ? 'message'
+            : 'system';
+        notificationSoundService.play(
+          soundKind,
+          message.messageId ?? message.notificationId,
+        );
+      }
       show(`${message.title}: ${chatNotificationPreview(message.body)}`, 'info');
       if (message.conversationId) {
         recordIncoming(message.conversationId);
@@ -465,6 +495,7 @@ export const AppProviders = ({children}: {children: React.ReactNode}) => {
       }
 
       show(`${conversation.title}: ${chatNotificationPreview(lastMessage.text)}`, 'info');
+      notificationSoundService.play('message', lastMessage.id);
       recordIncoming(conversation.id, conversation.unreadCount);
     });
 

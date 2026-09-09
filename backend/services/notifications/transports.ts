@@ -41,6 +41,36 @@ const INVALID_FCM_CODES = new Set([
   "messaging/invalid-argument",
 ]);
 
+/** Must match the channels created by NotificationChannels.kt in the app. */
+export const androidChannelFor = (
+  payload: Pick<PushPayload, "data" | "sound">
+): string => {
+  if (!payload.sound) return "yays_silent_v2";
+  if (payload.data.type === "call") return "yays_calls_v2";
+  switch (payload.data.category) {
+    case "messages":
+      return "yays_messages_v2";
+    case "communities":
+      return "yays_communities_v2";
+    case "rewards":
+      return "yays_rewards_v2";
+    default:
+      return "yays_events_v2";
+  }
+};
+
+export const bundledSoundFor = (payload: Pick<PushPayload, "data">): string => {
+  if (payload.data.type === "call") return "yays_call";
+  switch (payload.data.category) {
+    case "messages":
+      return "yays_message";
+    case "rewards":
+      return "yays_reward";
+    default:
+      return "yays_event";
+  }
+};
+
 /** Records sends in memory so tests and the admin surface can assert on them. */
 export class StubPushTransport implements PushTransport {
   readonly id = "stub";
@@ -79,12 +109,17 @@ export class FirebasePushTransport implements PushTransport {
         data: payload.data,
         android: {
           priority: "high",
-          notification: { sound: payload.sound ? "default" : undefined },
+          notification: {
+            channelId: androidChannelFor(payload),
+            sound: payload.sound ? bundledSoundFor(payload) : undefined,
+            defaultVibrateTimings: payload.sound,
+            visibility: "public",
+          },
         },
         apns: {
           payload: {
             aps: {
-              sound: payload.sound ? "default" : undefined,
+              sound: payload.sound ? `${bundledSoundFor(payload)}.wav` : undefined,
               badge: payload.badge,
               "content-available": 1,
             },

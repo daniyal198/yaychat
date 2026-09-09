@@ -31,6 +31,11 @@ yaysWalletRouter.post(
 yaysWalletRouter.get("/earn/rewards", validateAuthHeader, controller.getRewardHistory);
 yaysWalletRouter.get("/earn/rewards/:rewardId", validateAuthHeader, controller.getReward);
 
+// Convert — IndexxPoints into BTCY Nuggets.
+yaysWalletRouter.get("/convert/quote", validateAuthHeader, controller.getConversionQuote);
+yaysWalletRouter.get("/convert/history", validateAuthHeader, controller.getConversionHistory);
+yaysWalletRouter.post("/convert", validateAuthHeader, controller.convertPoints);
+
 // Referrals.
 yaysWalletRouter.get("/referrals", validateAuthHeader, controller.getReferralSummary);
 yaysWalletRouter.post("/referrals/redeem", validateAuthHeader, controller.redeemReferral);

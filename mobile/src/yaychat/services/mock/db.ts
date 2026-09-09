@@ -4,7 +4,6 @@
  */
 import {
   AppNotification,
-  BtcyDashboard,
   EmmmDashboard,
   RehumanDashboard,
   ShoperpalDashboard,
@@ -463,11 +462,15 @@ export const rewardHistory: RewardEntry[] = [
 // Wallet (preview only)
 // ---------------------------------------------------------------------------
 
+// Mirrors the live wallet's row order: the two balances YaysApp is closest to
+// (points, then nuggets) lead, and crypto follows. `id` is the row identity —
+// BTCY is held on two networks at once, so the symbol alone is not unique.
 export const walletAssets = [
-  {symbol: 'BTCY', name: 'Bitcoin Yay', balance: 1520.5, fiatValue: 152.05, preview: true},
-  {symbol: 'NUG', name: 'Nuggets', balance: 340, fiatValue: 0, preview: true},
-  {symbol: 'USDT', name: 'Tether', balance: 25, fiatValue: 25, preview: true},
-  {symbol: 'BTC', name: 'Bitcoin', balance: 0.0012, fiatValue: 81.2, preview: true},
+  {id: 'IXXP', symbol: 'IXXP', name: 'IndexxPoints', balance: 1240, fiatValue: 0, preview: false},
+  {id: 'NUG', symbol: 'NUG', name: 'BTCY Nuggets', balance: 340, fiatValue: 0, preview: true},
+  {id: 'BTCY-stellar', symbol: 'BTCY', name: 'Bitcoin Yay', network: 'Stellar', balance: 1520.5, fiatValue: 152.05, preview: true},
+  {id: 'USDT', symbol: 'USDT', name: 'Tether', balance: 25, fiatValue: 25, preview: true},
+  {id: 'BTC', symbol: 'BTC', name: 'Bitcoin', balance: 0.0012, fiatValue: 81.2, preview: true},
 ];
 
 export const walletTransactions = [
@@ -603,26 +606,6 @@ export const socialAccounts: SocialAccount[] = [
     connected: false,
   },
 ];
-
-// BTCY dashboard snapshot. In production this mirrors the user's Bitcoin Yay
-// account; every CTA on the dashboard deep-links into the Bitcoin Yay app.
-export const btcyDashboard: BtcyDashboard = {
-  mining: {active: true, speed: '2.8 BTCY/hr', endsIn: '3h 12m'},
-  portfolio: {nuggets: 8450, tokens: 145},
-  alchemy: {current: 8450, target: 10000},
-  referrals: {active: 18, target: 25},
-  station: {
-    unlocked: false,
-    benefits: ['Sell Access', 'Premium Rewards', 'Higher Mining Benefits'],
-  },
-  ambassador: {tier: null, nextTierAt: 25},
-  watchEarn: {watched: 6, total: 10, nuggetsToday: 18},
-  news: [
-    {id: 'bn_1', tag: 'Update', title: 'Alchemy Reduced', detail: 'The Alchemy threshold drops from 50K to 10K nuggets — refining BTCY just got 5× faster.', hot: true},
-    {id: 'bn_2', tag: 'New Feature', title: 'Dynamic Mining', detail: 'Mining speed now adapts to your daily activity across the Indexx ecosystem.'},
-  ],
-  promo: {headline: '15% OFF Power Mining', subtitle: 'Boost your rate with a discounted Power tier.', endsIn: '2 days'},
-};
 
 // EMMM dashboard snapshot — mirrors the user's emmm.io account; every CTA
 // deep-links into the EMMM app. Preview missing numeric values as zero, matching
@@ -833,6 +816,7 @@ export const defaultSettings: SettingsState = {
   language: 'English',
   ai: {saveHistory: true, personalization: false},
   rewards: {activityTracking: true},
+  community: {invites: true, eventReminders: true, trendingDigests: false},
 };
 
 export let settings: SettingsState = JSON.parse(JSON.stringify(defaultSettings));

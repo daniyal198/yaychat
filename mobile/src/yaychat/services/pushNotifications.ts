@@ -1,4 +1,4 @@
-import {Platform} from 'react-native';
+import {PermissionsAndroid, Platform} from 'react-native';
 import {Session, DeepLinkTarget, PushStatus} from '../types/models';
 import {targetFromPushData} from './notifications/deepLinks';
 import {notificationService} from './index';
@@ -25,6 +25,22 @@ export interface ForegroundChatMessage {
   body: string;
   conversationId?: string;
   messageId?: string;
+}
+
+export type ForegroundNotificationCategory =
+  | 'messages'
+  | 'communities'
+  | 'rewards'
+  | 'system'
+  | 'calls';
+
+export interface ForegroundNotification extends ForegroundChatMessage {
+  category: ForegroundNotificationCategory;
+  type: string;
+  notificationId?: string;
+  /** False only when the user disabled sounds before the server sent it. */
+  sound: boolean;
+  data: Record<string, string>;
 }
 
 type MessagingModule = any;
@@ -95,7 +111,21 @@ const deviceMetadata = async () => {
 
 const requestPermission = async (mod: MessagingModule): Promise<boolean> => {
   telemetry.track('push_permission_prompted');
-  const status = await mod.default().requestPermission();
+  if (Platform.OS === 'android') {
+    const granted =
+      Number(Platform.Version) < 33 ||
+      (await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      )) === PermissionsAndroid.RESULTS.GRANTED;
+    lastPermission = granted ? 'granted' : 'denied';
+    telemetry.track('push_permission_result', {granted});
+    return granted;
+  }
+  const status = await mod.default().requestPermission({
+    alert: true,
+    badge: true,
+    sound: true,
+  });
   const granted =
     status === mod.default.AuthorizationStatus.AUTHORIZED ||
     status === mod.default.AuthorizationStatus.PROVISIONAL;
@@ -197,6 +227,59 @@ export const pushNotificationService = {
           conversationId:
             target.route === 'chat.conversation' ? target.params.conversationId : undefined,
           messageId: data.messageId ? String(data.messageId) : undefined,
+        });
+      });
+    } catch {
+      return noop;
+    }
+  },
+
+  /**
+   * Every push received while the app is open. Firebase deliberately does not
+   * display or sound these, so the root provider renders the alert and plays
+   * its matching foreground cue.
+   */
+  subscribeForegroundNotifications(
+    onNotification: (notification: ForegroundNotification) => void,
+  ): Cleanup {
+    const mod = messaging();
+    if (!mod) {
+      return noop;
+    }
+    try {
+      return mod.default().onMessage((remoteMessage: any) => {
+        const rawData = remoteMessage?.data || {};
+        const data = Object.fromEntries(
+          Object.entries(rawData).map(([key, value]) => [key, String(value ?? '')]),
+        );
+        const type = String(data.type || 'notification');
+        const rawCategory = String(data.category || 'system');
+        const category: ForegroundNotificationCategory =
+          type === 'call'
+            ? 'calls'
+            : rawCategory === 'messages' ||
+              rawCategory === 'communities' ||
+              rawCategory === 'rewards' ||
+              rawCategory === 'system'
+            ? rawCategory
+            : type === 'chat_message'
+            ? 'messages'
+            : 'system';
+        const target = targetFromPushData(data);
+        onNotification({
+          title: remoteMessage?.notification?.title || 'Notification',
+          body:
+            remoteMessage?.notification?.body ||
+            String(data.preview || '').trim() ||
+            'New notification',
+          category,
+          type,
+          notificationId: data.notificationId || undefined,
+          conversationId:
+            target.route === 'chat.conversation' ? target.params.conversationId : undefined,
+          messageId: data.messageId || undefined,
+          sound: data.sound !== '0',
+          data,
         });
       });
     } catch {

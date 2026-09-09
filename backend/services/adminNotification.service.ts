@@ -67,7 +67,12 @@ async function sendToTopic(topic: string, notif: AdminNotification, opts?: { dry
     data: stringify(notif.data),
     webpush: notif.clickAction ? { fcmOptions: { link: notif.clickAction } } : undefined,
     android: {
-      notification: { channelId: notif.androidChannelId, clickAction: notif.clickAction, imageUrl: notif.imageUrl },
+      notification: {
+        channelId: notif.androidChannelId || "yays_events_v2",
+        sound: "default",
+        clickAction: notif.clickAction,
+        imageUrl: notif.imageUrl,
+      },
       ttl: notif.ttlSeconds ? notif.ttlSeconds * 1000 : undefined,
     },
     apns: {
@@ -98,7 +103,12 @@ async function sendToTokens(tokens: string[], notif: AdminNotification, opts?: {
       data: stringify(notif.data),
       webpush: notif.clickAction ? { fcmOptions: { link: notif.clickAction } } : undefined,
       android: {
-        notification: { channelId: notif.androidChannelId, clickAction: notif.clickAction, imageUrl: notif.imageUrl },
+        notification: {
+          channelId: notif.androidChannelId || "yays_events_v2",
+          sound: "default",
+          clickAction: notif.clickAction,
+          imageUrl: notif.imageUrl,
+        },
         ttl: notif.ttlSeconds ? notif.ttlSeconds * 1000 : undefined,
       },
       apns: {

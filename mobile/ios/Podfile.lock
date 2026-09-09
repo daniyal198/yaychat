@@ -1331,6 +1331,27 @@ PODS:
     - react-native-config/App (= 1.5.5)
   - react-native-config/App (1.5.5):
     - React-Core
+  - react-native-contacts (8.0.10):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - react-native-document-picker (10.1.2):
     - DoubleConversion
     - glog
@@ -1716,6 +1737,53 @@ PODS:
   - RNGoogleSignin (13.2.0):
     - GoogleSignIn (~> 7.1)
     - React-Core
+  - RNImageCropPicker (0.51.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-RCTImage
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - RNImageCropPicker/QBImagePickerController (= 0.51.1)
+    - TOCropViewController (~> 2.8.0)
+    - Yoga
+  - RNImageCropPicker/QBImagePickerController (0.51.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-RCTImage
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - TOCropViewController (~> 2.8.0)
+    - Yoga
   - RNReanimated (3.17.5):
     - DoubleConversion
     - glog
@@ -1881,6 +1949,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - Yoga
   - SocketRocket (0.7.1)
+  - TOCropViewController (2.8.0)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -1924,6 +1993,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-config (from `../node_modules/react-native-config`)
+  - react-native-contacts (from `../node_modules/react-native-contacts`)
   - "react-native-document-picker (from `../node_modules/@react-native-documents/picker`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - "react-native-slider (from `../node_modules/@react-native-community/slider`)"
@@ -1968,6 +2038,7 @@ DEPENDENCIES:
   - "RNFBMessaging (from `../node_modules/@react-native-firebase/messaging`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - "RNGoogleSignin (from `../node_modules/@react-native-google-signin/google-signin`)"
+  - RNImageCropPicker (from `../node_modules/react-native-image-crop-picker`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
@@ -1996,6 +2067,7 @@ SPEC REPOS:
     - PromisesObjC
     - RecaptchaInterop
     - SocketRocket
+    - TOCropViewController
 
 EXTERNAL SOURCES:
   boost:
@@ -2075,6 +2147,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   react-native-config:
     :path: "../node_modules/react-native-config"
+  react-native-contacts:
+    :path: "../node_modules/react-native-contacts"
   react-native-document-picker:
     :path: "../node_modules/@react-native-documents/picker"
   react-native-safe-area-context:
@@ -2163,6 +2237,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-gesture-handler"
   RNGoogleSignin:
     :path: "../node_modules/@react-native-google-signin/google-signin"
+  RNImageCropPicker:
+    :path: "../node_modules/react-native-image-crop-picker"
   RNReanimated:
     :path: "../node_modules/react-native-reanimated"
   RNScreens:
@@ -2216,30 +2292,31 @@ SPEC CHECKSUMS:
   React-FabricComponents: 1094d6a3c2566b3c56951331c44d7d3960570ac8
   React-FabricImage: 6b210ad3c72704a9ad60dde66c397ce6257333f4
   React-featureflags: efb93a998907e4ad5b88f6ed77cc140914d5c36d
-  React-featureflagsnativemodule: a74b09429c2e7a57412d78cc159ab86ae4f15db9
-  React-graphics: 17ef0ee3ef4a4c1774cc82f1f477ecef4d67c73f
-  React-hermes: a9a0c8377627b5506ef9a7b6f60a805c306e3f51
-  React-idlecallbacksnativemodule: 0711ec5eb53c7f790641fa00e5f6ec0355d3159b
-  React-ImageManager: 23b4701408390428724f0e0ebb2cbed7b37c2b24
-  React-jserrorhandler: e21b438ef8b99ea8bf070ff35f00bc0215b5f769
-  React-jsi: f3f51595cc4c089037b536368f016d4742bf9cf7
-  React-jsiexecutor: cca6c232db461e2fd213a11e9364cfa6fdaa20eb
-  React-jsinspector: 8a3c2637b84ebec478f46a43432a522d7489410f
-  React-jsinspectortracing: ee0215d2db753cc10f45fc9aa86557718d0b16fb
-  React-jsitracing: 258be1fd259141f6aa43012c20c70ebc02e32087
-  React-logger: 018826bfd51b9f18e87f67db1590bc510ad20664
-  React-Mapbuffer: 9fbb496e7d6f7c34d5e617365ee778bf96d14eae
-  React-microtasksnativemodule: 36adde22631838680d1be62776e8ccb83186c06a
-  react-native-config: 644074ab88db883fcfaa584f03520ec29589d7df
-  react-native-document-picker: d7cf4f0ed416e045103999aaf991a76e76d8caea
-  react-native-safe-area-context: 3e33e7c43c8b74dba436a5a32651cb8d7064c740
-  react-native-slider: 1dde58286559e272f42376a9ec9ebb9ea0bd2170
-  react-native-splash-screen: 95994222cc95c236bd3cdc59fe45ed5f27969594
-  react-native-tracking-transparency: 15eb319f2b982070eb9831582af27d87badfa624
-  react-native-webrtc: da75ba1f85a36981cbcb3fdae7dfbab7ad63c040
-  React-NativeModulesApple: ec44c21ae0bbb5f9a2df72db00294e33a00e07f0
-  React-perflogger: 9e8d3c0dc0194eb932162812a168aa5dc662f418
-  React-performancetimeline: 350424518f433dd43f063dc5f2cf3195c1a5b60f
+  React-featureflagsnativemodule: 51116d72aafea30860f315702d17eb76bbb725a3
+  React-graphics: 91d9920451f633d64d31948da3ba0377b6eda8de
+  React-hermes: 71186f872c932e4574d5feb3ed754dda63a0b3bd
+  React-idlecallbacksnativemodule: 19bf1fa4b2b66fe1898ac1d185129cdcc3221c7c
+  React-ImageManager: 7dc7bfca8e9ecb9a7436b8a89a143a193ef5adcf
+  React-jserrorhandler: d8640792495ac2d78e73acbcc77a8439d1eedfef
+  React-jsi: 0775a66820496769ad83e629f0f5cce621a57fc7
+  React-jsiexecutor: 2cf5ba481386803f3c88b85c63fa102cba5d769e
+  React-jsinspector: d1d9f215c7431b286acc12e83cdf0d90c265f0ed
+  React-jsinspectortracing: c4c1cceb9a9c266ce849c82332e35cc57ee9dae9
+  React-jsitracing: 267618eec9c362658a4587c5ddcfb41b2e00c403
+  React-logger: 795cd5055782db394f187f9db0477d4b25b44291
+  React-Mapbuffer: 0df2a235bd0182f5cbed6c5f095e66deca12e335
+  React-microtasksnativemodule: b31e56a980634f383221bfefd5111d04c14c110b
+  react-native-config: 3367df9c1f25bb96197007ec531c7087ed4554c3
+  react-native-contacts: 2895eb848c0d52722009e2b7e0016f0514e3e61c
+  react-native-document-picker: c17a38a08fe082b0dad92640f98cbe0f369dcf7f
+  react-native-safe-area-context: 849d7df29ecb2a7155c769c0b76849ba952c2aa3
+  react-native-slider: dfbbd90c6bfac9877fac6508ffa6a33ec8b54eaa
+  react-native-splash-screen: 4312f786b13a81b5169ef346d76d33bc0c6dc457
+  react-native-tracking-transparency: 25ff1ff866e338c137c818bdec20526bb05ffcc1
+  react-native-webrtc: a3173652a7de48afa9f2d6151cb6eef130c04930
+  React-NativeModulesApple: b74b4e3004104429461593fe460ad790cc4928c2
+  React-perflogger: ab51b7592532a0ea45bf6eed7e6cae14a368b678
+  React-performancetimeline: 37192fd1019c3b3b597a877dff12f3af68305c34
   React-RCTActionSheet: 592674cf61142497e0e820688f5a696e41bf16dd
   React-RCTAnimation: e6d669872f9b3b4ab9527aab283b7c49283236b7
   React-RCTAppDelegate: 1768f69e774410cbd0716465db9494acc823a63a
@@ -2267,21 +2344,23 @@ SPEC CHECKSUMS:
   ReactCommon: c8fdbc582b98a07daf201cd95c1da75dd029f3ee
   ReactNativeIncallManager: e7ee5c9ad606788e8bb41267b864e0f4958d8034
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
-  RNAppleAuthentication: c3dddf5918126c9aae85dc2e2ce9fb87835e9e04
-  RNAudioRecorderPlayer: b5ed41ccfe72a211a870bfe09ab36c046eb27d2a
-  RNCAsyncStorage: b9f5f78da5d16a853fe3dc22e8268d932fc45a83
-  RNDeviceInfo: d863506092aef7e7af3a1c350c913d867d795047
-  RNFBApp: 4105e54d9ca4a1c10893a032268470f670181110
-  RNFBAuth: 68dcd5fc893659b68b63646b1ff54d59001cb21a
-  RNFBMessaging: 6857871d9dff8f26b0c325fc7d97ba69cb77d213
-  RNGestureHandler: d167eaaa871650f856883d2e7841607e4873a124
-  RNGoogleSignin: b8760528f2a7cbe157ecfdcc13bdb7d2745c9389
-  RNReanimated: c055f0cd57d99b398770706f994d10501919fbdc
-  RNScreens: 045dd1709f9ed9677d0d23ad5ffabec08c2c539e
-  RNSVG: 4c63b12b7b5761063bca4f20dd228f6a8370f614
-  RNVectorIcons: 68661e35101c98d574fa61a326d2043aec3e049a
+  RNAppleAuthentication: b2d8b5ccba86b5b1e55a1a2e858f7ac6d8a21816
+  RNAudioRecorderPlayer: 76b1d9ea2b22bf5ece274c0ff99c341daca42dc4
+  RNCAsyncStorage: addfc2cb6511dbe199c56c6b26ede383b6c38919
+  RNDeviceInfo: feea80a690d2bde1fe51461cf548039258bd03f2
+  RNFBApp: b67ded6e4b0a6c0fee5e4f8e75e3a31567949a08
+  RNFBAuth: 6aabe6440ba66c82b3c87fc8ebf70d921e5156dd
+  RNFBMessaging: 7202ad4c49bdcdc7fd3634d85827a6305049c148
+  RNGestureHandler: 0573a746155b37786d57d89951f71433c90f80a5
+  RNGoogleSignin: ee2938633d996756819e3212c8e0f7f696b380d0
+  RNImageCropPicker: 9940da36f8541c88675c7af2d1bc1ba25f2ea063
+  RNReanimated: c4a9f1d0918b0f2e33e57fc6b195d8916cc78e35
+  RNScreens: 46be6e1cea9dc42e41ff9813b5a5ef86ab050984
+  RNSVG: 0358054e792868e3aee3cf1790ed39881fa26565
+  RNVectorIcons: 11b1c1570e711f298c0b7cf61eac6fd92a3f5790
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
-  Yoga: be02ca501b03c79d7027a6bbbd0a8db985034f11
+  TOCropViewController: 797deaf39c90e6e9ddd848d88817f6b9a8a09888
+  Yoga: d89d04d86b5af18317f481166dccc48213d26927
 
 PODFILE CHECKSUM: 2d3b550eaac908251e37daa0436b0616d823b11d
 

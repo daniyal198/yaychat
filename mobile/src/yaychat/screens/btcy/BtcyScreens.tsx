@@ -7,7 +7,7 @@
  * upgrades happen inside YaysApp, which keeps rewards and ad revenue in BTCY.
  */
 import React from 'react';
-import {Image, Linking, Pressable, StyleSheet, View} from 'react-native';
+import {Image, Linking, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
@@ -16,13 +16,11 @@ import {
   Card,
   HubCta as SharedHubCta,
   ListRow,
-  MockNotice,
   ProgressBar,
   Row,
   Screen,
   SectionHeader,
   Spacer,
-  StatTile,
   YayText,
 } from '../../design/components';
 import {colors, palette, radius, shadows, spacing} from '../../design/tokens';
@@ -38,6 +36,7 @@ const AlchemyTomeArt = require('../../../../assets/img/btcy/alchemy-tome.png');
 const ReferralsCrewArt = require('../../../../assets/img/btcy/referrals-crew.png');
 const MiningLanternArt = require('../../../../assets/img/btcy/mining-lantern.png');
 const PromoLotteryArt = require('../../../../assets/img/btcy/promo-lottery.png');
+const BitcoinYayLogo = require('../../../../assets/img/btcy/bitcoin-yay-logo.png');
 
 const BITCOINYAY_SCHEME = 'bitcoinyay://';
 const BITCOINYAY_SITE = 'https://www.bitcoinyay.com/';
@@ -72,6 +71,41 @@ const HubCta = ({
 
 /** A figure we could not read renders as an em dash, never as zero. */
 const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-US'));
+const fmtBalance = (n: number) => Math.round(n).toLocaleString('en-US');
+
+const BalanceTile = ({
+  label,
+  value,
+  detail,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  icon: string;
+  tone: 'gold' | 'orange' | 'neutral';
+}) => (
+  <View style={styles.balanceTile}>
+    <View style={[
+      styles.balanceIcon,
+      tone === 'gold'
+        ? styles.balanceIconGold
+        : tone === 'orange'
+          ? styles.balanceIconOrange
+          : styles.balanceIconNeutral,
+    ]}>
+      <Ionicons
+        name={icon}
+        size={21}
+        color={tone === 'gold' ? colors.gold : tone === 'orange' ? colors.brand : colors.textSecondary}
+      />
+    </View>
+    <YayText variant="micro" color={colors.textMuted}>{label.toUpperCase()}</YayText>
+    <YayText variant="heading" numberOfLines={1} adjustsFontSizeToFit>{fmtBalance(value)}</YayText>
+    <YayText variant="micro" color={colors.textMuted}>{detail}</YayText>
+  </View>
+);
 
 /**
  * Progress ratio, or null when either end of the fraction is unknown.
@@ -83,6 +117,9 @@ const ratio = (current: number | null, target: number | null): number | null =>
 /** Difference between two figures, or null when either is unknown. */
 const remaining = (target: number | null, current: number | null): number | null =>
   target == null || current == null ? null : Math.max(0, target - current);
+
+const alchemyAmount = (value: number | null, unit: 'BTCY' | 'USD' | undefined) =>
+  value == null ? '—' : unit === 'USD' ? `$${fmt(value)}` : fmt(value);
 
 /** BTCY x YaysApp Ambassador ladder — display labels for the tier the dashboard reports. */
 const AMBASSADOR_TIER_LABEL: Record<'community' | 'growth' | 'elite', string> = {
@@ -102,16 +139,29 @@ export const BtcyHubScreen = ({
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <MockNotice module="ecosystem" text="Preview — figures are simulated. Live data comes from your Bitcoin Yay account." />
-      <AsyncView loading={loading} error={error} offline={offline} onRetry={reload} data={data}>
+      <AsyncView
+        loading={loading}
+        error={error}
+        offline={offline}
+        onRetry={reload}
+        data={data}
+        isEmpty={data?.hasAccount === false}
+        emptyTitle="No Bitcoin Yay account data yet"
+        emptyMessage="Sign in with the same email you use for Bitcoin Yay, or open Bitcoin Yay to create your mining account."
+        emptyAction={{label: 'Open Bitcoin Yay', onPress: () => openBitcoinYay()}}>
         {d => {
-          const alchemyPct = ratio(d.alchemy.current, d.alchemy.target);
-          const alchemyLeft = remaining(d.alchemy.target, d.alchemy.current);
-          const referralsLeft = d.referrals.target - d.referrals.active;
+          const alchemyPct = ratio(d.alchemy?.current ?? null, d.alchemy?.target ?? null);
+          const alchemyLeft = remaining(d.alchemy?.target ?? null, d.alchemy?.current ?? null);
+          const referralsLeft =
+            d.referrals?.target != null && d.referrals.active != null
+              ? Math.max(0, d.referrals.target - d.referrals.active)
+              : null;
           return (
             <>
-              {/* Mining Status — hero */}
+              {/* BTCY account hero */}
               <View style={styles.hero}>
+                <View style={styles.heroGlowLarge} />
+                <View style={styles.heroGlowSmall} />
                 <Image
                   source={MiningCartArt}
                   style={styles.heroArt}
@@ -119,77 +169,95 @@ export const BtcyHubScreen = ({
                   accessibilityElementsHidden
                   importantForAccessibility="no"
                 />
-                <Row style={{justifyContent: 'space-between'}}>
-                  <YayText variant="heading" color={colors.textOnBrand}>
-                    Mining status
+                <View style={styles.heroCopy}>
+                  <View style={styles.heroLogoWrap}>
+                    <Image source={BitcoinYayLogo} style={styles.heroLogo} resizeMode="contain" accessibilityLabel="Bitcoin Yay" />
+                  </View>
+                  <Spacer size={spacing.xs} />
+                  <YayText variant="display" color={colors.textOnBrand}>
+                    {d.mining?.active ? 'Mining is live' : 'Your BTCY account'}
                   </YayText>
-                  <View style={styles.liveBadge}>
+                  <YayText variant="caption" color={palette.ember100} style={styles.heroDescription}>
+                    Your Bitcoin Yay balances and mining activity, synced in YaysApp.
+                  </YayText>
+                  {d.mining?.active != null ? <View style={styles.liveBadge}>
                     <View
                       style={[
                         styles.liveDot,
-                        {backgroundColor: d.mining.active ? colors.success : colors.textFaint},
+                        {backgroundColor: d.mining.active ? colors.success : palette.ember100},
                       ]}
                     />
                     <YayText variant="micro" color={colors.textOnBrand}>
-                      {d.mining.active ? 'Active' : 'Paused'}
+                      {d.mining.active ? 'MINING ACTIVE' : 'MINING PAUSED'}
                     </YayText>
-                  </View>
-                </Row>
-                <Spacer size={spacing.sm} />
-                <YayText variant="micro" color={palette.ember100}>
-                  CURRENT SPEED
-                </YayText>
-                <YayText variant="display" color={colors.textOnBrand}>
-                  {d.mining.speed}
-                </YayText>
-                <Spacer size={spacing.xs} />
-                <Row gap={spacing.xxs}>
-                  <Ionicons name="time-outline" size={14} color={palette.ember100} />
-                  <YayText variant="caption" color={palette.ember100}>
-                    Next mining ends in {d.mining.endsIn}
-                  </YayText>
-                </Row>
-                <Spacer size={spacing.md} />
-                <HubCta label="Continue Mining" onBrand onPress={() => openBitcoinYay('mine')} />
+                  </View> : null}
+                  {d.mining ? <View style={styles.miningFacts}>
+                    {d.mining.speed != null ? <View style={styles.miningFact}>
+                      <YayText variant="micro" color={palette.ember100}>SPEED</YayText>
+                      <YayText variant="bodyStrong" color={colors.textOnBrand}>{d.mining.speed}</YayText>
+                    </View> : null}
+                    {d.mining.plan ? <View style={styles.miningFact}>
+                      <YayText variant="micro" color={palette.ember100}>PLAN</YayText>
+                      <YayText variant="bodyStrong" color={colors.textOnBrand}>{d.mining.plan}</YayText>
+                    </View> : null}
+                    {d.mining.streakDays != null ? <View style={styles.miningFact}>
+                      <YayText variant="micro" color={palette.ember100}>STREAK</YayText>
+                      <YayText variant="bodyStrong" color={colors.textOnBrand}>{d.mining.streakDays}d</YayText>
+                    </View> : null}
+                  </View> : null}
+                  {d.mining?.endsIn != null ? <Row gap={spacing.xxs} style={{marginTop: spacing.xs}}>
+                    <Ionicons name="time-outline" size={14} color={palette.ember100} />
+                    <YayText variant="caption" color={palette.ember100}>
+                      {d.mining.active ? `Mining ends in ${d.mining.endsIn}` : 'No active mining session'}
+                    </YayText>
+                  </Row> : null}
+                  <Spacer size={spacing.md} />
+                  <HubCta label={d.mining?.active ? 'Continue Mining' : 'Open Bitcoin Yay'} onBrand onPress={() => openBitcoinYay('mine')} />
+                </View>
               </View>
 
               {/* Portfolio */}
-              <SectionHeader title="Portfolio" />
-              <Card>
-                <Row gap={spacing.xs} style={{alignItems: 'stretch'}}>
-                  <StatTile label="BTCY Nuggets" value={fmt(d.portfolio.nuggets)} icon="sparkles" tone={colors.gold} />
-                  <StatTile label="BTCY Tokens" value={fmt(d.portfolio.tokens)} icon="logo-bitcoin" />
-                </Row>
-                <Spacer size={spacing.sm} />
-                <Row style={{justifyContent: 'space-between', marginBottom: spacing.xxs}}>
+              {d.portfolio && Object.values(d.portfolio).some(value => value != null) ? <>
+              <SectionHeader title="Your portfolio" />
+              <View style={styles.balanceGrid}>
+                {d.portfolio.nuggets != null ? <BalanceTile label="BTCY Nugget" value={d.portfolio.nuggets} detail="Mining balance" icon="sparkles" tone="gold" /> : null}
+                {d.portfolio.withdraw != null ? <BalanceTile label="Withdraw" value={d.portfolio.withdraw} detail="Stellar wallet" icon="wallet-outline" tone="neutral" /> : null}
+                {d.portfolio.tokens != null ? <BalanceTile label="BTCY Token" value={d.portfolio.tokens} detail="Ying Yang Chain" icon="logo-bitcoin" tone="orange" /> : null}
+              </View>
+              </> : null}
+
+              <SectionHeader title="Explore Bitcoin Yay" />
+              <Card style={styles.exploreCard}>
+                <Image source={PromoLotteryArt} style={styles.exploreArt} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no" />
+                <View style={styles.exploreCopy}>
+                  <YayText variant="heading">Your BTCY world</YayText>
                   <YayText variant="caption" color={colors.textSecondary}>
-                    Estimated progress towards Alchemy
+                    Mining, wallets, Alchemy, stations and rewards continue in Bitcoin Yay.
                   </YayText>
-                  <YayText variant="bodyStrong" color={colors.brandStrong}>
-                    {alchemyPct == null ? '—' : `${Math.round(alchemyPct * 100)}%`}
-                  </YayText>
-                </Row>
-                <ProgressBar value={alchemyPct ?? 0} />
+                </View>
+                <Spacer size={spacing.sm} />
+                <HubCta label="Explore Bitcoin Yay" onPress={() => openBitcoinYay()} />
               </Card>
 
               {/* Alchemy */}
+              {d.alchemy ? <>
               <SectionHeader title="Alchemy progress" />
               <Card>
                 <Row style={{alignItems: 'flex-start'}} gap={spacing.sm}>
                   <View style={{flex: 1}}>
                     <Row style={{justifyContent: 'space-between'}}>
                       <YayText variant="bodyStrong">
-                        {`${fmt(d.alchemy.current)} / ${fmt(d.alchemy.target)}`}
+                        {[d.alchemy.current, d.alchemy.target]
+                          .filter(value => value != null)
+                          .map(value => alchemyAmount(value ?? null, d.alchemy?.unit))
+                          .join(' / ')}
                       </YayText>
-                      <Badge label={`${fmt(alchemyLeft)} to go`} tone="brand" />
+                      {alchemyLeft != null ? <Badge label={`${alchemyAmount(alchemyLeft, d.alchemy.unit)} to go`} tone="brand" /> : null}
                     </Row>
-                    <Spacer size={spacing.xs} />
-                    <ProgressBar value={alchemyPct ?? 0} tone={colors.gold} />
-                    <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                      {alchemyLeft == null
-                        ? 'Alchemy progress is unavailable right now.'
-                        : `${fmt(alchemyLeft)} nuggets remaining until your next refine.`}
-                    </YayText>
+                    {alchemyPct != null ? <><Spacer size={spacing.xs} /><ProgressBar value={alchemyPct} tone={colors.gold} /></> : null}
+                    {alchemyLeft != null ? <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
+                      {`${alchemyAmount(alchemyLeft, d.alchemy.unit)} remaining to unlock Alchemy.`}
+                    </YayText> : null}
                   </View>
                   <Image
                     source={AlchemyTomeArt}
@@ -202,8 +270,10 @@ export const BtcyHubScreen = ({
                 <Spacer size={spacing.sm} />
                 <HubCta label="Open Alchemy" onPress={() => openBitcoinYay('alchemy')} />
               </Card>
+              </> : null}
 
               {/* Referrals */}
+              {d.referrals ? <>
               <SectionHeader title="Referral progress" />
               <Card>
                 <Row style={{justifyContent: 'space-between'}}>
@@ -211,16 +281,15 @@ export const BtcyHubScreen = ({
                     Active referrals
                   </YayText>
                   <YayText variant="bodyStrong">
-                    {`${d.referrals.active} / ${d.referrals.target}`}
+                    {d.referrals.target == null ? d.referrals.active : `${d.referrals.active ?? 0} / ${d.referrals.target}`}
                   </YayText>
                 </Row>
-                <Spacer size={spacing.xs} />
-                <ProgressBar value={d.referrals.active / d.referrals.target} />
-                <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                  {d.station.unlocked
-                    ? 'Mining Station Owner — unlocked ✅'
-                    : `${referralsLeft} more needed to unlock the Mining Station.`}
-                </YayText>
+                {d.referrals.active != null && d.referrals.target != null && d.referrals.target > 0
+                  ? <><Spacer size={spacing.xs} /><ProgressBar value={d.referrals.active / d.referrals.target} /></>
+                  : null}
+                {referralsLeft != null ? <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
+                  {`${referralsLeft} more needed to reach the referral target.`}
+                </YayText> : null}
                 <Image
                   source={ReferralsCrewArt}
                   style={styles.referralsArt}
@@ -229,8 +298,10 @@ export const BtcyHubScreen = ({
                   importantForAccessibility="no"
                 />
               </Card>
+              </> : null}
 
               {/* Mining Station */}
+              {d.station?.unlocked != null ? <>
               <SectionHeader title="Mining station" />
               <Card style={d.station.unlocked ? styles.stationUnlocked : undefined}>
                 <Row style={{justifyContent: 'space-between'}}>
@@ -243,23 +314,10 @@ export const BtcyHubScreen = ({
                     <YayText variant="bodyStrong">Status</YayText>
                   </Row>
                   <Badge
-                    label={d.station.unlocked ? 'ACTIVE' : `Unlocks at ${d.referrals.target} referrals`}
+                    label={d.station.unlocked ? 'ACTIVE' : 'LOCKED'}
                     tone={d.station.unlocked ? 'success' : 'neutral'}
                   />
                 </Row>
-                <Spacer size={spacing.sm} />
-                {d.station.benefits.map(b => (
-                  <Row key={b} gap={spacing.xs} style={{marginTop: spacing.xxs}}>
-                    <Ionicons
-                      name={d.station.unlocked ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                      size={18}
-                      color={d.station.unlocked ? colors.success : colors.textFaint}
-                    />
-                    <YayText color={d.station.unlocked ? colors.textPrimary : colors.textMuted}>
-                      {b}
-                    </YayText>
-                  </Row>
-                ))}
                 <Image
                   source={MiningLanternArt}
                   style={styles.lanternArt}
@@ -268,8 +326,10 @@ export const BtcyHubScreen = ({
                   importantForAccessibility="no"
                 />
               </Card>
+              </> : null}
 
               {/* Ambassador ladder */}
+              {d.ambassador ? <>
               <SectionHeader title="Ambassador ladder" />
               <Card>
                 <Row style={{justifyContent: 'space-between'}}>
@@ -280,104 +340,38 @@ export const BtcyHubScreen = ({
                       color={d.ambassador.tier ? colors.gold : colors.textMuted}
                     />
                     <YayText variant="bodyStrong">
-                      {d.ambassador.tier ? AMBASSADOR_TIER_LABEL[d.ambassador.tier] : 'Not yet an Ambassador'}
+                      {d.ambassador.tier ? AMBASSADOR_TIER_LABEL[d.ambassador.tier] : 'Ambassador'}
                     </YayText>
                   </Row>
                   {d.ambassador.nextTierAt != null ? (
                     <Badge label={`Next: ${d.ambassador.nextTierAt} referrals`} tone="neutral" />
-                  ) : (
-                    <Badge label="TOP TIER" tone="success" />
-                  )}
+                  ) : null}
                 </Row>
-                <Spacer size={spacing.xs} />
-                <YayText variant="caption" color={colors.textMuted}>
-                  25 verified referrals unlocks the Mining Station. 50 adds a bonus, 100 makes you
-                  an Elite Ambassador with priority access to future campaigns.
-                </YayText>
               </Card>
+              </> : null}
 
               {/* Watch & Earn */}
+              {d.watchEarn && Object.values(d.watchEarn).some(value => value != null) ? <>
               <SectionHeader title="Watch & earn" />
               <Card>
                 <Row style={{justifyContent: 'space-between'}}>
                   <YayText variant="caption" color={colors.textSecondary}>
-                    Today's ads
+                    Current ad set
                   </YayText>
                   <YayText variant="bodyStrong">
-                    {d.watchEarn.total == null
-                      ? fmt(d.watchEarn.watched)
-                      : `${fmt(d.watchEarn.watched)} / ${fmt(d.watchEarn.total)}`}
+                    {d.watchEarn.total == null ? d.watchEarn.watched : `${d.watchEarn.watched ?? 0} / ${d.watchEarn.total}`}
                   </YayText>
                 </Row>
-                <Spacer size={spacing.xs} />
-                <ProgressBar value={ratio(d.watchEarn.watched, d.watchEarn.total) ?? 0} />
-                <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
-                  {d.watchEarn.nuggetsToday == null
-                    ? 'Ads play in the Bitcoin Yay app.'
-                    : `${fmt(d.watchEarn.nuggetsToday)} nuggets earned today. Ads play in the Bitcoin Yay app.`}
-                </YayText>
+                {d.watchEarn.total != null && d.watchEarn.watched != null
+                  ? <><Spacer size={spacing.xs} /><ProgressBar value={ratio(d.watchEarn.watched, d.watchEarn.total) ?? 0} /></>
+                  : null}
+                {d.watchEarn.rewardAmount != null ? <YayText variant="caption" color={colors.textMuted} style={{marginTop: spacing.xs}}>
+                  {`${fmt(d.watchEarn.rewardAmount)} nuggets returned by Bitcoin Yay.`}
+                </YayText> : null}
                 <Spacer size={spacing.sm} />
                 <HubCta label="Complete" onPress={() => openBitcoinYay('watch-earn')} />
               </Card>
-
-              {/* News */}
-              <SectionHeader title="📢 BTCY news" />
-              <View style={{gap: spacing.sm}}>
-                {d.news.map(n => (
-                  <Card key={n.id}>
-                    <Row gap={spacing.xs}>
-                      <Badge label={n.hot ? `🔥 ${n.tag}` : n.tag} tone={n.hot ? 'brand' : 'neutral'} />
-                      <YayText variant="bodyStrong" style={{flex: 1}} numberOfLines={1}>
-                        {n.title}
-                      </YayText>
-                    </Row>
-                    <YayText
-                      variant="caption"
-                      color={colors.textSecondary}
-                      style={{marginTop: spacing.xxs}}>
-                      {n.detail}
-                    </YayText>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => openBitcoinYay('news')}
-                      hitSlop={8}
-                      style={{marginTop: spacing.xs, alignSelf: 'flex-start'}}>
-                      <Row gap={4}>
-                        <YayText variant="bodyStrong" color={colors.brand}>
-                          Read more
-                        </YayText>
-                        <Ionicons name="arrow-forward" size={14} color={colors.brand} />
-                      </Row>
-                    </Pressable>
-                  </Card>
-                ))}
-              </View>
-
-              {/* Promotions */}
-              <SectionHeader title="Promotions" />
-              <View style={styles.promo}>
-                <Image
-                  source={PromoLotteryArt}
-                  style={styles.promoArt}
-                  resizeMode="contain"
-                  accessibilityElementsHidden
-                  importantForAccessibility="no"
-                />
-                <Row style={{justifyContent: 'space-between'}}>
-                  <Badge label="🔥 Limited offer" tone="warning" />
-                  <YayText variant="micro" color={colors.textSecondary}>
-                    Ends in {d.promo.endsIn}
-                  </YayText>
-                </Row>
-                <YayText variant="title" color={colors.brandStrong} style={{marginTop: spacing.xs}}>
-                  {d.promo.headline}
-                </YayText>
-                <YayText variant="caption" color={colors.textSecondary}>
-                  {d.promo.subtitle}
-                </YayText>
-                <Spacer size={spacing.sm} />
-                <HubCta label="Upgrade" onPress={() => openBitcoinYay('power-mining')} />
-              </View>
+              </> : null}
 
               {/* Quick actions */}
               <SectionHeader title="Quick actions" />
@@ -391,6 +385,12 @@ export const BtcyHubScreen = ({
                   icon="globe-outline"
                   title="Open website"
                   onPress={() => Linking.openURL(BITCOINYAY_SITE).catch(() => toast.show('Could not open the website.', 'error'))}
+                />
+                <ListRow
+                  icon="swap-horizontal"
+                  title="Convert IndexxPoints to Nuggets"
+                  subtitle="Turn what you earn in YaysApp into BTCY Nuggets"
+                  onPress={() => navigation.navigate('ConvertPoints')}
                 />
                 <ListRow
                   icon="person-add-outline"
@@ -423,19 +423,117 @@ const styles = StyleSheet.create({
   hero: {
     backgroundColor: colors.brand,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    padding: spacing.lg,
     marginTop: spacing.sm,
+    minHeight: 340,
     overflow: 'hidden',
     ...shadows.card,
   },
+  heroCopy: {
+    width: '72%',
+    zIndex: 2,
+  },
+  heroDescription: {
+    marginTop: spacing.xs,
+    lineHeight: 19,
+  },
+  heroLogoWrap: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  heroLogo: {
+    width: 142,
+    height: 41,
+  },
   heroArt: {
     position: 'absolute',
-    right: -4,
-    bottom: -6,
-    width: 92,
-    height: 114,
-    opacity: 0.92,
+    right: -46,
+    bottom: -18,
+    width: 230,
+    height: 280,
+    opacity: 0.88,
     pointerEvents: 'none',
+  },
+  heroGlowLarge: {
+    position: 'absolute',
+    right: -80,
+    top: -65,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroGlowSmall: {
+    position: 'absolute',
+    right: 80,
+    bottom: -50,
+    width: 135,
+    height: 135,
+    borderRadius: 68,
+    backgroundColor: 'rgba(138,74,18,0.15)',
+  },
+  miningFacts: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  miningFact: {
+    minWidth: 68,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(90,35,7,0.12)',
+  },
+  balanceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  balanceTile: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    minHeight: 154,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    ...shadows.card,
+  },
+  balanceIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 42,
+    height: 42,
+    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+  },
+  balanceIconGold: {backgroundColor: colors.goldSoft},
+  balanceIconOrange: {backgroundColor: colors.brandSoft},
+  balanceIconNeutral: {backgroundColor: colors.surfaceSunken},
+  exploreCard: {
+    minHeight: 220,
+    overflow: 'hidden',
+    backgroundColor: palette.ember50,
+    borderColor: palette.ember100,
+  },
+  exploreCopy: {
+    width: '62%',
+    zIndex: 2,
+  },
+  exploreArt: {
+    position: 'absolute',
+    right: -28,
+    top: 10,
+    width: 190,
+    height: 125,
+    opacity: 0.95,
   },
   alchemyArt: {
     width: 56,
@@ -453,16 +551,12 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     marginTop: spacing.sm,
   },
-  promoArt: {
-    width: 160,
-    height: 84,
-    alignSelf: 'center',
-    marginBottom: spacing.xs,
-  },
   liveBadge: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginTop: spacing.sm,
     backgroundColor: 'rgba(255,255,255,0.18)',
     borderRadius: radius.pill,
     paddingHorizontal: spacing.xs,
@@ -476,12 +570,5 @@ const styles = StyleSheet.create({
   stationUnlocked: {
     borderColor: colors.success,
     borderWidth: 1,
-  },
-  promo: {
-    backgroundColor: colors.goldSoft,
-    borderColor: colors.gold,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.md,
   },
 });

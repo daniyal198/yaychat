@@ -37,7 +37,11 @@ import type {
   AuthStackParamList,
   OnboardingStackParamList,
 } from '../../types/navigation';
-import {chooseProfilePhoto} from '../../utils/profilePhoto';
+import {
+  adjustProfilePhoto,
+  chooseProfilePhoto,
+  isAdjustableProfilePhoto,
+} from '../../utils/profilePhoto';
 
 type AuthProps<R extends keyof AuthStackParamList> = NativeStackScreenProps<
   AuthStackParamList,
@@ -290,6 +294,25 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
     }
   };
 
+  /**
+   * Reopens the framing editor on the photo already chosen. Anything the
+   * cropper cannot read falls back to picking again rather than dead-ending.
+   */
+  const adjustPhoto = async () => {
+    if (!isAdjustableProfilePhoto(profilePic)) {
+      await choosePhoto();
+      return;
+    }
+    try {
+      const uri = await adjustProfilePhoto(profilePic as string);
+      if (uri) {
+        setProfilePic(uri);
+      }
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : 'Could not edit that picture.', 'error');
+    }
+  };
+
   const submit = async () => {
     const next: typeof errors = {};
     if (name.trim().length < 2) {
@@ -355,16 +378,32 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
         A couple of details and you are in.
       </YayText>
       <View style={{alignItems: 'center', marginBottom: spacing.lg}}>
-        <Avatar
-          name={name.trim() || 'New user'}
-          size={84}
-          color="#E2842D"
-          imageUri={profilePic}
-        />
+        <Pressable
+          onPress={profilePic ? adjustPhoto : choosePhoto}
+          accessibilityRole="button"
+          accessibilityLabel={
+            profilePic ? 'Adjust profile picture' : 'Upload profile picture'
+          }
+          style={({pressed}) => (pressed ? {opacity: 0.7} : undefined)}>
+          <Avatar
+            name={name.trim() || 'New user'}
+            size={84}
+            color="#E2842D"
+            imageUri={profilePic}
+          />
+        </Pressable>
         <Spacer size={spacing.xs} />
+        {profilePic ? (
+          <Button
+            label="Adjust photo"
+            kind="secondary"
+            icon="crop-outline"
+            onPress={adjustPhoto}
+          />
+        ) : null}
         <Button
           label={profilePic ? 'Change profile picture' : 'Upload profile picture'}
-          kind="secondary"
+          kind={profilePic ? 'ghost' : 'secondary'}
           icon="camera-outline"
           onPress={choosePhoto}
         />
@@ -377,7 +416,9 @@ export const SignUpScreen = ({navigation}: AuthProps<'SignUp'>) => {
           />
         ) : null}
         <YayText variant="micro" color={colors.textMuted}>
-          Optional · image files up to 5 MB
+          {profilePic
+            ? 'Tap the photo to crop, zoom, or rotate it.'
+            : 'Optional · image files up to 5 MB'}
         </YayText>
       </View>
       <TextField

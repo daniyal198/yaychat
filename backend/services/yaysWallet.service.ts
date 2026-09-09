@@ -4,14 +4,19 @@ import { UserWallet } from "../data/user";
 import { Transaction } from "../data/transaction";
 import { WalletAssetView, WalletTransactionView } from "../data/yaysWallet";
 import { PointsLedgerService, YaysPointsService } from "./yaysPoints.service";
+import { MiningNuggetGateway } from "./yaysConversion.service";
 
 /**
  * The wallet view YaysApp shows.
  *
- * Two very different sources are merged here:
+ * Three sources are merged here, and the member is meant to read them as one
+ * balance sheet:
  *
  *  - **IndexxPoints** — owned by YaysApp, sourced from the points ledger. Fully
- *    spendable inside the app.
+ *    spendable inside the app, and convertible to BTCY Nuggets.
+ *  - **BTCY Nuggets** — the mined-nugget balance Bitcoin Yay owns, the same
+ *    figure the BTCY dashboard reports. Real, and the destination of the
+ *    conversion bridge, but only Bitcoin Yay can spend it.
  *  - **Crypto** — owned by the Indexx wallet service. Read-only from here:
  *    balances and transaction history are surfaced, but nothing in YaysApp
  *    signs or broadcasts a transfer. Those rows are marked `preview` so the UI
@@ -24,6 +29,8 @@ import { PointsLedgerService, YaysPointsService } from "./yaysPoints.service";
 
 /** Symbols whose price comes from the internal currency table, not a feed. */
 const INDEXX_POINTS_SYMBOL = "IXXP";
+/** Mined BTCY Nuggets. Distinct from the BTCY *wallet* rows, which are tokens. */
+const NUGGET_SYMBOL = "NUG";
 
 const num = (value: unknown): number => {
   const parsed = Number(value);
@@ -52,6 +59,7 @@ export class YaysWalletService {
   private walletTransactions = new WalletTransactionService();
   private ledger = new PointsLedgerService();
   private points = new YaysPointsService();
+  private nuggets = new MiningNuggetGateway();
 
   /**
    * Every asset row for the wallet home screen.
@@ -60,10 +68,14 @@ export class YaysWalletService {
    * the only one guaranteed to exist.
    */
   async assets(userLower: string): Promise<WalletAssetView[]> {
-    const account = await this.points.summary(userLower);
+    const [account, nuggets] = await Promise.all([
+      this.points.summary(userLower),
+      this.nuggetBalance(userLower),
+    ]);
 
     const rows: WalletAssetView[] = [
       {
+        id: INDEXX_POINTS_SYMBOL,
         symbol: INDEXX_POINTS_SYMBOL,
         name: "IndexxPoints",
         balance: account.balance,
@@ -71,6 +83,16 @@ export class YaysWalletService {
         // reporting 0 is honest, whereas inventing a rate would not be.
         fiatValue: 0,
         preview: false,
+      },
+      {
+        id: NUGGET_SYMBOL,
+        symbol: NUGGET_SYMBOL,
+        name: "BTCY Nuggets",
+        balance: nuggets,
+        // Nuggets are priced by Bitcoin Yay, not by this service.
+        fiatValue: 0,
+        // Convertible *into* from IndexxPoints, but not spendable from YaysApp.
+        preview: true,
       },
     ];
 
@@ -80,9 +102,15 @@ export class YaysWalletService {
       }
       const balance = num(wallet.coinBalance) + num(wallet.coinStakedBalance);
       const price = num(wallet.coinPrice);
+      const symbol = String(wallet.coinSymbol || "").toUpperCase();
+      const network = String(wallet.coinNetwork || "").trim();
       rows.push({
-        symbol: String(wallet.coinSymbol || "").toUpperCase(),
+        // BTCY exists on two networks at once; without the network in the id
+        // the second row would overwrite the first in the client's list.
+        id: network ? `${symbol}-${network.replace(/\s+/g, "-").toLowerCase()}` : symbol,
+        symbol,
         name: String(wallet.coinName || wallet.coinSymbol || "Asset"),
+        network: network || undefined,
         balance,
         fiatValue: num(wallet.coinBalanceInUSD) || balance * price,
         // Read-only until YaysApp can sign transfers itself.
@@ -91,6 +119,21 @@ export class YaysWalletService {
     }
 
     return rows;
+  }
+
+  /**
+   * Mined BTCY Nuggets, or 0 when the balance cannot be read.
+   *
+   * Degrading to 0 rather than failing matches the rest of this service: a
+   * Bitcoin Yay outage should cost the member the nugget row, not the wallet.
+   */
+  private async nuggetBalance(userLower: string): Promise<number> {
+    try {
+      return await this.nuggets.balanceOf(userLower);
+    } catch (error) {
+      console.error("[yays/wallet] could not read the BTCY nugget balance", error);
+      return 0;
+    }
   }
 
   /**

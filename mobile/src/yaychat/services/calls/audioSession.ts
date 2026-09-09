@@ -80,10 +80,11 @@ export const startIncomingRinging = () => {
     return;
   }
   try {
-    // '_DEFAULT_' uses the system ringtone; the second argument is the
-    // vibration pattern, and the last is a seconds cap so a ring can never
-    // outlive the call it belongs to.
-    engine.startRingtone('_DEFAULT_', [0, 1000, 800], 'playback', 60);
+    // The bundled tone is guaranteed to exist on both platforms; relying on a
+    // manufacturer/system ringtone path left some iOS versions and Android
+    // devices completely silent. The last argument caps Android playback;
+    // iOS is stopped by the call state transition.
+    engine.startRingtone('_BUNDLE_', [0, 1000, 800], 'playback', 60);
     engine.setKeepScreenOn?.(true);
   } catch {}
 };

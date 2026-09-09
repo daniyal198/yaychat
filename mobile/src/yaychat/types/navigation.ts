@@ -38,6 +38,8 @@ export type ChatsStackParamList = {
   SharedMedia: {conversationId: string};
   ForwardMessage: {conversationId: string; messageId: string};
   ContactProfile: {userId: string};
+  /** Phone address book, split into "already on YaysApp" and "invite the rest" — same screen Earn and Profile use. */
+  InviteContacts: undefined;
 };
 
 export type CommunitiesStackParamList = {
@@ -116,6 +118,8 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   WalletOverview: undefined;
   WalletTransactions: undefined;
+  /** IndexxPoints → BTCY Nuggets. Reachable from the wallet, Earn, and the BTCY hub. */
+  ConvertPoints: undefined;
   PaymentMethods: undefined;
   PaymentMethodConnect: {methodId: string};
   TransactionDetail: {transactionId: string};

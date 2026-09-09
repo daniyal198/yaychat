@@ -26,7 +26,12 @@ import {
   YayText,
 } from '../../design/components';
 import {colors, palette, radius, shadows, spacing} from '../../design/tokens';
-import {ecosystemService, errorMessage, socialService} from '../../services';
+import {
+  ecosystemService,
+  errorMessage,
+  socialLinkingIsLive,
+  socialService,
+} from '../../services';
 import {useAsync} from '../../state/hooks';
 import {formatUnreadBadge, useAuth, useToast, useUnread} from '../../state/AppProviders';
 import type {EcosystemProduct, SocialAccount} from '../../types/models';
@@ -379,19 +384,40 @@ export const ProductDetailScreen = ({
 // SocialConnect — how linking a platform works and what it unlocks
 // ---------------------------------------------------------------------------
 
-/** Per-platform walkthrough of the (simulated) linking flow. */
-const connectSteps = (s: SocialAccount): string[] =>
-  s.id === 's_whatsapp'
+/**
+ * Per-platform walkthrough of the linking flow.
+ *
+ * While linking is not live these are written in the future tense: describing
+ * a sign-in page that never opens is what made the connect button read as
+ * broken rather than unbuilt.
+ */
+const connectSteps = (s: SocialAccount): string[] => {
+  const live = socialLinkingIsLive();
+  if (s.id === 's_whatsapp') {
+    return live
+      ? [
+          'We open WhatsApp on your phone with a prefilled verification message.',
+          'You send the message — that confirms the number belongs to you.',
+          'Your WhatsApp is linked for invites and sharing.',
+        ]
+      : [
+          'WhatsApp will open with a prefilled verification message.',
+          'Sending it will confirm the number belongs to you.',
+          'Your WhatsApp will be linked for invites and sharing.',
+        ];
+  }
+  return live
     ? [
-        'We open WhatsApp on your phone with a prefilled verification message.',
-        'You send the message — that confirms the number belongs to you.',
-        'Your WhatsApp is linked for invites and sharing.',
-      ]
-    : [
         `We open ${s.name}'s secure sign-in page — your password stays with ${s.name}.`,
         'You approve YaysApp’s request. We only see your public profile and handle.',
         'Your handle is verified and shows on your YaysApp profile.',
+      ]
+    : [
+        `${s.name}'s secure sign-in page will open — your password stays with ${s.name}.`,
+        'You will approve YaysApp’s request. We only ever see your public profile and handle.',
+        'Your handle will be verified and shown on your YaysApp profile.',
       ];
+};
 
 export const SocialConnectScreen = ({
   navigation,
@@ -421,8 +447,10 @@ export const SocialConnectScreen = ({
       setData(updated);
       toast.show(
         updated.connected
-          ? `${updated.name} connected as ${updated.handle}`
-          : `${updated.name} disconnected`,
+          ? socialLinkingIsLive()
+            ? `${updated.name} connected as ${updated.handle}`
+            : `${updated.name} saved as ${updated.handle} — not verified yet`
+          : `${updated.name} removed`,
         updated.connected ? 'success' : undefined,
       );
     } catch (e) {
@@ -453,7 +481,13 @@ export const SocialConnectScreen = ({
               </YayText>
               <View style={{marginTop: spacing.sm}}>
                 <Badge
-                  label={s.connected ? `Linked as ${s.handle}` : 'Not connected'}
+                  label={
+                    s.connected
+                      ? socialLinkingIsLive()
+                        ? `Linked as ${s.handle}`
+                        : `Saved as ${s.handle} — not verified`
+                      : 'Not connected'
+                  }
                   tone={s.connected ? 'success' : 'neutral'}
                 />
               </View>
@@ -496,7 +530,7 @@ export const SocialConnectScreen = ({
             <Spacer size={spacing.lg} />
             {s.connected ? (
               <Button
-                label={`Disconnect ${s.name}`}
+                label={socialLinkingIsLive() ? `Disconnect ${s.name}` : `Remove ${s.name}`}
                 kind="danger"
                 icon="unlink"
                 loading={busy}
@@ -504,7 +538,9 @@ export const SocialConnectScreen = ({
               />
             ) : (
               <Button
-                label={`Connect ${s.name}`}
+                label={
+                  socialLinkingIsLive() ? `Connect ${s.name}` : `Save my ${s.name} handle`
+                }
                 icon="link"
                 loading={busy}
                 onPress={() => toggle(s)}
@@ -515,15 +551,17 @@ export const SocialConnectScreen = ({
               color={colors.textFaint}
               style={{textAlign: 'center', marginTop: spacing.xs}}>
               {s.connected
-                ? 'Disconnecting removes the badge and stops sharing to this platform.'
-                : 'You can disconnect at any time from this screen or Profile.'}
+                ? 'Removing this clears the badge and stops sharing to this platform.'
+                : 'You can remove it at any time from this screen or Profile.'}
             </YayText>
             <Spacer size={spacing.md} />
-            <Banner
-              tone="warning"
-              icon="flask"
-              text={`Preview build — the connection is simulated. The real flow will open ${s.name} and ask for your approval there.`}
-            />
+            {socialLinkingIsLive() ? null : (
+              <Banner
+                tone="warning"
+                icon="flask"
+                text={`Sign in with ${s.name} is not switched on yet, so nothing is sent to ${s.name} and your handle is not verified. Saving it now keeps it on this device and links it for real once the integration goes live.`}
+              />
+            )}
           </>
         )}
       </AsyncView>

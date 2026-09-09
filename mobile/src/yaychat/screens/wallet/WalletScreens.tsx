@@ -208,10 +208,23 @@ export const WalletOverviewScreen = ({
                 />
               </Row>
 
+              {/* The one movement YaysApp can actually perform, so it gets a
+                  full-width primary rather than a slot in the preview row. */}
+              <Button
+                label="Convert IndexxPoints to BTCY Nuggets"
+                icon="swap-horizontal"
+                onPress={() => navigation.navigate('ConvertPoints')}
+              />
+
               <SectionHeader title="Assets" />
               <View style={{gap: spacing.sm}}>
                 {assets.map(asset => (
-                  <AssetCard key={asset.symbol} asset={asset} live={live} />
+                  <AssetCard
+                    key={asset.id || asset.symbol}
+                    asset={asset}
+                    live={live}
+                    onConvert={() => navigation.navigate('ConvertPoints')}
+                  />
                 ))}
               </View>
 
@@ -267,9 +280,18 @@ export const WalletOverviewScreen = ({
   );
 };
 
-const AssetCard = ({asset, live}: {asset: WalletAsset; live: boolean}) => {
+const AssetCard = ({
+  asset,
+  live,
+  onConvert,
+}: {
+  asset: WalletAsset;
+  live: boolean;
+  onConvert: () => void;
+}) => {
   const isBtcy = asset.symbol === 'BTCY';
   const isNuggets = asset.symbol === 'NUG';
+  const isPoints = asset.symbol === 'IXXP';
   // Live IndexxPoints are the one row that is both real and movable in-app, so it
   // is the only one that loses the qualifier badge.
   const badge = !live ? 'Preview' : asset.preview ? 'View-only' : null;
@@ -283,7 +305,7 @@ const AssetCard = ({asset, live}: {asset: WalletAsset; live: boolean}) => {
             {badge ? <Badge label={badge} tone="brand" /> : null}
           </Row>
           <YayText variant="caption" color={colors.textMuted}>
-            {`${formatBalance(asset.balance)} ${asset.symbol}`}
+            {`${formatBalance(asset.balance)} ${asset.symbol}${asset.network ? ` · ${asset.network}` : ''}`}
           </YayText>
         </View>
         <YayText variant="bodyStrong">{formatFiat(asset.fiatValue)}</YayText>
@@ -295,8 +317,17 @@ const AssetCard = ({asset, live}: {asset: WalletAsset; live: boolean}) => {
       ) : null}
       {isNuggets ? (
         <YayText variant="caption" color={colors.textMuted} style={styles.assetFootnote}>
-          Convert to BTCY — coming soon
+          Mined in Bitcoin Yay. Top up by converting IndexxPoints.
         </YayText>
+      ) : null}
+      {isPoints ? (
+        <Button
+          label="Convert to BTCY Nuggets"
+          kind="ghost"
+          icon="swap-horizontal"
+          onPress={onConvert}
+          style={styles.assetAction}
+        />
       ) : null}
     </Card>
   );
@@ -953,6 +984,10 @@ const styles = StyleSheet.create({
     borderColor: colors.brand,
     borderWidth: 1.5,
     backgroundColor: colors.brandSoft,
+  },
+  assetAction: {
+    marginTop: spacing.xs,
+    alignSelf: 'flex-start',
   },
   assetFootnote: {
     marginTop: spacing.xs,

@@ -6,10 +6,11 @@
  * the Developer (preview controls) screen used to demo global app states.
  */
 import React, {useEffect, useMemo, useState} from 'react';
-import {Pressable, ScrollView, Share, StyleSheet, View} from 'react-native';
+import {Linking, Pressable, ScrollView, Share, StyleSheet, View} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {colors, radius, spacing} from '../../design/tokens';
+import {ScreenErrorBoundary} from '../../design/ErrorBoundary';
 import {
   AsyncView,
   Avatar,
@@ -62,7 +63,11 @@ import type {
 import type {ProfileStackParamList} from '../../types/navigation';
 import {useAsync, useAction} from '../../state/hooks';
 import {useAuth, useToast} from '../../state/AppProviders';
-import {chooseProfilePhoto} from '../../utils/profilePhoto';
+import {
+  adjustProfilePhoto,
+  chooseProfilePhoto,
+  isAdjustableProfilePhoto,
+} from '../../utils/profilePhoto';
 
 type ProfileProps<R extends keyof ProfileStackParamList> = NativeStackScreenProps<
   ProfileStackParamList,
@@ -381,6 +386,26 @@ export const EditProfileScreen = ({navigation}: ProfileProps<'EditProfile'>) => 
     }
   };
 
+  /**
+   * Reopens the framing editor. A picture that has already been uploaded is a
+   * remote URL the native cropper cannot read, so re-framing it means picking
+   * the photo again rather than showing a broken editor.
+   */
+  const adjustPhoto = async () => {
+    if (!isAdjustableProfilePhoto(profilePic)) {
+      await choosePhoto();
+      return;
+    }
+    try {
+      const uri = await adjustProfilePhoto(profilePic as string);
+      if (uri) {
+        setProfilePic(uri);
+      }
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : 'Could not edit that picture.', 'error');
+    }
+  };
+
   const save = async () => {
     const nextErrors: {name?: string; username?: string} = {};
     if (name.trim().length < 2) {
@@ -413,11 +438,27 @@ export const EditProfileScreen = ({navigation}: ProfileProps<'EditProfile'>) => 
   return (
     <Screen>
       <View style={{alignItems: 'center', marginBottom: spacing.lg}}>
-        <Avatar name={name || 'Yay User'} size={72} imageUri={profilePic} />
+        <Pressable
+          onPress={profilePic ? adjustPhoto : choosePhoto}
+          accessibilityRole="button"
+          accessibilityLabel={
+            profilePic ? 'Adjust profile picture' : 'Upload profile picture'
+          }
+          style={({pressed}) => (pressed ? {opacity: 0.7} : undefined)}>
+          <Avatar name={name || 'Yay User'} size={72} imageUri={profilePic} />
+        </Pressable>
         <Spacer size={spacing.xs} />
+        {isAdjustableProfilePhoto(profilePic) ? (
+          <Button
+            label="Adjust photo"
+            kind="secondary"
+            icon="crop-outline"
+            onPress={adjustPhoto}
+          />
+        ) : null}
         <Button
           label={profilePic ? 'Change profile picture' : 'Upload profile picture'}
-          kind="secondary"
+          kind={isAdjustableProfilePhoto(profilePic) ? 'ghost' : 'secondary'}
           icon="camera-outline"
           onPress={choosePhoto}
         />
@@ -849,7 +890,19 @@ export const NotificationSettingsScreen = (_props: ProfileProps<'NotificationSet
   return (
     <Screen scroll>
       {status && (status.permission !== 'granted' || !status.transportLive) ? (
-        <Banner tone="info" text={status.note} />
+        <Banner
+          tone="info"
+          text={status.note}
+          // The categories below are in-app routing rules and stay editable
+          // without OS permission; this is the only thing that needs Settings,
+          // so it is the only thing that sends the user there (BUG-005).
+          actionLabel={status.permission !== 'granted' ? 'Open iOS Settings' : undefined}
+          onAction={
+            status.permission !== 'granted'
+              ? () => Linking.openSettings().catch(() => undefined)
+              : undefined
+          }
+        />
       ) : null}
       <AsyncView
         loading={loading && !preferences}
@@ -1039,48 +1092,57 @@ export const ChatSettingsScreen = (_props: ProfileProps<'ChatSettings'>) => (
   </SettingsShell>
 );
 
-export const CommunitySettingsScreen = (_props: ProfileProps<'CommunitySettings'>) => {
-  const [invites, setInvites] = useState(true);
-  const [eventReminders, setEventReminders] = useState(true);
-  const [trendingDigests, setTrendingDigests] = useState(false);
-  return (
-    <Screen>
+/**
+ * These three were `useState` with a "Synced in a later milestone" caption
+ * underneath: the switches looked live, moved when tapped, and dropped the
+ * value on the floor (BUG-007). They go through the same settings store as
+ * every other preference now, so a choice made here survives the screen and
+ * the process.
+ */
+export const CommunitySettingsScreen = (_props: ProfileProps<'CommunitySettings'>) => (
+  <SettingsShell>
+    {(s, patch) => (
       <Card style={styles.sectionCard}>
         <SwitchRow
           label="Community invites"
           description="Allow members to invite you to their communities."
-          value={invites}
-          onValueChange={setInvites}
+          value={s.community.invites}
+          onValueChange={v => patch({...s, community: {...s.community, invites: v}})}
         />
         <Divider />
         <SwitchRow
           label="Event reminders"
           description="Remind you before community events you RSVP'd to."
-          value={eventReminders}
-          onValueChange={setEventReminders}
+          value={s.community.eventReminders}
+          onValueChange={v => patch({...s, community: {...s.community, eventReminders: v}})}
         />
         <Divider />
         <SwitchRow
           label="Trending digests"
           description="A weekly digest of trending posts across your communities."
-          value={trendingDigests}
-          onValueChange={setTrendingDigests}
+          value={s.community.trendingDigests}
+          onValueChange={v => patch({...s, community: {...s.community, trendingDigests: v}})}
         />
       </Card>
-      <Spacer size={spacing.sm} />
-      <YayText variant="caption" color={colors.textMuted} style={{textAlign: 'center'}}>
-        Synced in a later milestone
-      </YayText>
-    </Screen>
-  );
-};
+    )}
+  </SettingsShell>
+);
 
 /**
  * The canonical AI privacy surface (Module 5). Backed by the real consent
  * record rather than local settings state, so the switches here are the same
  * ones the backend enforces before any chat or community content is sent.
  */
-export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
+/** Tolerates a missing or non-numeric cost rather than throwing mid-render. */
+const formatCostUsd = (value: unknown): string => {
+  const cost = Number(value);
+  if (!Number.isFinite(cost)) {
+    return '$0.00';
+  }
+  return cost > 0 && cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
+};
+
+const AiSettingsScreenContent = (_props: ProfileProps<'AiSettings'>) => {
   const toast = useToast();
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -1165,7 +1227,7 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
                 <YayText variant="caption" color={colors.textMuted}>
                   Tokens
                 </YayText>
-                <YayText variant="bodyStrong">{u.tokensIn + u.tokensOut}</YayText>
+                <YayText variant="bodyStrong">{(u.tokensIn || 0) + (u.tokensOut || 0)}</YayText>
               </Row>
               <Divider />
               <Row style={{justifyContent: 'space-between'}}>
@@ -1173,7 +1235,7 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
                   Cost
                 </YayText>
                 <YayText variant="bodyStrong">
-                  {u.costUsd < 0.01 && u.costUsd > 0 ? '<$0.01' : `$${u.costUsd.toFixed(2)}`}
+                  {formatCostUsd(u.costUsd)}
                 </YayText>
               </Row>
             </Card>
@@ -1211,6 +1273,16 @@ export const AiSettingsScreen = (_props: ProfileProps<'AiSettings'>) => {
     </>
   );
 };
+
+/**
+ * Wrapped so a bad consent/usage payload shows a recoverable error state
+ * instead of taking the process down with it (BUG-008).
+ */
+export const AiSettingsScreen = (props: ProfileProps<'AiSettings'>) => (
+  <ScreenErrorBoundary screen="AiSettings">
+    <AiSettingsScreenContent {...props} />
+  </ScreenErrorBoundary>
+);
 
 export const RewardsSettingsScreen = (_props: ProfileProps<'RewardsSettings'>) => (
   <SettingsShell
@@ -1699,14 +1771,20 @@ export const DeleteAccountScreen = (_props: ProfileProps<'DeleteAccount'>) => {
         value={confirmText}
         onChangeText={setConfirmText}
         placeholder="DELETE"
-        autoCapitalize="characters"
+        // `autoCapitalize="characters"` re-armed the shift key after every
+        // keystroke, so turning it off did nothing and the field fought the
+        // typist (BUG-010). The comparison below is case-insensitive instead.
+        autoCapitalize="none"
         autoCorrect={false}
+        autoComplete="off"
+        spellCheck={false}
+        textContentType="none"
       />
       <Button
         label="Delete my account"
         kind="danger"
         icon="trash-outline"
-        disabled={confirmText !== 'DELETE'}
+        disabled={confirmText.trim().toUpperCase() !== 'DELETE'}
         loading={busy}
         onPress={remove}
       />

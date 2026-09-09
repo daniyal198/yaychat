@@ -1,6 +1,6 @@
 /** YaysApp navigation tree. See docs/yaychat-navigation-map.md. */
-import React from 'react';
-import {Image} from 'react-native';
+import React, {useEffect} from 'react';
+import {Image, Linking} from 'react-native';
 import {DefaultTheme, NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
@@ -22,6 +22,7 @@ import {
   linkingConfig,
 } from '../types/navigation';
 import {flushPendingDeepLink, navigationRef} from './navigationRef';
+import {capturePendingInviteCode, takePendingInviteCode} from '../services/inviteLinks';
 import {analytics} from '../services';
 import {ExploreHomeScreen, ProductDetailScreen, SocialConnectScreen} from '../screens/explore/ExploreScreens';
 import {Wordmark} from '../design/components';
@@ -85,6 +86,7 @@ import {
   WalletOverviewScreen,
   WalletTransactionsScreen,
 } from '../screens/wallet/WalletScreens';
+import {ConvertPointsScreen} from '../screens/wallet/ConvertScreen';
 import {EcosystemScreen, ProductPreviewScreen} from '../screens/ecosystem/EcosystemScreens';
 import {
   ActiveCallScreen,
@@ -198,6 +200,7 @@ const ChatsNavigator = () => (
     <ChatsStack.Screen name="SharedMedia" component={SharedMediaScreen} options={{title: 'Shared media'}} />
     <ChatsStack.Screen name="ForwardMessage" component={ForwardMessageScreen} options={{title: 'Forward to', presentation: 'modal'}} />
     <ChatsStack.Screen name="ContactProfile" component={ContactProfileScreen} options={{title: 'Profile'}} />
+    <ChatsStack.Screen name="InviteContacts" component={InviteContactsScreen} options={{title: 'Contacts'}} />
     {sharedUtilityScreens(ChatsStack)}
   </ChatsStack.Navigator>
 );
@@ -287,6 +290,7 @@ const sharedUtilityScreens = (Stack: any) => (
     <Stack.Screen name="WalletOverview" component={WalletOverviewScreen} options={{title: 'Wallet preview'}} />
     <Stack.Screen name="WalletTransactions" component={WalletTransactionsScreen} options={{title: 'Activity'}} />
     <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} options={{title: 'Transaction'}} />
+    <Stack.Screen name="ConvertPoints" component={ConvertPointsScreen} options={{title: 'Convert to Nuggets'}} />
     <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} options={{title: 'Payment methods'}} />
     <Stack.Screen name="PaymentMethodConnect" component={PaymentMethodConnectScreen} options={{title: ''}} />
     <Stack.Screen name="SendPreview" component={SendPreviewScreen} options={{title: 'Send (preview)', presentation: 'modal'}} />
@@ -402,6 +406,52 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 
 export const YayChatNavigation = () => {
   const {booting, session} = useAuth();
+  const signedIn = Boolean(session?.onboarded);
+
+  // Invite links have to be read before routing gets a say: `linkingConfig`
+  // only maps screens under `Main`, and the recipient of an invite has no
+  // session yet, so React Navigation matches nothing and the code is lost.
+  useEffect(() => {
+    let cancelled = false;
+    Linking.getInitialURL()
+      .then(url => {
+        if (!cancelled) {
+          return capturePendingInviteCode(url);
+        }
+      })
+      .catch(() => undefined);
+    const sub = Linking.addEventListener('url', ({url}) => {
+      capturePendingInviteCode(url).catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, []);
+
+  // Held until there is an account to attach it to, then handed to the
+  // referral screen pre-filled — the member confirms rather than it being
+  // applied silently to whoever happens to be signed in.
+  useEffect(() => {
+    if (!signedIn) {
+      return;
+    }
+    let cancelled = false;
+    takePendingInviteCode()
+      .then(code => {
+        if (!code || cancelled || !navigationRef.isReady()) {
+          return;
+        }
+        navigationRef.navigate('Main' as never, {
+          screen: 'EarnTab',
+          params: {screen: 'Referral', params: {code}, initial: false},
+        } as never);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
 
   if (booting) {
     return <SplashView />;

@@ -368,6 +368,13 @@ export const EarnHomeScreen = ({
               />
               <Divider />
               <ListRow
+                title="Convert to BTCY Nuggets"
+                subtitle="Turn IndexxPoints into Bitcoin Yay Nuggets"
+                icon="swap-horizontal"
+                onPress={() => navigateRoot(navigation, 'ConvertPoints')}
+              />
+              <Divider />
+              <ListRow
                 title="Wallet preview"
                 subtitle="See simulated balances"
                 icon="wallet"
@@ -600,9 +607,7 @@ export const ReferralScreen = ({
 
   const handleShare = async (code: string) => {
     try {
-      await Share.share({
-        message: `Join me on YaysApp! Use my invite code ${code} when you sign up. https://yay.chat/invite/${code}`,
-      });
+      await Share.share({message: inviteMessage(code)});
     } catch {
       toast.show('Could not open share sheet', 'error');
     }
@@ -811,8 +816,25 @@ export const ReferralScreen = ({
 // neither route carries params this needs.
 // ---------------------------------------------------------------------------
 
+/**
+ * The one place an invite message is built.
+ *
+ * The code goes in the text as well as the URL: if the link cannot open the
+ * app — no universal-link association yet, or the recipient has not installed
+ * it — the recipient can still type the code in and the referral is credited.
+ */
+const inviteMessage = (code: string, lead = ''): string => {
+  const link = code ? `https://yay.chat/invite/${code}` : 'https://yay.chat';
+  const withCode = code ? ` Use my invite code ${code} when you sign up.` : '';
+  return `Join me on YaysApp! ${lead}${withCode.trim()} ${link}`.replace(/\s+/g, ' ').trim();
+};
+
 export const InviteContactsScreen = () => {
   const toast = useToast();
+  // Contact invites used to share a bare https://yay.chat with no code on it,
+  // so every one of them lost referral attribution before it was sent.
+  const referral = useAsync<ReferralSummary>(() => referralService.summary());
+  const inviteCode = referral.data?.code ?? '';
   const [permission, setPermission] = useState<ContactsPermissionStatus | 'checking'>('checking');
   const [contactsState, setContactsState] = useState<{
     loading: boolean;
@@ -858,9 +880,7 @@ export const InviteContactsScreen = () => {
   const handleInvite = async (contact: InvitableContact) => {
     const target = contact.email || contact.phone || '';
     try {
-      await Share.share({
-        message: `Join me on YaysApp! ${target ? `Hey ${contact.name}, ` : ''}Download the app: https://yay.chat`,
-      });
+      await Share.share({message: inviteMessage(inviteCode, target ? `Hey ${contact.name}, ` : '')});
     } catch {
       toast.show('Could not open share sheet', 'error');
     }
@@ -894,9 +914,7 @@ export const InviteContactsScreen = () => {
   const handleInviteEmail = async () => {
     const email = emailQuery.trim();
     try {
-      await Share.share({
-        message: `Join me on YaysApp! Download the app and sign up with ${email}: https://yay.chat`,
-      });
+      await Share.share({message: inviteMessage(inviteCode, `Sign up with ${email}. `)});
     } catch {
       toast.show('Could not open share sheet', 'error');
     }

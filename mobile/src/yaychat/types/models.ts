@@ -364,11 +364,62 @@ export interface EarnSummary {
 }
 
 export interface WalletAsset {
+  /**
+   * Stable row identity. Not the symbol: BTCY is held on two networks at once
+   * (Stellar for withdrawals, Ying Yang Chain for tokens), so a list keyed on
+   * the symbol collapses two real balances into one row.
+   */
+  id: string;
   symbol: string;
   name: string;
+  /** Chain the balance sits on, when it sits on one. */
+  network?: string;
   balance: number;
   fiatValue: number;
   preview: boolean;
+}
+
+/**
+ * IndexxPoints → BTCY Nuggets.
+ *
+ * The one place value crosses out of YaysApp's own balance and into Bitcoin
+ * Yay's. The rate and the floor come from the backend rather than being
+ * hard-coded here, so a campaign that changes either does not need an app
+ * release — but they are quoted back to the user before every conversion.
+ */
+export interface ConversionRules {
+  /** Nuggets received per IndexxPoint. */
+  nuggetsPerPoint: number;
+  /** The pair as it is stated to members: `referencePoints` → `referenceNuggets`. */
+  referencePoints: number;
+  referenceNuggets: number;
+  minimumPoints: number;
+}
+
+/** A priced conversion, before it is committed. */
+export interface ConversionQuote extends ConversionRules {
+  points: number;
+  nuggets: number;
+  /** Balances the quote was checked against. */
+  pointsBalance: number;
+  nuggetBalance: number;
+  eligible: boolean;
+  /** Why the amount cannot be converted, when `eligible` is false. */
+  reason: string | null;
+}
+
+/** A committed conversion, with both balances as they stand afterwards. */
+export interface ConversionResult {
+  id: ID;
+  status: 'completed' | 'failed';
+  pointsSpent: number;
+  nuggetsCredited: number;
+  rate: number;
+  pointsBalance: number;
+  nuggetBalance: number;
+  createdAt: string;
+  /** True when this attempt had already been converted — a retry, not a second spend. */
+  duplicate: boolean;
 }
 
 export interface WalletTransaction {
@@ -426,16 +477,15 @@ export interface SocialAccount {
  * user to do completely different things.
  */
 export interface BtcyDashboard {
-  mining: {active: boolean; speed: string; endsIn: string};
-  portfolio: {nuggets: number | null; tokens: number | null};
-  alchemy: {current: number | null; target: number | null};
-  referrals: {active: number; target: number};
-  station: {unlocked: boolean; benefits: string[]};
+  hasAccount: boolean;
+  mining?: {active?: boolean; speed?: string; endsIn?: string; plan?: string; streakDays?: number};
+  portfolio?: {nuggets?: number; withdraw?: number; tokens?: number};
+  alchemy?: {current?: number; target?: number; unit?: 'BTCY' | 'USD'};
+  referrals?: {active?: number; target?: number};
+  station?: {unlocked?: boolean};
   /** BTCY x YaysApp Ambassador ladder — `null` tier means not yet a Community Ambassador. */
-  ambassador: {tier: 'community' | 'growth' | 'elite' | null; nextTierAt: number | null};
-  watchEarn: {watched: number | null; total: number | null; nuggetsToday: number | null};
-  news: {id: ID; tag: string; title: string; detail: string; hot?: boolean}[];
-  promo: {headline: string; subtitle: string; endsIn: string};
+  ambassador?: {tier?: 'community' | 'growth' | 'elite'; nextTierAt?: number};
+  watchEarn?: {watched?: number; total?: number; rewardAmount?: number};
 }
 
 /**
@@ -595,6 +645,7 @@ export interface SettingsState {
   language: string;
   ai: {saveHistory: boolean; personalization: boolean};
   rewards: {activityTracking: boolean};
+  community: {invites: boolean; eventReminders: boolean; trendingDigests: boolean};
 }
 
 /** Paged result shape shared by list endpoints. */
